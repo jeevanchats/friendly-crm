@@ -1,0 +1,217 @@
+{
+  "printing": {
+    "key": "printing",
+    "name": { "en": "Printing & Packaging", "ta": "அச்சகம் மற்றும் பேக்கேஜிங்" },
+    "orderStages": [
+      { "id": "ARTWORK_PENDING", "label": { "en": "Artwork Approval", "ta": "டிசைன் ஒப்புதல்" }, "color": "#F4B860" },
+      { "id": "PLATE_CTP", "label": { "en": "Plate / CTP Ready", "ta": "பிளேட் தயார்" }, "color": "#3B82F6" },
+      { "id": "PRINTING_CMYK", "label": { "en": "Printing in Progress", "ta": "அச்சிடும் பணி" }, "color": "#8B5CF6" },
+      { "id": "FINISHING_BINDING", "label": { "en": "Lamination / Die-Cut / Binding", "ta": "பைண்டிங் / ஃபினிஷிங்" }, "color": "#EC4899" },
+      { "id": "READY_DISPATCH", "label": { "en": "Ready for Dispatch", "ta": "டெலிவரிக்கு தயார்" }, "color": "#167D79" },
+      { "id": "DELIVERED", "label": { "en": "Delivered", "ta": "வழங்கப்பட்டது" }, "color": "#10B981" }
+    ],
+    "customFields": [
+      {
+        "key": "job_type",
+        "entity": ["LEAD", "QUOTATION", "ORDER"],
+        "type": "SELECT",
+        "required": true,
+        "label": { "en": "Job Category", "ta": "வேலை வகை" },
+        "options": [
+          { "value": "CALENDAR", "label": { "en": "Calendars", "ta": "காலண்டர்கள்" } },
+          { "value": "PACKAGING_BOX", "label": { "en": "Packaging Box", "ta": "பேக்கேஜிங் பாக்ஸ்" } },
+          { "value": "CATALOG_BROCHURE", "label": { "en": "Catalog / Brochure", "ta": "கேட்டலாக் / பிரோஷர்" } },
+          { "value": "LABEL_STICKER", "label": { "en": "Labels & Stickers", "ta": "லேபிள் & ஸ்டிக்கர்" } }
+        ]
+      },
+      {
+        "key": "paper_board_gsm",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "TEXT",
+        "required": true,
+        "placeholder": "e.g., 300 GSM Art Board / ITC Duplex",
+        "label": { "en": "Paper / Board GSM", "ta": "பேப்பர் / போர்டு GSM" }
+      },
+      {
+        "key": "dimensions_lwh",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "TEXT",
+        "required": false,
+        "placeholder": "e.g., 12x9x4 inches / 20x30 inch Sheet",
+        "label": { "en": "Dimensions (L x W x H)", "ta": "அளவு (நீளம் x அகலம் x உயரம்)" }
+      },
+      {
+        "key": "plate_size",
+        "entity": ["ORDER"],
+        "type": "TEXT",
+        "required": false,
+        "placeholder": "e.g., 28x40 inch CTP / 19x25 inch",
+        "label": { "en": "Plate / CTP Size", "ta": "பிளேட் / CTP அளவு" }
+      },
+      {
+        "key": "print_colors",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "SELECT",
+        "required": true,
+        "label": { "en": "Color Mode", "ta": "வண்ண முறை" },
+        "options": [
+          { "value": "CMYK_4C", "label": { "en": "4 Color (CMYK)", "ta": "4 கலர் (CMYK)" } },
+          { "value": "SINGLE_COLOR", "label": { "en": "Single Color", "ta": "சிங்கிள் கலர்" } },
+          { "value": "CMYK_PLUS_PANTONE", "label": { "en": "CMYK + Pantone Spot", "ta": "CMYK + ஸ்பாட் கலர்" } }
+        ]
+      },
+      {
+        "key": "finishing_ops",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "MULTI_SELECT",
+        "required": false,
+        "label": { "en": "Finishing & Binding", "ta": "ஃபினிஷிங் வேலைகள்" },
+        "options": [
+          { "value": "MATT_LAM", "label": { "en": "Matt Lamination", "ta": "மேட் லேமினேஷன்" } },
+          { "value": "GLOSS_LAM", "label": { "en": "Gloss Lamination", "ta": "கிளாஸ் லேமினேஷன்" } },
+          { "value": "SPOT_UV", "label": { "en": "Spot UV", "ta": "ஸ்பாட் UV" } },
+          { "value": "DIE_PUNCH", "label": { "en": "Die Punching & Pasting", "ta": "டை கட்டிங் & பேஸ்டிங்" } },
+          { "value": "TIN_MOUNTING", "label": { "en": "Tin Mounting", "ta": "டின் மவுண்டிங்" } }
+        ]
+      },
+      {
+        "key": "artwork_approved",
+        "entity": ["ORDER"],
+        "type": "BOOLEAN",
+        "required": false,
+        "label": { "en": "Customer Proof Approved?", "ta": "கஸ்டமர் ப்ரூஃப் ஓகேவா?" }
+      }
+    ]
+  },
+  "furniture": {
+    "key": "furniture",
+    "name": { "en": "Furniture & Interiors", "ta": "பர்னிச்சர் மற்றும் இன்டீரியர்ஸ்" },
+    "orderStages": [
+      { "id": "MEASUREMENT_CONFIRMED", "label": { "en": "Measurement & Material Confirmed", "ta": "அளவு & மரம் உறுதி" }, "color": "#F4B860" },
+      { "id": "CARPENTRY_WORK", "label": { "en": "Carpentry / Fabrication", "ta": "தச்சு வேலை" }, "color": "#3B82F6" },
+      { "id": "POLISHING_UPHOLSTERY", "label": { "en": "Polishing & Cushioning", "ta": "பாலிஷ் & குஷன்" }, "color": "#8B5CF6" },
+      { "id": "DISPATCHED", "label": { "en": "Out for Delivery", "ta": "டெலிவரிக்கு அனுப்பப்பட்டது" }, "color": "#167D79" },
+      { "id": "INSTALLED", "label": { "en": "Installed at Site", "ta": "பொருத்தப்பட்டது" }, "color": "#10B981" }
+    ],
+    "customFields": [
+      {
+        "key": "material_type",
+        "entity": ["LEAD", "QUOTATION", "ORDER"],
+        "type": "SELECT",
+        "required": true,
+        "label": { "en": "Primary Material", "ta": "மரம் / மெட்டீரியல் வகை" },
+        "options": [
+          { "value": "TEAK_WOOD", "label": { "en": "Burma / Country Teak", "ta": "தேக்கு மரம்" } },
+          { "value": "ENGINEERED_PLY", "label": { "en": "BWR Plywood + Laminate", "ta": "பிளைவுட் + மைக்கா" } },
+          { "value": "STEEL_METAL", "label": { "en": "Steel / Metal", "ta": "ஸ்டீல் / மெட்டல்" } }
+        ]
+      },
+      {
+        "key": "dimensions_lwh",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "TEXT",
+        "required": true,
+        "placeholder": "e.g., King Cot 78x72 inches / 3-Door Wardrobe 6.5x4.5 ft",
+        "label": { "en": "Dimensions (L x W x H)", "ta": "அளவு (நீளம் x அகலம் x உயரம்)" }
+      },
+      {
+        "key": "warranty_years",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "NUMBER",
+        "required": false,
+        "label": { "en": "Warranty (Years)", "ta": "வாரண்டி (ஆண்டுகள்)" }
+      },
+      {
+        "key": "installation_required",
+        "entity": ["ORDER"],
+        "type": "BOOLEAN",
+        "required": true,
+        "label": { "en": "On-Site Installation Required?", "ta": "நேரில் பொருத்த வேண்டுமா?" }
+      },
+      {
+        "key": "artwork_approved",
+        "entity": ["ORDER"],
+        "type": "BOOLEAN",
+        "required": false,
+        "label": { "en": "3D Design / Drawing Approved?", "ta": "டிசைன் / 3D வரைபடம் ஒப்புதல்?" }
+      }
+    ]
+  },
+  "textiles": {
+    "key": "textiles",
+    "name": { "en": "Textiles & Garments", "ta": "ஜவுளி மற்றும் ஆடைகள்" },
+    "orderStages": [
+      { "id": "SAMPLE_APPROVED", "label": { "en": "Sample Approved", "ta": "சாம்பிள் ஒப்புதல்" }, "color": "#F4B860" },
+      { "id": "LOT_ALLOCATED", "label": { "en": "Stock / Loom Allocated", "ta": "ஸ்டாக் ஒதுக்கீடு" }, "color": "#3B82F6" },
+      { "id": "PACKING_BALE", "label": { "en": "Quality Check & Bale Packing", "ta": "தர பரிசோதனை & பேக்கிங்" }, "color": "#8B5CF6" },
+      { "id": "LR_DISPATCHED", "label": { "en": "Parcel / LR Dispatched", "ta": "பார்சல் அனுப்பப்பட்டது" }, "color": "#10B981" }
+    ],
+    "customFields": [
+      {
+        "key": "fabric_specification",
+        "entity": ["LEAD", "QUOTATION", "ORDER"],
+        "type": "TEXT",
+        "required": true,
+        "placeholder": "e.g., 40s Combed Cotton / Silk Saree Lot",
+        "label": { "en": "Fabric / Count Details", "ta": "துணி வகை / நூல் விவரம்" }
+      },
+      {
+        "key": "sample_status",
+        "entity": ["LEAD", "QUOTATION"],
+        "type": "SELECT",
+        "required": false,
+        "label": { "en": "Sample Status", "ta": "சாம்பிள் நிலை" },
+        "options": [
+          { "value": "NOT_NEEDED", "label": { "en": "Direct Order", "ta": "நேரடி ஆர்டர்" } },
+          { "value": "SWATCH_SENT", "label": { "en": "Swatch / Sample Sent", "ta": "சாம்பிள் அனுப்பப்பட்டுள்ளது" } },
+          { "value": "APPROVED", "label": { "en": "Sample Approved", "ta": "சாம்பிள் ஓகே" } }
+        ]
+      },
+      {
+        "key": "credit_period_days",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "NUMBER",
+        "required": true,
+        "label": { "en": "Credit Days Allowed", "ta": "கடன் தவணை நாட்கள்" }
+      },
+      {
+        "key": "transport_lr_no",
+        "entity": ["ORDER"],
+        "type": "TEXT",
+        "required": false,
+        "label": { "en": "Transport Name & LR Number", "ta": "டிரான்ஸ்போர்ட் & LR எண்" }
+      }
+    ]
+  },
+  "trading": {
+    "key": "trading",
+    "name": { "en": "Retail, Industrial & Trading", "ta": "வர்த்தகம் மற்றும் விநியோகம்" },
+    "orderStages": [
+      { "id": "ORDER_CONFIRMED", "label": { "en": "Order Confirmed", "ta": "ஆர்டர் உறுதி" }, "color": "#F4B860" },
+      { "id": "MATERIAL_PICKING", "label": { "en": "Godown Picking & Weighing", "ta": "குடோன் எடை & தயார்" }, "color": "#3B82F6" },
+      { "id": "BILLED_DISPATCHED", "label": { "en": "Invoiced & Dispatched", "ta": "பில் & டெலிவரி" }, "color": "#167D79" },
+      { "id": "DELIVERED", "label": { "en": "Delivered", "ta": "வழங்கப்பட்டது" }, "color": "#10B981" }
+    ],
+    "customFields": [
+      {
+        "key": "delivery_mode",
+        "entity": ["QUOTATION", "ORDER"],
+        "type": "SELECT",
+        "required": true,
+        "label": { "en": "Delivery Mode", "ta": "டெலிவரி முறை" },
+        "options": [
+          { "value": "SELF_PICKUP", "label": { "en": "Customer Counter Pickup", "ta": "நேரடி பிக்கப்" } },
+          { "value": "LOCAL_AUTO_TEMPO", "label": { "en": "Local Tempo / Lorry", "ta": "லோடு ஆட்டோ / லாரி" } },
+          { "value": "PARCEL_SERVICE", "label": { "en": "Outstation Parcel", "ta": "பார்சல் சர்வீஸ்" } }
+        ]
+      },
+      {
+        "key": "vehicle_or_po_ref",
+        "entity": ["ORDER"],
+        "type": "TEXT",
+        "required": false,
+        "label": { "en": "Buyer PO / Vehicle No.", "ta": "PO எண் / வாகன எண்" }
+      }
+    ]
+  }
+}

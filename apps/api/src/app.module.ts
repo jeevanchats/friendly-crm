@@ -1,0 +1,19 @@
+import { Module } from '@nestjs/common';
+import { AuthModule } from './modules/auth/auth.module';
+import { TenantModule } from './modules/tenant/tenant.module';
+import { CrmModule } from './modules/crm/crm.module';
+import { SalesModule } from './modules/sales/sales.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { WorkflowModule } from './modules/workflow/workflow.module';
+
+@Module({
+  imports: [
+    AuthModule,
+    TenantModule,
+    CrmModule,
+    SalesModule,
+    OrdersModule,
+    WorkflowModule,
+  ],
+})
+export class AppModule {}

@@ -1,0 +1,38 @@
+{
+  "name": "@friendly-crm/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "check-types": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "jest",
+    "test:e2e": "jest --config ./jest.config.js"
+  },
+  "dependencies": {
+    "@friendly-crm/db": "*",
+    "@friendly-crm/shared": "*",
+    "@nestjs/common": "^10.3.8",
+    "@nestjs/core": "^10.3.8",
+    "@nestjs/platform-express": "^10.3.8",
+    "drizzle-orm": "^0.30.10",
+    "pdfkit": "^0.15.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.3.2",
+    "@nestjs/schematics": "^10.1.1",
+    "@nestjs/testing": "^10.4.22",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.12.7",
+    "@types/pdfkit": "^0.13.4",
+    "jest": "^30.5.2",
+    "ts-jest": "^29.4.15",
+    "typescript": "^5.4.5"
+  }
+}

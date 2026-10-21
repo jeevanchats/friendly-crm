@@ -1,0 +1,29 @@
+{
+  "name": "friendly-crm",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Friendly CRM - Multi-Tenant Mobile-First Modular Monolith CRM & Sales Suite",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check-types": "turbo run check-types",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:generate": "turbo run db:generate --filter=@friendly-crm/db",
+    "db:migrate": "turbo run db:migrate --filter=@friendly-crm/db"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.4.5"
+  },
+  "packageManager": "npm@11.16.0",
+  "dependencies": {
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.4"
+  }
+}

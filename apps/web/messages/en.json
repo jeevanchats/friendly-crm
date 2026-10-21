@@ -1,0 +1,88 @@
+{
+  "brand": {
+    "name": "Friendly CRM",
+    "tagline": "Mobile-first CRM for Indian SMBs"
+  },
+  "nav": {
+    "home": "Home",
+    "leads": "Leads",
+    "quotes": "Quotes",
+    "orders": "Orders",
+    "tasks": "Follow-ups",
+    "quickAdd": "Quick Add"
+  },
+  "crm": {
+    "quickAddLead": "Quick Add Lead",
+    "subtitle": "Intake new enquiry with auto-matched customer profile",
+    "contactName": "Customer / Contact Name",
+    "contactNamePlaceholder": "e.g., Anand Kumar",
+    "companyName": "Company / Store Name",
+    "companyNamePlaceholder": "e.g., Sri Murugan Textiles",
+    "phone": "Mobile Number (WhatsApp)",
+    "phonePlaceholder": "e.g., 9840123456",
+    "source": "Lead Source",
+    "estimatedValue": "Estimated Value (₹)",
+    "notes": "Follow-up Note",
+    "notesPlaceholder": "e.g., Inquired about bulk orders, wants sample proof...",
+    "industrySpecificFields": "Industry Parameters",
+    "cancel": "Cancel",
+    "saveLead": "Create Lead",
+    "saving": "Saving...",
+    "activeLeads": "Active Pipeline",
+    "leadsCount": "{count} Leads",
+    "followUps": "Today's Follow-ups",
+    "call": "Call",
+    "whatsapp": "WhatsApp",
+    "markDone": "Done",
+    "stage": "Stage",
+    "priority": "Priority",
+    "emptyLeads": "No leads found in this stage.",
+    "leadAddedSuccess": "Lead created successfully!",
+    "stageUpdatedSuccess": "Lead stage updated!"
+  },
+  "industries": {
+    "printing": "Printing & Packaging",
+    "textiles": "Textiles & Garments",
+    "furniture": "Furniture & Interiors",
+    "trading": "Industrial & Trading",
+    "selectActive": "Active Industry"
+  },
+  "stages": {
+    "NEW": "New Lead",
+    "QUALIFIED": "Qualified",
+    "QUOTED": "Quotation Sent",
+    "NEGOTIATION": "Negotiation",
+    "WON": "Deal Won",
+    "LOST": "Lost"
+  },
+  "sales": {
+    "quotations": "Quotations & Estimates",
+    "createQuote": "Create Quotation",
+    "recentQuotes": "Recent Quotations",
+    "viewPdf": "View A4 PDF",
+    "shareWhatsApp": "Share WhatsApp",
+    "convertOrder": "Convert to Order",
+    "forCustomer": "For Customer",
+    "switchCustomer": "Change Customer",
+    "status": {
+      "DRAFT": "Draft",
+      "SENT": "Sent",
+      "ACCEPTED": "Accepted",
+      "REVISED": "Revised",
+      "CONVERTED": "Converted to Order"
+    }
+  },
+  "orders": {
+    "title": "Production Orders",
+    "allStages": "All Stages",
+    "filterByStage": "Filter by Stage",
+    "empty": "No active orders found in this stage.",
+    "roleSelector": "Active Role",
+    "operatorView": "Floor Operator (Production)",
+    "ownerView": "Owner / Manager",
+    "accountsView": "Accounts Officer",
+    "activeOrders": "Total Orders",
+    "inProduction": "In Production",
+    "totalReceivable": "Outstanding Balance"
+  }
+}
