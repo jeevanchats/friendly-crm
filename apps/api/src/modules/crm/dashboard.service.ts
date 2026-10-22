@@ -6,12 +6,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { sql, eq, and, lte, asc, desc } from 'drizzle-orm';
-import { db, tasks, quotations, orders, customers, activities } from '@friendly-crm/db';
+import { db, tasks, quotations, orders, customers, activities, auditLogs } from '@friendly-crm/db';
 import { TenantRole, hasPermission } from '@friendly-crm/shared';
 import { randomUUID } from 'crypto';
 import {
   globalMemoryTasks,
   globalMemoryActivities,
+  globalMemoryAuditLogs,
   globalMemoryQuotations,
   globalMemoryOrders,
   globalMemoryCustomers,
@@ -297,6 +298,37 @@ export class DashboardService {
     }
 
     return globalMemoryActivities.filter((a) => a.tenantId === tenantId);
+  }
+
+  /**
+   * Fetches durable append-only audit trail for tenant
+   */
+  async getAuditLogs(tenantId: string, entityType?: string) {
+    try {
+      if (typeof db?.transaction === 'function') {
+        return await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          return await tx
+            .select()
+            .from(auditLogs)
+            .where(
+              entityType
+                ? and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.entityType, entityType))
+                : eq(auditLogs.tenantId, tenantId)
+            )
+            .orderBy(desc(auditLogs.createdAt))
+            .limit(100);
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Postgres offline; utilizing memory fallback for getAuditLogs: ${err.message}`);
+    }
+
+    let logs = globalMemoryAuditLogs.filter((l) => l.tenantId === tenantId);
+    if (entityType) {
+      logs = logs.filter((l) => l.entityType === entityType);
+    }
+    return logs;
   }
 }
 

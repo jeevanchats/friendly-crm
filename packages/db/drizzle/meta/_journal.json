@@ -15,6 +15,13 @@
       "when": 1792555012104,
       "tag": "0001_mean_romulus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792600000000,
+      "tag": "0002_enable_rls_and_audit",
+      "breakpoints": true
     }
   ]
 }

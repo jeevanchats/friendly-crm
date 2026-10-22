@@ -181,6 +181,30 @@ export const activities = pgTable(
   })
 );
 
+export const auditLogs = pgTable(
+  'audit_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    actorId: uuid('actor_id').references(() => users.id),
+    action: varchar('action', { length: 80 }).notNull(), // 'CREATE' | 'UPDATE' | 'DELETE' | 'STAGE_CHANGE'
+    entityType: varchar('entity_type', { length: 50 }).notNull(), // 'CUSTOMER' | 'LEAD' | 'ORDER' | 'QUOTATION' | 'PAYMENT' | 'MEMBERSHIP' | 'TASK'
+    entityId: varchar('entity_id', { length: 64 }),
+    changes: jsonb('changes').$type<{
+      before?: Record<string, any>;
+      after?: Record<string, any>;
+      metadata?: Record<string, any>;
+    }>().default({}).notNull(),
+    ipAddress: varchar('ip_address', { length: 50 }),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tenantAuditIdx: index('audit_logs_tenant_idx').on(table.tenantId, table.createdAt),
+    entityAuditIdx: index('audit_logs_entity_idx').on(table.tenantId, table.entityType, table.entityId),
+  })
+);
+
 // ==========================================
 // 3. SALES DOMAIN (Quotations & Orders)
 // ==========================================

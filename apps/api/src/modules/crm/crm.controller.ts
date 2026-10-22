@@ -203,6 +203,19 @@ export class CrmController {
   }
 
   /**
+   * 7b. GET /api/crm/audit-logs
+   * Query durable append-only audit records with redacted changes
+   */
+  @Get('audit-logs')
+  @RequirePermission('audit:read')
+  async getAuditLogs(
+    @CurrentTenant() tenant: { id: string },
+    @Query('entityType') entityType?: string
+  ) {
+    return this.dashboardService.getAuditLogs(tenant.id, entityType);
+  }
+
+  /**
    * 8. GET /api/crm/customers
    * List all customers with computed active orders and outstanding ledger receivables
    */

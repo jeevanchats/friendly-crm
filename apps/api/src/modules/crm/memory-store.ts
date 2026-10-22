@@ -308,6 +308,7 @@ export const globalMemoryOrderItems: Array<any> = [
 
 export const globalMemoryTasks: Array<any> = [];
 export const globalMemoryActivities: Array<any> = [];
+export const globalMemoryAuditLogs: Array<any> = [];
 export const globalMemoryPayments: Array<any> = [
   {
     id: 'pay-demo-1',
