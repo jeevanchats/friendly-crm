@@ -4,8 +4,10 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { sql, eq, and, desc } from 'drizzle-orm';
+import { NotificationOutboxService } from '../notifications/notification-outbox.service';
 import {
   db,
   quotations,
@@ -62,6 +64,10 @@ export interface CreateQuotationDto {
 @Injectable()
 export class SalesService {
   private readonly logger = new Logger(SalesService.name);
+
+  constructor(
+    @Optional() private readonly notificationOutboxService?: NotificationOutboxService
+  ) {}
 
   /**
    * Helper to retrieve active database transaction from TenantRlsInterceptor or default db client
@@ -249,6 +255,22 @@ export class SalesService {
           if (key) {
             setIdempotentResult(tenantId, 'create-quotation', key, result);
           }
+
+          if (this.notificationOutboxService && customer?.phone) {
+            this.notificationOutboxService.enqueueNotification({
+              tenantId,
+              recipient: customer.phone,
+              templateKey: 'QUOTATION_CREATED',
+              params: {
+                customerName: customer.name,
+                quoteNumber: quote.quoteNumber,
+                version: quote.version,
+                grandTotal: quote.grandTotal,
+                pdfUrl: `/q/${quote.id}/pdf`,
+              },
+            }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue quotation notification: ${notifErr.message}`));
+          }
+
           return result;
         });
       }
@@ -320,6 +342,22 @@ export class SalesService {
     if (key) {
       setIdempotentResult(tenantId, 'create-quotation', key, result);
     }
+
+    if (this.notificationOutboxService && customer?.phone) {
+      this.notificationOutboxService.enqueueNotification({
+        tenantId,
+        recipient: customer.phone,
+        templateKey: 'QUOTATION_CREATED',
+        params: {
+          customerName: customer.name,
+          quoteNumber: quote.quoteNumber,
+          version: quote.version,
+          grandTotal: quote.grandTotal,
+          pdfUrl: `/q/${quote.id}/pdf`,
+        },
+      }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue quotation notification: ${notifErr.message}`));
+    }
+
     return result;
   }
 
@@ -636,6 +674,20 @@ export class SalesService {
             setIdempotentResult(tenantId, 'convert-quote', key, result);
           }
 
+          if (this.notificationOutboxService && customer?.phone) {
+            this.notificationOutboxService.enqueueNotification({
+              tenantId,
+              recipient: customer.phone,
+              templateKey: 'ORDER_CONFIRMED',
+              params: {
+                customerName: customer.name,
+                orderNumber: order.orderNumber,
+                stageName: firstStage,
+                expectedDelivery: expectedDeliveryAt || 'Scheduled soon',
+              },
+            }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue order confirmation: ${notifErr.message}`));
+          }
+
           return result;
         });
       }
@@ -771,6 +823,20 @@ export class SalesService {
       ...order,
       quotation: quote,
     };
+
+    if (this.notificationOutboxService && customer?.phone) {
+      this.notificationOutboxService.enqueueNotification({
+        tenantId,
+        recipient: customer.phone,
+        templateKey: 'ORDER_CONFIRMED',
+        params: {
+          customerName: customer.name,
+          orderNumber: order.orderNumber,
+          stageName: firstStage,
+          expectedDelivery: expectedDeliveryAt || 'Scheduled soon',
+        },
+      }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue order confirmation: ${notifErr.message}`));
+    }
 
     if (key) {
       setIdempotentResult(tenantId, 'convert-quote', key, result);

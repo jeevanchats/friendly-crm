@@ -356,3 +356,32 @@ export const industryTemplates = pgTable('industry_templates', {
   configSchema: jsonb('config_schema').notNull(), // Holds custom fields + order pipeline stages
   ...timestamps,
 });
+
+// ==========================================
+// 6. NOTIFICATION OUTBOX DOMAIN
+// ==========================================
+
+export const notificationOutbox = pgTable(
+  'notification_outbox',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    channel: varchar('channel', { length: 20 }).notNull(), // 'WHATSAPP' | 'SMS'
+    recipient: varchar('recipient', { length: 50 }).notNull(),
+    templateKey: varchar('template_key', { length: 50 }),
+    payload: jsonb('payload').default({}).notNull(),
+    renderedMessage: text('rendered_message').notNull(),
+    mediaUrl: text('media_url'),
+    status: varchar('status', { length: 20 }).default('PENDING').notNull(), // 'PENDING' | 'SENT' | 'FAILED' | 'DEAD_LETTER'
+    attempts: integer('attempts').default(0).notNull(),
+    maxAttempts: integer('max_attempts').default(3).notNull(),
+    lastError: text('last_error'),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }).defaultNow().notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => ({
+    tenantOutboxIdx: index('notification_outbox_tenant_idx').on(table.tenantId),
+    statusOutboxIdx: index('notification_outbox_status_idx').on(table.status),
+  })
+);

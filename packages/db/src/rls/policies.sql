@@ -92,3 +92,10 @@ CREATE POLICY tenant_isolation_payment_allocations ON payment_allocations
   FOR ALL
   USING (tenant_id = get_current_tenant_id())
   WITH CHECK (tenant_id = get_current_tenant_id());
+
+-- 13. Notification Outbox Table Isolation
+ALTER TABLE notification_outbox ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_notification_outbox ON notification_outbox
+  FOR ALL
+  USING (tenant_id = get_current_tenant_id())
+  WITH CHECK (tenant_id = get_current_tenant_id());

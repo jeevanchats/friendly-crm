@@ -4,8 +4,10 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { sql, eq, and, desc } from 'drizzle-orm';
+import { NotificationOutboxService } from '../notifications/notification-outbox.service';
 import {
   db,
   orders,
@@ -49,6 +51,10 @@ export interface RecordPaymentDto {
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
+
+  constructor(
+    @Optional() private readonly notificationOutboxService?: NotificationOutboxService
+  ) {}
 
   private getDb() {
     return tenantContextStorage.getStore()?.tx || db;
@@ -216,6 +222,29 @@ export class OrdersService {
             },
           });
 
+          if (this.notificationOutboxService) {
+            tx.select({ phone: customers.phone, name: customers.name })
+              .from(customers)
+              .where(eq(customers.id, order.customerId))
+              .limit(1)
+              .then(([cust]: any[]) => {
+                if (cust?.phone) {
+                  this.notificationOutboxService?.enqueueNotification({
+                    tenantId,
+                    recipient: cust.phone,
+                    templateKey: 'STAGE_UPDATED',
+                    params: {
+                      customerName: cust.name,
+                      orderNumber: updated.orderNumber,
+                      stageName: cleanStageId,
+                      balanceText: updated.balanceDue != null ? `\nBalance Due: ₹${updated.balanceDue}` : '',
+                    },
+                  }).catch((e: any) => this.logger.warn(`Stage update outbox enqueue failed: ${e.message}`));
+                }
+              })
+              .catch((e: any) => this.logger.warn(`Failed to resolve customer phone for notification: ${e.message}`));
+          }
+
           return updated;
         });
       }
@@ -260,6 +289,21 @@ export class OrdersService {
       metadata: { prevStage, nextStage: cleanStageId, customDataUpdates: customDataUpdates || null },
       createdAt: new Date(),
     });
+
+    const cust = order.customer || globalMemoryCustomers.find((c) => c.id === order.customerId);
+    if (this.notificationOutboxService && cust?.phone) {
+      this.notificationOutboxService.enqueueNotification({
+        tenantId,
+        recipient: cust.phone,
+        templateKey: 'STAGE_UPDATED',
+        params: {
+          customerName: cust.name,
+          orderNumber: order.orderNumber,
+          stageName: cleanStageId,
+          balanceText: order.balanceDue != null ? `\nBalance Due: ₹${order.balanceDue}` : '',
+        },
+      }).catch((e: any) => this.logger.warn(`Stage update outbox enqueue failed: ${e.message}`));
+    }
 
     return order;
   }
@@ -422,6 +466,21 @@ export class OrdersService {
             setIdempotentResult(tenantId, 'record-payment', key, result);
           }
 
+          if (this.notificationOutboxService && customer?.phone) {
+            this.notificationOutboxService.enqueueNotification({
+              tenantId,
+              recipient: customer.phone,
+              templateKey: 'PAYMENT_RECEIPT',
+              params: {
+                customerName: customer.name,
+                amount: roundMoney(amount),
+                mode,
+                receiptNumber,
+                balanceRemaining: roundMoney(newBalance),
+              },
+            }).catch((e: any) => this.logger.warn(`Payment outbox enqueue failed: ${e.message}`));
+          }
+
           return result;
         });
       }
@@ -516,6 +575,21 @@ export class OrdersService {
 
     if (key) {
       setIdempotentResult(tenantId, 'record-payment', key, result);
+    }
+
+    if (this.notificationOutboxService && customer?.phone) {
+      this.notificationOutboxService.enqueueNotification({
+        tenantId,
+        recipient: customer.phone,
+        templateKey: 'PAYMENT_RECEIPT',
+        params: {
+          customerName: customer.name,
+          amount: roundMoney(amount),
+          mode,
+          receiptNumber,
+          balanceRemaining: roundMoney(newBalance),
+        },
+      }).catch((e: any) => this.logger.warn(`Payment outbox enqueue failed: ${e.message}`));
     }
 
     return result;

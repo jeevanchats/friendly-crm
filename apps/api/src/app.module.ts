@@ -5,6 +5,7 @@ import { CrmModule } from './modules/crm/crm.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     SalesModule,
     OrdersModule,
     WorkflowModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}
