@@ -55,13 +55,20 @@ export class TenantRlsInterceptor implements NestInterceptor {
     request: any,
     next: CallHandler
   ): Promise<any> {
+    if (typeof db?.transaction !== 'function') {
+      return await tenantContextStorage.run({ tenantId }, async () => {
+        const { firstValueFrom } = await import('rxjs');
+        return await firstValueFrom(next.handle());
+      });
+    }
+
     try {
-      return await db.transaction(async (tx) => {
-        // Enforce PostgreSQL Row-Level Security for this specific transaction
+      return await db.transaction(async (tx: any) => {
+        // Enforce PostgreSQL Row-Level Security for this specific transaction using set_config
         await tx.execute(
-          sql.raw(`SET LOCAL app.current_tenant_id = '${tenantId.replace(/'/g, "''")}'`)
+          sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`
         );
-        this.logger.debug(`[RLS Activated] SET LOCAL app.current_tenant_id = '${tenantId}'`);
+        this.logger.debug(`[RLS Activated] set_config('app.current_tenant_id', '${tenantId}', true)`);
 
         // Expose the active transaction directly on the request object
         request.dbTx = tx;
@@ -77,7 +84,12 @@ export class TenantRlsInterceptor implements NestInterceptor {
     } catch (err: any) {
       // In case Postgres database is not reachable in local dev offline mode,
       // allow fallback with simulated context while logging warning
-      if (err?.code === 'ECONNREFUSED' || err?.message?.includes('connect ECONNREFUSED')) {
+      if (
+        err?.code === 'ECONNREFUSED' ||
+        err?.message?.includes('connect ECONNREFUSED') ||
+        err?.message?.includes('not a function') ||
+        err?.message?.includes('Connection terminated')
+      ) {
         this.logger.warn(
           `PostgreSQL offline; proceeding with fallback tenant context for '${tenantId}'`
         );

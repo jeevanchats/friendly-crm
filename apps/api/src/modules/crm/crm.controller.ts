@@ -16,6 +16,7 @@ import { DashboardService } from './dashboard.service';
 import { CustomersService } from './customers.service';
 import { ReportsService } from './reports.service';
 import {
+  AuthGuard,
   TenantGuard,
   PermissionsGuard,
   RequirePermission,
@@ -37,7 +38,7 @@ import {
 } from '@friendly-crm/shared';
 
 @Controller('crm')
-@UseGuards(TenantGuard, PermissionsGuard)
+@UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
 @UseInterceptors(TenantRlsInterceptor, AuditInterceptor)
 export class CrmController {
   constructor(
@@ -52,6 +53,7 @@ export class CrmController {
    * Rapid Lead Intake with dynamic Industry Template validation & auto customer matching
    */
   @Post('intake-lead')
+  @RequirePermission('lead:create')
   async intakeLead(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
@@ -82,6 +84,7 @@ export class CrmController {
    * Query leads for tenant with joined customer profiles and filter criteria
    */
   @Get('leads')
+  @RequirePermission('lead:view')
   async getLeads(
     @CurrentTenant() tenant: { id: string },
     @Query() rawQuery: unknown
@@ -97,6 +100,7 @@ export class CrmController {
    * Advance or transition lead stage
    */
   @Patch('leads/:id/stage')
+  @RequirePermission('lead:update')
   async updateLeadStage(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
@@ -126,6 +130,7 @@ export class CrmController {
    * Create CRM follow-up task
    */
   @Post('tasks')
+  @RequirePermission('task:create')
   async createTask(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
@@ -153,13 +158,14 @@ export class CrmController {
    * Home Screen KPIs + Priority Follow-up Queue
    */
   @Get('dashboard')
+  @RequirePermission('tenant:read')
   async getDashboard(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string; role?: string } | undefined
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userId = user?.id || 'u-demo-1';
-    const userRole = (user?.role || 'OWNER') as TenantRole;
+    const tenantId = tenant.id;
+    const userId = user?.id || '';
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
     return this.dashboardService.getHomeDashboard(tenantId, userId, userRole);
   }
 
@@ -168,14 +174,15 @@ export class CrmController {
    * 1-Tap Complete Task with outcome note & real-time KPI update
    */
   @Patch('tasks/:id/complete')
+  @RequirePermission('task:complete')
   async completeTask(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
     @Param('id') taskId: string,
     @Body() body: { outcomeNote?: string; nextFollowUpAt?: string }
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userId = user?.id || 'u-demo-1';
+    const tenantId = tenant.id;
+    const userId = user?.id || '';
     return this.dashboardService.completeFollowUpTask(
       tenantId,
       userId,
@@ -190,9 +197,9 @@ export class CrmController {
    * Query recent audit activities for tenant
    */
   @Get('activities')
+  @RequirePermission('audit:read')
   async getActivities(@CurrentTenant() tenant: { id: string }) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    return this.dashboardService.getActivities(tenantId);
+    return this.dashboardService.getActivities(tenant.id);
   }
 
   /**
@@ -200,12 +207,12 @@ export class CrmController {
    * List all customers with computed active orders and outstanding ledger receivables
    */
   @Get('customers')
+  @RequirePermission('customer:view')
   async listCustomers(
     @CurrentTenant() tenant: { id: string },
     @Query('search') search?: string
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    return this.customersService.listCustomers(tenantId, search);
+    return this.customersService.listCustomers(tenant.id, search);
   }
 
   /**
@@ -213,14 +220,14 @@ export class CrmController {
    * Complete Customer 360 profile view: details, orders, quotations, ledger & timeline
    */
   @Get('customers/:id')
+  @RequirePermission('customer:view')
   async getCustomer360(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string; role?: string } | undefined,
     @Param('id') customerId: string
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userRole = (user?.role || 'OWNER') as TenantRole;
-    return this.customersService.getCustomer360(tenantId, userRole, customerId);
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.customersService.getCustomer360(tenant.id, userRole, customerId);
   }
 
   /**
@@ -232,11 +239,9 @@ export class CrmController {
   @RequirePermission('report:view')
   async getReports(
     @CurrentTenant() tenant: { id: string },
-    @CurrentUser() user: { id: string; role?: string } | undefined,
-    @Headers('x-user-role') roleHeader?: string
+    @CurrentUser() user: { id: string; role?: string } | undefined
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userRole = (user?.role || roleHeader || 'OWNER') as TenantRole;
-    return this.reportsService.getBusinessInsights(tenantId, userRole);
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.reportsService.getBusinessInsights(tenant.id, userRole);
   }
 }

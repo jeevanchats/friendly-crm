@@ -18,10 +18,11 @@
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
     "resolveJsonModule": true,
+    "isolatedModules": true,
     "paths": {
       "@friendly-crm/db": ["../../packages/db/src"],
       "@friendly-crm/shared": ["../../packages/shared/src"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "test/**/*"]
 }

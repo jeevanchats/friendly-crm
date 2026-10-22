@@ -22,7 +22,8 @@ export class RbacGuard implements CanActivate {
       throw new ForbiddenException('User context missing or unauthenticated');
     }
 
-    const hasRole = requiredRoles.includes(user.role as Role);
+    const userRole = user.role as Role;
+    const hasRole = requiredRoles.includes(userRole);
     if (!hasRole) {
       throw new ForbiddenException(`Insufficient permissions: Requires role [${requiredRoles.join(', ')}]`);
     }

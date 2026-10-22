@@ -1,15 +1,20 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { WorkflowService } from './workflow.service';
-import { TenantGuard, RbacGuard, Roles, CurrentTenant } from '../../common';
-import { Role } from '@friendly-crm/shared';
+import {
+  AuthGuard,
+  TenantGuard,
+  PermissionsGuard,
+  RequirePermission,
+  CurrentTenant,
+} from '../../common';
 
 @Controller('workflow')
-@UseGuards(TenantGuard, RbacGuard)
+@UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
 export class WorkflowController {
   constructor(private readonly workflowService: WorkflowService) {}
 
   @Get('custom-fields')
-  @Roles(Role.OWNER, Role.ADMIN, Role.SALES_MANAGER, Role.SALES_REP, Role.VIEWER)
+  @RequirePermission('workflow:read')
   async getCustomFields(
     @CurrentTenant() tenant: { id: string },
     @Query('entityType') entityType: string
@@ -18,7 +23,7 @@ export class WorkflowController {
   }
 
   @Post('validate-fields')
-  @Roles(Role.OWNER, Role.ADMIN, Role.SALES_MANAGER, Role.SALES_REP)
+  @RequirePermission('workflow:read')
   async validateFields(
     @CurrentTenant() tenant: { id: string },
     @Body() body: { entityType: string; values: Record<string, any> }
@@ -27,7 +32,7 @@ export class WorkflowController {
   }
 
   @Get('pipelines')
-  @Roles(Role.OWNER, Role.ADMIN, Role.SALES_MANAGER, Role.SALES_REP, Role.VIEWER)
+  @RequirePermission('workflow:read')
   async getPipelines(@CurrentTenant() tenant: { id: string }) {
     return this.workflowService.getPipelines(tenant.id);
   }

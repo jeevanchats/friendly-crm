@@ -24,7 +24,7 @@ export const AuthSessionSchema = z.object({
     name: z.string().nullable(),
     email: z.string().email().nullable(),
     role: z.string(),
-    tenantId: z.string().uuid(),
+    tenantId: z.string().uuid().nullable().optional(),
   }),
 });
 

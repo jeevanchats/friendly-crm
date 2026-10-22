@@ -12,7 +12,7 @@ import {
   tasks,
   industryTemplates,
 } from './schema';
-import templatesJson from '@friendly-crm/shared/industry-templates.json';
+import { INDUSTRY_TEMPLATES } from '@friendly-crm/shared';
 
 async function seedPilotTenants() {
   console.log('🌱 Seeding Friendly CRM Pilot Templates & 4 MSME Tenants...');
@@ -102,8 +102,8 @@ async function seedPilotTenants() {
 
   try {
     // 1. Seed the 4 Official Industry Templates
-    for (const key of Object.keys(templatesJson) as Array<keyof typeof templatesJson>) {
-      const t = templatesJson[key];
+    for (const key of Object.keys(INDUSTRY_TEMPLATES)) {
+      const t = INDUSTRY_TEMPLATES[key];
       await db
         .insert(industryTemplates)
         .values({

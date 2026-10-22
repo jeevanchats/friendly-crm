@@ -27,10 +27,11 @@ export class PermissionsGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const role: TenantRole = (request.user?.role ||
-      request.headers['x-user-role'] ||
-      request.headers['x-role'] ||
-      'OWNER') as TenantRole;
+    const role = request.user?.role as TenantRole | undefined;
+
+    if (!role) {
+      throw new ForbiddenException('User has no authorized role in the target tenant');
+    }
 
     const hasAll = requiredPermissions.every((perm) => hasPermission(role, perm));
     if (!hasAll) {

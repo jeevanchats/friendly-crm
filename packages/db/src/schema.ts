@@ -58,6 +58,40 @@ export const memberships = pgTable(
   })
 );
 
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    lastActiveAt: timestamp('last_active_at', { withTimezone: true }).defaultNow().notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex('sessions_token_hash_idx').on(table.tokenHash),
+    userSessionIdx: index('sessions_user_idx').on(table.userId),
+  })
+);
+
+export const otpVerifications = pgTable(
+  'otp_verifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    phone: varchar('phone', { length: 20 }).notNull(),
+    codeHash: varchar('code_hash', { length: 64 }).notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    maxAttempts: integer('max_attempts').default(3).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => ({
+    phoneIdx: index('otp_verifications_phone_idx').on(table.phone, table.consumedAt, table.expiresAt),
+  })
+);
+
 // ==========================================
 // 2. CRM DOMAIN (Customers, Leads, Tasks, Audit)
 // ==========================================

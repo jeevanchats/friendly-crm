@@ -1,7 +1,12 @@
 import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
 import { TenantService, CreateTenantDto } from './tenant.service';
-import { TenantGuard, RbacGuard, Roles, CurrentTenant } from '../../common';
-import { Role } from '@friendly-crm/shared';
+import {
+  AuthGuard,
+  TenantGuard,
+  PermissionsGuard,
+  RequirePermission,
+  CurrentTenant,
+} from '../../common';
 
 @Controller('tenants')
 export class TenantController {
@@ -13,8 +18,8 @@ export class TenantController {
   }
 
   @Get('current')
-  @UseGuards(TenantGuard, RbacGuard)
-  @Roles(Role.OWNER, Role.ADMIN, Role.SALES_MANAGER, Role.SALES_REP, Role.VIEWER)
+  @UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
+  @RequirePermission('tenant:read')
   async getCurrentTenant(@CurrentTenant() tenant: { id: string }) {
     return this.tenantService.getTenantDetails(tenant.id);
   }

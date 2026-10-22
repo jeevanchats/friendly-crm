@@ -16,9 +16,12 @@ export async function withTenantContext<T>(
   tenantId: string,
   callback: (tx: typeof db) => Promise<T>
 ): Promise<T> {
-  return await db.transaction(async (tx) => {
+  return await db.transaction(async (tx: any) => {
     // Set PostgreSQL config variable for Row-Level Security policy
-    await tx.execute(sql.raw(`SET LOCAL app.current_tenant_id = '${tenantId}'`));
+    if (!/^[a-zA-Z0-9_-]+$/.test(tenantId)) {
+      throw new Error('Invalid tenantId format');
+    }
+    await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
     return await callback(tx as unknown as typeof db);
   });
 }

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { OrdersService, RecordPaymentDto } from './orders.service';
 import {
+  AuthGuard,
   TenantGuard,
   PermissionsGuard,
   RequirePermission,
@@ -22,7 +23,7 @@ import {
 import { TenantRole } from '@friendly-crm/shared';
 
 @Controller('orders')
-@UseGuards(TenantGuard, PermissionsGuard)
+@UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
 @UseInterceptors(TenantRlsInterceptor, AuditInterceptor)
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
@@ -38,8 +39,7 @@ export class OrdersController {
     @CurrentTenant() tenant: { id: string },
     @Query('stage') stage?: string
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    return this.ordersService.getOrders(tenantId, stage);
+    return this.ordersService.getOrders(tenant.id, stage);
   }
 
   /**
@@ -55,10 +55,9 @@ export class OrdersController {
     @Param('id') orderId: string,
     @Body() body: { nextStageId: string; customDataUpdates?: Record<string, any> }
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userId = user?.id || 'u-demo-1';
+    const userId = user?.id || '';
     return this.ordersService.updateOrderStage(
-      tenantId,
+      tenant.id,
       userId,
       orderId,
       body.nextStageId,
@@ -79,9 +78,8 @@ export class OrdersController {
     @Param('id') orderId: string,
     @Body() dto: RecordPaymentDto
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userId = user?.id || 'u-demo-1';
-    return this.ordersService.recordPayment(tenantId, userId, orderId, dto);
+    const userId = user?.id || '';
+    return this.ordersService.recordPayment(tenant.id, userId, orderId, dto);
   }
 
   /**
@@ -96,8 +94,7 @@ export class OrdersController {
     @CurrentUser() user: { id: string; role?: string } | undefined,
     @Param('id') orderId: string
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userRole = (user?.role || 'OWNER') as TenantRole;
-    return this.ordersService.getOrderDetail(tenantId, userRole, orderId);
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.ordersService.getOrderDetail(tenant.id, userRole, orderId);
   }
 }

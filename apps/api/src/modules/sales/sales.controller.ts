@@ -10,7 +10,10 @@ import {
 } from '@nestjs/common';
 import { SalesService, CreateQuotationDto } from './sales.service';
 import {
+  AuthGuard,
   TenantGuard,
+  PermissionsGuard,
+  RequirePermission,
   TenantRlsInterceptor,
   AuditInterceptor,
   CurrentTenant,
@@ -18,7 +21,7 @@ import {
 } from '../../common';
 
 @Controller('sales')
-@UseGuards(TenantGuard)
+@UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
 @UseInterceptors(TenantRlsInterceptor, AuditInterceptor)
 export class SalesController {
   constructor(private readonly salesService: SalesService) {}
@@ -28,13 +31,14 @@ export class SalesController {
    * Create Initial Quotation (v1) & auto-advance Lead to QUOTED
    */
   @Post('quotations')
+  @RequirePermission('quote:create')
   async createQuotation(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
     @Body() dto: CreateQuotationDto
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userId = user?.id || 'u-demo-1';
+    const tenantId = tenant.id;
+    const userId = user?.id || '';
     return this.salesService.createQuotation(tenantId, userId, dto);
   }
 
@@ -43,14 +47,15 @@ export class SalesController {
    * Create Quotation Revision (v2, v3...) superseding previous version
    */
   @Post('quotations/:id/revise')
+  @RequirePermission('quote:update')
   async createRevision(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
     @Param('id') quotationId: string,
     @Body() dto: CreateQuotationDto
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userId = user?.id || 'u-demo-1';
+    const tenantId = tenant.id;
+    const userId = user?.id || '';
     return this.salesService.createRevision(tenantId, userId, quotationId, dto);
   }
 
@@ -59,6 +64,7 @@ export class SalesController {
    * 1-Click Convert accepted quotation into an active production Order
    */
   @Post('quotations/:id/convert')
+  @RequirePermission('quote:convert')
   async convertQuoteToOrder(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
@@ -66,8 +72,8 @@ export class SalesController {
     @Param('id') quotationId: string,
     @Body() body?: { advanceReceived?: number; expectedDeliveryAt?: string; industryKey?: string }
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    const userId = user?.id || 'u-demo-1';
+    const tenantId = tenant.id;
+    const userId = user?.id || '';
     const industryKey = (body?.industryKey || industryHeader || 'printing').toLowerCase();
 
     return this.salesService.convertQuoteToOrder(
@@ -85,12 +91,12 @@ export class SalesController {
    * Fetch quotation, customer, line items, and customData (used by /q/[id]/pdf)
    */
   @Get('quotations/:id')
+  @RequirePermission('quote:view')
   async getQuotation(
-    @CurrentTenant() tenant: { id: string } | undefined,
+    @CurrentTenant() tenant: { id: string },
     @Param('id') id: string
   ) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    return this.salesService.getQuotationById(id, tenantId);
+    return this.salesService.getQuotationById(id, tenant.id);
   }
 
   /**
@@ -98,8 +104,8 @@ export class SalesController {
    * List all quotations for tenant
    */
   @Get('quotations')
+  @RequirePermission('quote:view')
   async getQuotations(@CurrentTenant() tenant: { id: string }) {
-    const tenantId = tenant?.id || 't-demo-printing';
-    return this.salesService.getQuotations(tenantId);
+    return this.salesService.getQuotations(tenant.id);
   }
 }

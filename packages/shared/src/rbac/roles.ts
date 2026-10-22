@@ -1,18 +1,26 @@
 import { Permission } from './permissions';
 
 export enum Role {
+  // Canonical roles
   OWNER = 'OWNER',
-  ADMIN = 'ADMIN',
-  SALES_MANAGER = 'SALES_MANAGER',
-  SALES_REP = 'SALES_REP',
-  VIEWER = 'VIEWER',
+  MANAGER = 'MANAGER',
+  SALESPERSON = 'SALESPERSON',
+  ACCOUNTS = 'ACCOUNTS',
+  PRODUCTION = 'PRODUCTION',
+  READ_ONLY = 'READ_ONLY',
+
+  // Legacy aliases
+  ADMIN = 'OWNER',
+  SALES_MANAGER = 'MANAGER',
+  SALES_REP = 'SALESPERSON',
+  VIEWER = 'READ_ONLY',
 }
 
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   [Role.OWNER]: Object.values(Permission),
-  [Role.ADMIN]: Object.values(Permission),
-  [Role.SALES_MANAGER]: [
+  [Role.MANAGER]: [
     Permission.TENANT_READ,
+    Permission.TENANT_UPDATE,
     Permission.LEAD_READ,
     Permission.LEAD_CREATE,
     Permission.LEAD_UPDATE,
@@ -33,7 +41,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.WORKFLOW_READ,
     Permission.AUDIT_READ,
   ],
-  [Role.SALES_REP]: [
+  [Role.SALESPERSON]: [
     Permission.TENANT_READ,
     Permission.LEAD_READ,
     Permission.LEAD_CREATE,
@@ -48,9 +56,20 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.QUOTATION_CREATE,
     Permission.QUOTATION_PDF,
     Permission.ORDER_READ,
-    Permission.ORDER_CREATE,
   ],
-  [Role.VIEWER]: [
+  [Role.ACCOUNTS]: [
+    Permission.TENANT_READ,
+    Permission.CUSTOMER_READ,
+    Permission.QUOTATION_READ,
+    Permission.ORDER_READ,
+  ],
+  [Role.PRODUCTION]: [
+    Permission.TENANT_READ,
+    Permission.TASK_READ,
+    Permission.ORDER_READ,
+    Permission.ORDER_UPDATE,
+  ],
+  [Role.READ_ONLY]: [
     Permission.TENANT_READ,
     Permission.LEAD_READ,
     Permission.CUSTOMER_READ,
@@ -60,6 +79,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
 };
 
-export function hasPermission(role: Role, permission: Permission): boolean {
+export function hasPermission(role: Role | string, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
 }
