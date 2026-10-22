@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { sql, eq, and, desc } from 'drizzle-orm';
 import { db, customers, leads, tasks, activities, tenants } from '@friendly-crm/db';
 import {

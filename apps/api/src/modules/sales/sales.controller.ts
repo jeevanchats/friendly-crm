@@ -24,6 +24,7 @@ import {
   CreateQuotationSchema,
   ConvertQuoteToOrderSchema,
   CreateQuotationDto,
+  TenantRole,
 } from '@friendly-crm/shared';
 
 @Controller('sales')
@@ -144,9 +145,11 @@ export class SalesController {
   @RequirePermission('quote:view')
   async getQuotation(
     @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
     @Param('id') id: string
   ) {
-    return this.salesService.getQuotationById(id, tenant.id);
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.salesService.getQuotationById(id, tenant.id, userRole);
   }
 
   /**
@@ -155,7 +158,11 @@ export class SalesController {
    */
   @Get('quotations')
   @RequirePermission('quote:view')
-  async getQuotations(@CurrentTenant() tenant: { id: string }) {
-    return this.salesService.getQuotations(tenant.id);
+  async getQuotations(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined
+  ) {
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.salesService.getQuotations(tenant.id, userRole);
   }
 }

@@ -169,7 +169,9 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
                 <p className="text-xs font-semibold text-slate-500">{qt.status}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm font-bold">₹{qt.grandTotal}</p>
+                {qt.grandTotal != null && (
+                  <p className="text-sm font-bold">₹{qt.grandTotal}</p>
+                )}
                 <Link
                   href={`/q/${qt.id}/pdf`}
                   className="text-xs font-bold text-[#167D79] underline"

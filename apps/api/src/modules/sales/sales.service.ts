@@ -18,7 +18,7 @@ import {
   customers,
   tenants,
 } from '@friendly-crm/db';
-import { getIndustryTemplate, IndustryKey } from '@friendly-crm/shared';
+import { getIndustryTemplate, IndustryKey, TenantRole, hasPermission } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
 import { randomUUID } from 'crypto';
 import {
@@ -782,7 +782,8 @@ export class SalesService {
   /**
    * 4. Retrieve Full Quotation Details with Customer, Items, and Tenant
    */
-  async getQuotationById(id: string, tenantId?: string) {
+  async getQuotationById(id: string, tenantId?: string, userRole?: TenantRole) {
+    const canSeePayments = userRole ? hasPermission(userRole, 'payment:view') : true;
     try {
       const activeDb = this.getDb();
 
@@ -819,8 +820,28 @@ export class SalesService {
       const industryKey = (tenant?.industryKey || 'printing') as IndustryKey;
       const template = getIndustryTemplate(industryKey);
 
+      const maskedQuote = canSeePayments
+        ? quote
+        : {
+            ...quote,
+            subTotal: null,
+            taxTotal: null,
+            discountTotal: null,
+            grandTotal: null,
+          };
+
+      const maskedItems = items.map((item: any) =>
+        canSeePayments
+          ? item
+          : {
+              ...item,
+              unitPrice: null,
+              lineTotal: null,
+            }
+      );
+
       return {
-        quote,
+        quote: maskedQuote,
         customer: customer || {
           id: quote.customerId,
           name: 'Direct Customer',
@@ -829,7 +850,7 @@ export class SalesService {
           billingAddress: null,
           gstin: null,
         },
-        items,
+        items: maskedItems,
         tenant: tenant || {
           name: 'Business Tenant',
           phone: '+91 98400 11223',
@@ -863,8 +884,28 @@ export class SalesService {
     const industryKey = (tenant?.industryKey || 'printing') as IndustryKey;
     const template = getIndustryTemplate(industryKey);
 
+    const maskedQuote = canSeePayments
+      ? quote
+      : {
+          ...quote,
+          subTotal: null,
+          taxTotal: null,
+          discountTotal: null,
+          grandTotal: null,
+        };
+
+    const maskedItems = items.map((item: any) =>
+      canSeePayments
+        ? item
+        : {
+            ...item,
+            unitPrice: null,
+            lineTotal: null,
+          }
+    );
+
     return {
-      quote,
+      quote: maskedQuote,
       customer: customer || {
         id: quote.customerId,
         name: 'Direct Customer',
@@ -873,7 +914,7 @@ export class SalesService {
         billingAddress: null,
         gstin: null,
       },
-      items,
+      items: maskedItems,
       tenant: tenant || {
         name: 'Tenant ' + quote.tenantId.slice(0, 8),
         phone: '+91 98400 11223',
@@ -887,7 +928,8 @@ export class SalesService {
   /**
    * 5. Get list of quotations for tenant
    */
-  async getQuotations(tenantId: string) {
+  async getQuotations(tenantId: string, userRole?: TenantRole) {
+    const canSeePayments = userRole ? hasPermission(userRole, 'payment:view') : true;
     try {
       const activeDb = this.getDb();
       const rows = await activeDb
@@ -896,10 +938,33 @@ export class SalesService {
         .where(eq(quotations.tenantId, tenantId))
         .orderBy(desc(quotations.createdAt));
 
-      return { data: rows, total: rows.length };
+      const maskedRows = rows.map((q: any) =>
+        canSeePayments
+          ? q
+          : {
+              ...q,
+              subTotal: null,
+              taxTotal: null,
+              discountTotal: null,
+              grandTotal: null,
+            }
+      );
+
+      return { data: maskedRows, total: rows.length };
     } catch {
       const rows = globalMemoryQuotations.filter((q) => q.tenantId === tenantId);
-      return { data: rows, total: rows.length };
+      const maskedRows = rows.map((q: any) =>
+        canSeePayments
+          ? q
+          : {
+              ...q,
+              subTotal: null,
+              taxTotal: null,
+              discountTotal: null,
+              grandTotal: null,
+            }
+      );
+      return { data: maskedRows, total: rows.length };
     }
   }
 }

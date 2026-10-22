@@ -261,8 +261,10 @@ export default function OrdersPage() {
                 {locale === 'ta' ? 'உற்பத்தி ஆர்டர்கள்' : 'Production Floor Orders'}
               </h1>
               <p className="text-xs text-slate-200 mt-0.5">
-                {orders.length} {locale === 'ta' ? 'ஆர்டர்கள்' : 'orders'} • ₹{totalBalanceDue.toLocaleString('en-IN')}{' '}
-                {locale === 'ta' ? 'பாக்கி' : 'balance due'}
+                {orders.length} {locale === 'ta' ? 'ஆர்டர்கள்' : 'orders'}
+                {orders.length > 0 && orders[0].balanceDue != null
+                  ? ` • ₹${totalBalanceDue.toLocaleString('en-IN')} ${locale === 'ta' ? 'பாக்கி' : 'balance due'}`
+                  : ''}
               </p>
             </div>
 
@@ -325,7 +327,9 @@ export default function OrdersPage() {
               {locale === 'ta' ? 'ஆர்டர் மதிப்பு' : 'Order Value'}
             </div>
             <div className="text-lg font-extrabold text-[#243B40] mt-0.5 truncate">
-              ₹{(totalAmountSum / 1000).toFixed(0)}k
+              {orders.length > 0 && orders[0].totalAmount != null
+                ? `₹${(totalAmountSum / 1000).toFixed(0)}k`
+                : '—'}
             </div>
           </div>
 
@@ -334,7 +338,9 @@ export default function OrdersPage() {
               {locale === 'ta' ? 'வரவேண்டியது' : 'Balance Due'}
             </div>
             <div className="text-lg font-extrabold text-rose-600 mt-0.5 truncate">
-              ₹{(totalBalanceDue / 1000).toFixed(0)}k
+              {orders.length > 0 && orders[0].balanceDue != null
+                ? `₹${(totalBalanceDue / 1000).toFixed(0)}k`
+                : '—'}
             </div>
           </div>
         </div>

@@ -47,26 +47,24 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
     globalMemoryTenants.set(TENANT_FIN_PRINTING, {
       id: TENANT_FIN_PRINTING,
       name: 'Precision Print Works',
-      slug: 'precision-print',
       industryKey: 'printing',
       defaultLanguage: 'en',
       phone: '+919876543210',
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
-    });
+    } as any);
 
     globalMemoryTenants.set(TENANT_FIN_TEXTILES, {
       id: TENANT_FIN_TEXTILES,
       name: 'Coimbatore Silk Weavers',
-      slug: 'cbe-silk',
       industryKey: 'textiles',
       defaultLanguage: 'ta',
       phone: '+919876543211',
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
-    });
+    } as any);
 
     // Register Users
     authService.registerUser({ id: USER_FIN_OWNER, fullName: 'Fin Owner', phone: '+919977777777' });

@@ -8,6 +8,7 @@ import {
 import { sql, eq, and, lte, asc, desc } from 'drizzle-orm';
 import { db, tasks, quotations, orders, customers, activities, auditLogs } from '@friendly-crm/db';
 import { TenantRole, hasPermission } from '@friendly-crm/shared';
+import { filterAndSanitizeActivities } from '../../common';
 import { randomUUID } from 'crypto';
 import {
   globalMemoryTasks,
@@ -99,7 +100,7 @@ export class DashboardService {
             summaryCards: {
               dueFollowUps: followUpStats?.count ?? 0,
               openQuotations: quoteStats?.count ?? 0,
-              openQuotationsValue: quoteStats?.totalValue ?? '0.00',
+              openQuotationsValue: canSeeReceivables ? (quoteStats?.totalValue ?? '0.00') : null,
               activeOrders: orderStats?.activeCount ?? 0,
               totalReceivables: canSeeReceivables ? (orderStats?.totalReceivables ?? '0.00') : null,
             },
@@ -145,7 +146,7 @@ export class DashboardService {
       summaryCards: {
         dueFollowUps: pendingTasks.length,
         openQuotations: openQuotes.length,
-        openQuotationsValue: openQuotesVal.toFixed(2),
+        openQuotationsValue: canSeeReceivables ? openQuotesVal.toFixed(2) : null,
         activeOrders: activeOrders.length,
         totalReceivables: canSeeReceivables ? totalReceivables.toFixed(2) : null,
       },
@@ -280,10 +281,11 @@ export class DashboardService {
   /**
    * Fetches logged activities for tenant (used in activity feed verification)
    */
-  async getActivities(tenantId: string) {
+  async getActivities(tenantId: string, userRole?: TenantRole) {
+    const canSeePayments = userRole ? hasPermission(userRole, 'payment:view') : true;
     try {
       if (typeof db?.transaction === 'function') {
-        return await db.transaction(async (tx) => {
+        const rows = await db.transaction(async (tx) => {
           await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
           return await tx
             .select()
@@ -292,12 +294,14 @@ export class DashboardService {
             .orderBy(desc(activities.createdAt))
             .limit(50);
         });
+        return filterAndSanitizeActivities(rows, canSeePayments);
       }
     } catch (err: any) {
       this.logger.warn(`Postgres offline; utilizing memory fallback for getActivities: ${err.message}`);
     }
 
-    return globalMemoryActivities.filter((a) => a.tenantId === tenantId);
+    const memActivities = globalMemoryActivities.filter((a) => a.tenantId === tenantId);
+    return filterAndSanitizeActivities(memActivities, canSeePayments);
   }
 
   /**

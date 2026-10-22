@@ -17,6 +17,7 @@ import {
   activities,
 } from '@friendly-crm/db';
 import { TenantRole, hasPermission } from '@friendly-crm/shared';
+import { filterAndSanitizeActivities } from '../../common';
 import {
   globalMemoryCustomers,
   globalMemoryOrders,
@@ -50,7 +51,8 @@ export class CustomersService {
    * List all customers for a tenant with computed outstanding balance
    * Enforces Row-Level Security: returns ONLY customers belonging to the tenant.
    */
-  async listCustomers(tenantId: string, search?: string) {
+  async listCustomers(tenantId: string, search?: string, userRole?: TenantRole) {
+    const canSeePayments = userRole ? hasPermission(userRole, 'payment:view') : true;
     try {
       if (typeof db?.transaction === 'function') {
         return await db.transaction(async (tx) => {
@@ -78,9 +80,19 @@ export class CustomersService {
             .where(eq(customers.tenantId, tenantId))
             .orderBy(desc(customers.createdAt));
 
-          if (!search) return rows;
+          const sanitizedRows = rows.map((r) =>
+            canSeePayments
+              ? r
+              : {
+                  ...r,
+                  openingBalance: null,
+                  totalReceivable: null,
+                }
+          );
+
+          if (!search) return sanitizedRows;
           const q = search.toLowerCase();
-          return rows.filter(
+          return sanitizedRows.filter(
             (r) =>
               r.name.toLowerCase().includes(q) ||
               r.companyName?.toLowerCase().includes(q) ||
@@ -129,7 +141,16 @@ export class CustomersService {
       );
     }
 
-    return tenantCustomers;
+    return tenantCustomers.map((c) =>
+      canSeePayments
+        ? c
+        : {
+            ...c,
+            openingBalance: null,
+            totalReceivable: null,
+            creditLimit: null,
+          }
+    );
   }
 
   /**
@@ -206,8 +227,30 @@ export class CustomersService {
           );
           const netReceivable = parseFloat(customer.openingBalance || '0') + totalOrderBalance;
 
+          const maskedCustomer = canViewPayments
+            ? customer
+            : {
+                ...customer,
+                openingBalance: null,
+                creditLimit: null,
+              };
+
+          const maskedQuotes = customerQuotes.map((q) =>
+            canViewPayments
+              ? q
+              : {
+                  ...q,
+                  subTotal: null,
+                  taxTotal: null,
+                  discountTotal: null,
+                  grandTotal: null,
+                }
+          );
+
+          const sanitizedTimeline = filterAndSanitizeActivities(timeline, canViewPayments);
+
           return {
-            customer,
+            customer: maskedCustomer,
             financialSummary: canViewPayments
               ? {
                   openingBalance: customer.openingBalance || '0.00',
@@ -217,7 +260,7 @@ export class CustomersService {
                 }
               : null,
             leads: customerLeads,
-            quotations: customerQuotes,
+            quotations: maskedQuotes,
             orders: customerOrders.map((o) =>
               canViewPayments
                 ? o
@@ -225,7 +268,7 @@ export class CustomersService {
             ),
             payments: customerPayments,
             pendingTasks,
-            timeline,
+            timeline: sanitizedTimeline,
           };
         });
       }
@@ -286,8 +329,37 @@ export class CustomersService {
         (a.entityId === customerId || a.metadata?.customerId === customerId)
     );
 
+    const maskedCustomer = canViewPayments
+      ? customer
+      : {
+          ...customer,
+          openingBalance: null,
+          creditLimit: null,
+        };
+
+    const maskedQuotes = tenantQuotes.map((q) =>
+      canViewPayments
+        ? q
+        : {
+            ...q,
+            subTotal: null,
+            taxTotal: null,
+            discountTotal: null,
+            grandTotal: null,
+          }
+    );
+
+    const baseTimeline = tenantActivities.length > 0 ? tenantActivities : [
+      {
+        id: `act-${customerId}-1`,
+        action: 'CUSTOMER_CREATED',
+        createdAt: customer.createdAt || new Date(),
+      },
+    ];
+    const sanitizedTimeline = filterAndSanitizeActivities(baseTimeline, canViewPayments);
+
     return {
-      customer,
+      customer: maskedCustomer,
       financialSummary: canViewPayments
         ? {
             openingBalance: customer.openingBalance || '0.00',
@@ -297,7 +369,7 @@ export class CustomersService {
           }
         : null,
       leads: tenantLeads,
-      quotations: tenantQuotes,
+      quotations: maskedQuotes,
       orders: tenantOrders.map((o) =>
         canViewPayments
           ? o
@@ -305,13 +377,7 @@ export class CustomersService {
       ),
       payments: tenantPayments,
       pendingTasks: tenantTasks,
-      timeline: tenantActivities.length > 0 ? tenantActivities : [
-        {
-          id: `act-${customerId}-1`,
-          action: 'CUSTOMER_CREATED',
-          createdAt: customer.createdAt || new Date(),
-        },
-      ],
+      timeline: sanitizedTimeline,
     };
   }
 }

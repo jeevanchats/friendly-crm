@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { db, tenants, users, memberships, eq } from '@friendly-crm/db';
+import { eq } from 'drizzle-orm';
+import { db, tenants, users, memberships } from '@friendly-crm/db';
 import { getIndustryTemplate, IndustryKey } from '@friendly-crm/shared';
 import { globalMemoryTenants } from '../crm/memory-store';
 import { AuthService } from '../auth/auth.service';

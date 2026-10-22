@@ -83,10 +83,13 @@ export function OrderStageCard({
 
   const buildWhatsAppStatusUrl = () => {
     const cleanPhone = order.customer.phone.replace(/\D/g, '');
+    const balanceText = order.balanceDue != null
+      ? (lang === 'ta' ? `\nபாக்கித் தொகை: ₹${order.balanceDue}` : `\nBalance Due: ₹${order.balanceDue}`)
+      : '';
     const msg =
       lang === 'ta'
-        ? `வணக்கம் ${order.customer.name},\nஉங்கள் ஆர்டர் *${order.orderNumber}* தற்போதைய நிலை: *${activeStageObj.label.ta}*.\nபாக்கித் தொகை: ₹${order.balanceDue}`
-        : `Hello ${order.customer.name},\nYour Order *${order.orderNumber}* status is now: *${activeStageObj.label.en}*.\nBalance Due: ₹${order.balanceDue}`;
+        ? `வணக்கம் ${order.customer.name},\nஉங்கள் ஆர்டர் *${order.orderNumber}* தற்போதைய நிலை: *${activeStageObj.label.ta}*.${balanceText}`
+        : `Hello ${order.customer.name},\nYour Order *${order.orderNumber}* status is now: *${activeStageObj.label.en}*.${balanceText}`;
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
   };
 
@@ -152,19 +155,25 @@ export function OrderStageCard({
           <span className="block text-[11px] text-slate-500">
             {lang === 'ta' ? 'மொத்தம்' : 'Total'}
           </span>
-          <span className="text-sm font-bold text-[#243B40]">₹{order.totalAmount}</span>
+          <span className="text-sm font-bold text-[#243B40]">
+            {order.totalAmount != null ? `₹${order.totalAmount}` : '—'}
+          </span>
         </div>
         <div>
           <span className="block text-[11px] text-slate-500">
             {lang === 'ta' ? 'அட்வான்ஸ்' : 'Received'}
           </span>
-          <span className="text-sm font-bold text-emerald-600">₹{order.advanceReceived}</span>
+          <span className="text-sm font-bold text-emerald-600">
+            {order.advanceReceived != null ? `₹${order.advanceReceived}` : '—'}
+          </span>
         </div>
         <div>
           <span className="block text-[11px] text-slate-500">
             {lang === 'ta' ? 'பாக்கி' : 'Balance'}
           </span>
-          <span className="text-sm font-bold text-rose-600">₹{order.balanceDue}</span>
+          <span className="text-sm font-bold text-rose-600">
+            {order.balanceDue != null ? `₹${order.balanceDue}` : '—'}
+          </span>
         </div>
       </div>
 
@@ -184,7 +193,7 @@ export function OrderStageCard({
         >
           {lang === 'ta' ? 'வாட்ஸ்அப்' : 'WhatsApp'}
         </a>
-        {canRecordPayment && parseFloat(order.balanceDue) > 0 ? (
+        {canRecordPayment && order.balanceDue != null && parseFloat(order.balanceDue) > 0 ? (
           <button
             type="button"
             onClick={() => setShowPayModal(!showPayModal)}

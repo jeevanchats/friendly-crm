@@ -198,8 +198,12 @@ export class CrmController {
    */
   @Get('activities')
   @RequirePermission('audit:read')
-  async getActivities(@CurrentTenant() tenant: { id: string }) {
-    return this.dashboardService.getActivities(tenant.id);
+  async getActivities(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined
+  ) {
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.dashboardService.getActivities(tenant.id, userRole);
   }
 
   /**
@@ -223,9 +227,11 @@ export class CrmController {
   @RequirePermission('customer:view')
   async listCustomers(
     @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
     @Query('search') search?: string
   ) {
-    return this.customersService.listCustomers(tenant.id, search);
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.customersService.listCustomers(tenant.id, search, userRole);
   }
 
   /**

@@ -145,15 +145,17 @@ export default function CustomersDirectoryPage() {
                   </Link>
 
                   <div className="text-right shrink-0">
-                    <span
-                      className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${
-                        hasReceivable
-                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      }`}
-                    >
-                      {hasReceivable ? `₹${cust.totalReceivable} Due` : 'Nil Balance'}
-                    </span>
+                    {cust.totalReceivable != null && (
+                      <span
+                        className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${
+                          hasReceivable
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        }`}
+                      >
+                        {hasReceivable ? `₹${cust.totalReceivable} Due` : 'Nil Balance'}
+                      </span>
+                    )}
                     {cust.activeOrdersCount > 0 && (
                       <span className="block mt-1 text-[11px] font-semibold text-[#167D79]">
                         {cust.activeOrdersCount} active order(s)

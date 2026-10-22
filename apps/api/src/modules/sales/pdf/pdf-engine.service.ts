@@ -2,9 +2,27 @@ import { Injectable } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
 import { CreateQuotationDto } from '@friendly-crm/shared';
 
+export interface QuotationPdfData {
+  quoteNumber: string;
+  validUntil?: string | Date;
+  items?: Array<{
+    description?: string;
+    quantity: number;
+    unitPrice?: number | string | null;
+    total?: number | string | null;
+    lineTotal?: number | string | null;
+  }>;
+  subtotal?: string | number | null;
+  subTotal?: string | number | null;
+  taxTotal?: string | number | null;
+  discountTotal?: string | number | null;
+  grandTotal?: string | number | null;
+  [key: string]: any;
+}
+
 @Injectable()
 export class PdfEngineService {
-  async generateQuotationPdf(quote: CreateQuotationDto & { quoteNumber: string }): Promise<Buffer> {
+  async generateQuotationPdf(quote: QuotationPdfData): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
       const buffers: Buffer[] = [];
@@ -18,7 +36,9 @@ export class PdfEngineService {
       doc.moveDown();
       doc.fontSize(10).text(`Quote #: ${quote.quoteNumber}`);
       doc.text(`Date: ${new Date().toLocaleDateString()}`);
-      doc.text(`Valid Until: ${new Date(quote.validUntil).toLocaleDateString()}`);
+      if (quote.validUntil) {
+        doc.text(`Valid Until: ${new Date(quote.validUntil).toLocaleDateString()}`);
+      }
       doc.moveDown();
 
       // Divider
@@ -29,9 +49,9 @@ export class PdfEngineService {
       doc.fontSize(12).text('Line Items', { underline: true });
       doc.moveDown(0.5);
 
-      quote.items.forEach((item, index) => {
+      (quote.items || []).forEach((item, index) => {
         doc.fontSize(10).text(
-          `${index + 1}. ${item.description} - Qty: ${item.quantity} x Rs.${item.unitPrice} = Rs.${item.total}`
+          `${index + 1}. ${item.description || 'Job Item'} - Qty: ${item.quantity} x Rs.${item.unitPrice ?? '—'} = Rs.${item.lineTotal ?? item.total ?? '—'}`
         );
       });
 
@@ -40,10 +60,15 @@ export class PdfEngineService {
       doc.moveDown();
 
       // Totals
-      doc.fontSize(10).text(`Subtotal: Rs.${quote.subtotal}`, { align: 'right' });
-      doc.text(`Tax Total (GST): Rs.${quote.taxTotal}`, { align: 'right' });
-      doc.text(`Discount: Rs.${quote.discountTotal}`, { align: 'right' });
-      doc.fontSize(14).text(`Grand Total: Rs.${quote.grandTotal}`, { align: 'right' });
+      const sub = quote.subTotal ?? quote.subtotal ?? '0.00';
+      const tax = quote.taxTotal ?? '0.00';
+      const disc = quote.discountTotal ?? '0.00';
+      const grand = quote.grandTotal ?? '0.00';
+
+      doc.fontSize(10).text(`Subtotal: Rs.${sub}`, { align: 'right' });
+      doc.text(`Tax Total (GST): Rs.${tax}`, { align: 'right' });
+      doc.text(`Discount: Rs.${disc}`, { align: 'right' });
+      doc.fontSize(14).text(`Grand Total: Rs.${grand}`, { align: 'right' });
 
       doc.end();
     });

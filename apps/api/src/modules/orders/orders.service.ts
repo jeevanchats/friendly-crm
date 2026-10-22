@@ -26,7 +26,8 @@ import {
   getIdempotentResult,
   setIdempotentResult,
   roundMoney,
-} from '../../common/utils/document-number.util';
+  filterAndSanitizeActivities,
+} from '../../common';
 import { randomUUID } from 'crypto';
 import {
   globalMemoryOrders,
@@ -57,7 +58,8 @@ export class OrdersService {
    * 1. GET /api/orders
    * List all orders for the tenant, optionally filtered by production stage
    */
-  async getOrders(tenantId: string, stage?: string) {
+  async getOrders(tenantId: string, stage?: string, userRole?: TenantRole) {
+    const canSeePayments = userRole ? hasPermission(userRole, 'payment:view') : true;
     try {
       const activeDb = this.getDb();
       if (typeof activeDb?.transaction === 'function') {
@@ -85,7 +87,14 @@ export class OrdersService {
 
           const rows = await query;
           return rows.map((r: any) => ({
-            ...r.order,
+            ...(canSeePayments
+              ? r.order
+              : {
+                  ...r.order,
+                  totalAmount: null,
+                  advanceReceived: null,
+                  balanceDue: null,
+                }),
             customer: r.customer,
           }));
         });
@@ -103,8 +112,16 @@ export class OrdersService {
     }
     return list.map((o) => {
       const cust = o.customer || globalMemoryCustomers.find((c) => c.id === o.customerId);
+      const maskedOrder = canSeePayments
+        ? o
+        : {
+            ...o,
+            totalAmount: null,
+            advanceReceived: null,
+            balanceDue: null,
+          };
       return {
-        ...o,
+        ...maskedOrder,
         customer: cust
           ? {
               id: cust.id,
@@ -590,12 +607,14 @@ export class OrdersService {
                 }
           );
 
+          const sanitizedTimeline = filterAndSanitizeActivities(timeline, canSeePayments);
+
           return {
             ...maskedOrder,
             customer: orderRow.customer,
             items: maskedItems,
             payments: paymentHistory,
-            timeline,
+            timeline: sanitizedTimeline,
           };
         });
       }
@@ -690,12 +709,14 @@ export class OrdersService {
         : []),
     ];
 
+    const sanitizedTimeline = filterAndSanitizeActivities(timelineToReturn, canSeePayments);
+
     return {
       ...maskedOrder,
       customer,
       items: maskedItems,
       payments: orderPayments,
-      timeline: timelineToReturn,
+      timeline: sanitizedTimeline,
     };
   }
 }

@@ -44,9 +44,11 @@ export class OrdersController {
   @RequirePermission('order:view')
   async getOrders(
     @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
     @Query('stage') stage?: string
   ) {
-    return this.ordersService.getOrders(tenant.id, stage);
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.ordersService.getOrders(tenant.id, stage, userRole);
   }
 
   /**
@@ -109,7 +111,7 @@ export class OrdersController {
 
     const userId = user?.id || '';
     const idempotencyKey = headerKey || xHeaderKey || parsed.data.idempotencyKey;
-    return this.ordersService.recordPayment(tenant.id, userId, orderId, parsed.data, idempotencyKey);
+    return this.ordersService.recordPayment(tenant.id, userId, orderId, parsed.data as any, idempotencyKey);
   }
 
   /**
