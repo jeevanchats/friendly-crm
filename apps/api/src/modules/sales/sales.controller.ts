@@ -5,11 +5,13 @@ import {
   Body,
   Param,
   Headers,
+  Res,
   BadRequestException,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
+import { Response } from 'express';
 import {
   AuthGuard,
   TenantGuard,
@@ -164,5 +166,29 @@ export class SalesController {
   ) {
     const userRole = (user?.role || 'READ_ONLY') as TenantRole;
     return this.salesService.getQuotations(tenant.id, userRole);
+  }
+
+  /**
+   * 6. GET /api/sales/quotations/:id/pdf
+   * Server-rendered PDF stream using PdfEngineService
+   */
+  @Get('quotations/:id/pdf')
+  @RequirePermission('quote:view')
+  async getQuotationPdf(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
+    @Param('id') id: string,
+    @Res() res: Response
+  ) {
+    const userRole = (user?.role || 'READ_ONLY') as TenantRole;
+    const data = await this.salesService.getQuotationById(id, tenant.id, userRole);
+    const pdfBuffer = await this.salesService.generateQuotationPdf(id, tenant.id, userRole);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="Quotation-${data.quote.quoteNumber}.pdf"`
+    );
+    res.send(pdfBuffer);
   }
 }

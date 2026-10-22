@@ -21,9 +21,5 @@
     "turbo": "^2.4.0",
     "typescript": "^5.4.5"
   },
-  "packageManager": "npm@11.16.0",
-  "dependencies": {
-    "drizzle-kit": "^0.31.11",
-    "drizzle-orm": "^0.45.4"
-  }
+  "packageManager": "npm@11.16.0"
 }

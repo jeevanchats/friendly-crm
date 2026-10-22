@@ -12,6 +12,8 @@ import {
   Phone,
   FileCheck2,
   Sparkles,
+  FileDown,
+  AlertCircle,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { INDUSTRY_TEMPLATES } from '@friendly-crm/shared';
@@ -67,22 +69,36 @@ export default function QuotationPrintPage() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<QuotationData | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchQuote() {
       try {
+        const tenantId =
+          (typeof window !== 'undefined' ? localStorage.getItem('friendly_tenant_id') : null) ||
+          't-demo-printing';
+        const userRole =
+          (typeof window !== 'undefined' ? localStorage.getItem('friendly_user_role') : null) ||
+          'OWNER';
+
         const res = await fetch(`/api/sales/quotations/${quoteId}`, {
-          headers: { 'x-tenant-id': 't-demo-printing' },
+          headers: {
+            'x-tenant-id': tenantId,
+            'x-user-role': userRole,
+          },
         });
         if (res.ok) {
           const json = await res.json();
           setData(json);
+        } else if (res.status === 404) {
+          setErrorMessage('Quotation not found (கொட்டேஷன் கிடைக்கவில்லை). The quotation ID may be invalid or does not belong to your business.');
+        } else if (res.status === 403) {
+          setErrorMessage('Access denied (அணுகல் மறுக்கப்பட்டது). You do not have permission to view this quotation.');
         } else {
-          // Fallback with rich default data if ID is demo or newly created
-          setData(getDefaultDemoData(quoteId));
+          setErrorMessage('Failed to load quotation details. Please try again.');
         }
       } catch {
-        setData(getDefaultDemoData(quoteId));
+        setErrorMessage('Network or server error while loading quotation.');
       } finally {
         setLoading(false);
       }
@@ -93,69 +109,32 @@ export default function QuotationPrintPage() {
     }
   }, [quoteId]);
 
-  const getDefaultDemoData = (id: string): QuotationData => ({
-    quote: {
-      id: id || 'quote-demo-1',
-      quoteNumber: 'QT-2026-0042',
-      version: 1,
-      subTotal: '150000.00',
-      taxTotal: '27000.00',
-      discountTotal: '5000.00',
-      grandTotal: '172000.00',
-      validUntil: new Date(Date.now() + 14 * 86400000).toISOString(),
-      termsAndConditions:
-        '1. 50% advance along with formal purchase order. Balance before dispatch.\n2. Delivery lead-time: 7 to 10 working days upon final artwork proof approval.\n3. Taxes: GST 18% as applicable by law.\n4. Subject to Coimbatore/Sivakasi jurisdiction.',
-      customData: {
-        job_type: 'PACKAGING_BOX',
-        paper_board_gsm: '350 GSM Cyber Premium Board',
-        print_colors: 'CMYK_PLUS_PANTONE',
-        finishing_ops: ['MATT_LAM', 'SPOT_UV', 'DIE_PUNCH'],
-      },
-      status: 'SENT',
-      createdAt: new Date().toISOString(),
-    },
-    customer: {
-      name: 'Sri Murugan Textiles & Sweets',
-      companyName: 'Murugan Retailers Pvt Ltd',
-      phone: '+91 98401 23456',
-      gstin: '33AAAAA0000A1Z5',
-      billingAddress: '42, Mill Road, Crosscut, Coimbatore, Tamil Nadu - 641002',
-    },
-    items: [
-      {
-        id: '1',
-        itemName: 'Diwali Rigid Sweet Boxes (1 Kg Pack)',
-        description: '350 GSM Cyber Board, Matt Lamination, Metallic Gold Foil Stamping',
-        quantity: 5000,
-        unit: 'Nos',
-        unitPrice: 24.0,
-        taxPercent: 18,
-        lineTotal: 141600.0,
-      },
-      {
-        id: '2',
-        itemName: 'Inner Sweet Separator Trays & Inserts',
-        description: 'Food grade PVC vacuum formed tray with gold paper barrier',
-        quantity: 5000,
-        unit: 'Nos',
-        unitPrice: 6.0,
-        taxPercent: 18,
-        lineTotal: 35400.0,
-      },
-    ],
-    tenant: {
-      name: 'Sivakasi Fine Prints & Packaging',
-      phone: '+91 98400 11223',
-      gstNumber: '33AABCU9603R1ZM',
-      address: '12, Printing Press Colony, Sivakasi, Tamil Nadu - 626123',
-      industryKey: 'printing',
-    },
-  });
-
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 text-sm font-medium text-slate-500">
         Loading printable quotation... (கொட்டேஷன் தயாராகிறது...)
+      </div>
+    );
+  }
+
+  if (errorMessage || !data) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+        <div className="max-w-md w-full bg-white rounded-2xl p-6 shadow-sm border border-slate-200 text-center">
+          <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-bold text-slate-900 mb-2">Notice (அறிவிப்பு)</h2>
+          <p className="text-xs text-slate-600 mb-6 leading-relaxed">
+            {errorMessage || 'Quotation not found (கொட்டேஷன் கிடைக்கவில்லை)'}
+          </p>
+          <button
+            onClick={() => router.push('/')}
+            className="w-full py-2.5 px-4 text-xs font-bold text-white bg-[#167D79] hover:bg-[#126461] rounded-xl transition-colors"
+          >
+            Return to Dashboard (முகப்புக்கு திரும்பு)
+          </button>
+        </div>
       </div>
     );
   }
@@ -190,13 +169,24 @@ export default function QuotationPrintPage() {
 
         <div className="flex items-center space-x-2">
           <a
+            href={`/api/sales/quotations/${quoteId}/pdf`}
+            target="_blank"
+            rel="noreferrer"
+            download={`Quotation-${quote.quoteNumber}.pdf`}
+            className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold text-[#167D79] bg-[#167D79]/10 hover:bg-[#167D79]/20 border border-[#167D79]/30 rounded-xl transition-colors"
+          >
+            <FileDown className="w-3.5 h-3.5" />
+            <span>Download PDF (பதிவிறக்கு)</span>
+          </a>
+
+          <a
             href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(shareText)}`}
             target="_blank"
             rel="noreferrer"
             className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold text-white bg-[#25D366] hover:bg-[#20ba5a] rounded-xl shadow-xs transition-colors"
           >
             <Share2 className="w-3.5 h-3.5" />
-            <span>Share via WhatsApp (வாட்ஸ்அப்)</span>
+            <span>Share WhatsApp (வாட்ஸ்அப்)</span>
           </a>
 
           <button
@@ -204,7 +194,7 @@ export default function QuotationPrintPage() {
             className="flex items-center space-x-1.5 px-4 py-2 text-xs font-bold text-white bg-[#167D79] hover:bg-[#126461] rounded-xl shadow-sm transition-colors"
           >
             <Printer className="w-4 h-4" />
-            <span>Print / Save PDF (அச்சு / PDF)</span>
+            <span>Browser Print (உலாவி அச்சு)</span>
           </button>
         </div>
       </div>

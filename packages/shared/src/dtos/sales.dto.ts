@@ -76,3 +76,30 @@ export const RecordPaymentSchema = z.object({
 });
 
 export type RecordPaymentDto = z.infer<typeof RecordPaymentSchema>;
+
+export const QuotationPdfItemSchema = z.object({
+  id: z.string().optional(),
+  itemName: z.string().optional(),
+  description: z.string().optional(),
+  quantity: z.coerce.number(),
+  unit: z.string().optional(),
+  unitPrice: z.union([z.number(), z.string()]).optional().nullable(),
+  taxPercent: z.union([z.number(), z.string()]).optional().nullable(),
+  total: z.union([z.number(), z.string()]).optional().nullable(),
+  lineTotal: z.union([z.number(), z.string()]).optional().nullable(),
+});
+
+export const QuotationPdfDataSchema = z.object({
+  quoteNumber: z.string(),
+  validUntil: z.union([z.string(), z.date()]).optional(),
+  items: z.array(QuotationPdfItemSchema).optional(),
+  subtotal: z.union([z.string(), z.number()]).optional().nullable(),
+  subTotal: z.union([z.string(), z.number()]).optional().nullable(),
+  taxTotal: z.union([z.string(), z.number()]).optional().nullable(),
+  discountTotal: z.union([z.string(), z.number()]).optional().nullable(),
+  grandTotal: z.union([z.string(), z.number()]).optional().nullable(),
+});
+
+export type QuotationPdfData = z.infer<typeof QuotationPdfDataSchema>;
+export type QuotationPdfDto = QuotationPdfData;
+

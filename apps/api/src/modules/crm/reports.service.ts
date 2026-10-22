@@ -90,8 +90,8 @@ export class ReportsService {
               conversionRatePercent: conversionRate,
             },
             financials,
-            topDebtors: topDebtors.rows,
-            repeatOpportunities: repeatOpportunities.rows,
+            topDebtors: Array.isArray(topDebtors) ? topDebtors : (topDebtors as any)?.rows ?? [],
+            repeatOpportunities: Array.isArray(repeatOpportunities) ? repeatOpportunities : (repeatOpportunities as any)?.rows ?? [],
           };
         });
       }

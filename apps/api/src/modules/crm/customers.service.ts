@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { sql, eq, and, desc } from 'drizzle-orm';
+import { sql, eq, and, or, inArray, desc } from 'drizzle-orm';
 import {
   db,
   customers,
@@ -210,12 +210,42 @@ export class CustomersService {
                 .orderBy(desc(payments.paidAt))
             : [];
 
+          const relatedConditions: any[] = [
+            eq(activities.entityId, customerId),
+            sql`${activities.metadata}->>'customerId' = ${customerId}`,
+          ];
+
+          const leadIds = customerLeads.map((l) => l.id);
+          if (leadIds.length > 0) {
+            relatedConditions.push(and(eq(activities.entityType, 'LEAD'), inArray(activities.entityId, leadIds))!);
+          }
+
+          const quoteIds = customerQuotes.map((q) => q.id);
+          if (quoteIds.length > 0) {
+            relatedConditions.push(and(eq(activities.entityType, 'QUOTATION'), inArray(activities.entityId, quoteIds))!);
+          }
+
+          const orderIds = customerOrders.map((o) => o.id);
+          if (orderIds.length > 0) {
+            relatedConditions.push(and(eq(activities.entityType, 'ORDER'), inArray(activities.entityId, orderIds))!);
+          }
+
+          const taskIds = pendingTasks.map((t) => t.id);
+          if (taskIds.length > 0) {
+            relatedConditions.push(and(eq(activities.entityType, 'TASK'), inArray(activities.entityId, taskIds))!);
+          }
+
           const timeline = await tx
             .select()
             .from(activities)
-            .where(eq(activities.tenantId, tenantId))
+            .where(
+              and(
+                eq(activities.tenantId, tenantId),
+                or(...relatedConditions)!
+              )
+            )
             .orderBy(desc(activities.createdAt))
-            .limit(30);
+            .limit(50);
 
           const totalOrderValue = customerOrders.reduce(
             (sum, o) => sum + parseFloat(o.totalAmount || '0'),
@@ -323,10 +353,20 @@ export class CustomersService {
         t.status === 'PENDING'
     );
 
+    const leadIdSet = new Set(tenantLeads.map((l) => l.id));
+    const quoteIdSet = new Set(tenantQuotes.map((q) => q.id));
+    const orderIdSet = new Set(tenantOrders.map((o) => o.id));
+    const taskIdSet = new Set(tenantTasks.map((t) => t.id));
+
     const tenantActivities = globalMemoryActivities.filter(
       (a) =>
         a.tenantId === tenantId &&
-        (a.entityId === customerId || a.metadata?.customerId === customerId)
+        (a.entityId === customerId ||
+          a.metadata?.customerId === customerId ||
+          leadIdSet.has(a.entityId) ||
+          quoteIdSet.has(a.entityId) ||
+          orderIdSet.has(a.entityId) ||
+          taskIdSet.has(a.entityId))
     );
 
     const maskedCustomer = canViewPayments

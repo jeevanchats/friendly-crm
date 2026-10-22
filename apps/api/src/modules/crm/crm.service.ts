@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
-import { sql, eq, and, desc } from 'drizzle-orm';
+import { sql, eq, and, or, ilike, desc } from 'drizzle-orm';
 import { db, customers, leads, tasks, activities, tenants } from '@friendly-crm/db';
 import {
   IntakeLeadDto,
@@ -324,6 +324,40 @@ export class CrmService {
   async getLeads(tenantId: string, filter: LeadFilterQueryDto) {
     try {
       const activeDb = this.getDb();
+      const conditions: any[] = [eq(leads.tenantId, tenantId)];
+
+      if (filter.stage) {
+        conditions.push(eq(leads.stage, filter.stage.toUpperCase() as any));
+      }
+      if (filter.priority) {
+        conditions.push(eq(leads.priority, filter.priority as any));
+      }
+      if (filter.source) {
+        conditions.push(eq(leads.source, filter.source as any));
+      }
+      if (filter.search && filter.search.trim()) {
+        const searchTerm = `%${filter.search.trim()}%`;
+        conditions.push(
+          or(
+            ilike(leads.title, searchTerm),
+            ilike(leads.notes, searchTerm),
+            ilike(customers.name, searchTerm),
+            ilike(customers.phone, searchTerm)
+          )
+        );
+      }
+
+      const whereClause = and(...conditions);
+
+      // True total count of matching records for pagination
+      const [countResult] = await activeDb
+        .select({ total: sql<number>`count(*)::int` })
+        .from(leads)
+        .innerJoin(customers, eq(leads.customerId, customers.id))
+        .where(whereClause);
+
+      const totalCount = countResult?.total ?? 0;
+
       const rows = await activeDb
         .select({
           id: leads.id,
@@ -345,14 +379,14 @@ export class CrmService {
         })
         .from(leads)
         .innerJoin(customers, eq(leads.customerId, customers.id))
-        .where(eq(leads.tenantId, tenantId))
+        .where(whereClause)
         .orderBy(desc(leads.createdAt))
         .limit(filter.limit || 50)
         .offset(filter.offset || 0);
 
       return {
         data: rows,
-        total: rows.length,
+        total: totalCount,
       };
     } catch {
       // Memory Fallback
@@ -367,12 +401,25 @@ export class CrmService {
       if (filter.source) {
         filtered = filtered.filter((l) => l.source === filter.source);
       }
-      if (filter.search) {
-        const s = filter.search.toLowerCase();
-        filtered = filtered.filter((l) => l.title.toLowerCase().includes(s) || l.notes?.toLowerCase().includes(s));
+      if (filter.search && filter.search.trim()) {
+        const s = filter.search.toLowerCase().trim();
+        filtered = filtered.filter((l) => {
+          const cust = this.memoryCustomers.find((c) => c.id === l.customerId);
+          return (
+            l.title.toLowerCase().includes(s) ||
+            l.notes?.toLowerCase().includes(s) ||
+            cust?.name.toLowerCase().includes(s) ||
+            cust?.phone.includes(s)
+          );
+        });
       }
 
-      const rows = filtered.map((lead) => {
+      const totalCount = filtered.length;
+      const offset = filter.offset || 0;
+      const limit = filter.limit || 50;
+      const paginated = filtered.slice(offset, offset + limit);
+
+      const rows = paginated.map((lead) => {
         const cust = this.memoryCustomers.find((c) => c.id === lead.customerId);
         return {
           ...lead,
@@ -385,7 +432,7 @@ export class CrmService {
 
       return {
         data: rows,
-        total: rows.length,
+        total: totalCount,
       };
     }
   }

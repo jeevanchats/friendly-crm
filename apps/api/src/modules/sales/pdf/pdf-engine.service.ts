@@ -1,24 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import PDFDocument from 'pdfkit';
-import { CreateQuotationDto } from '@friendly-crm/shared';
+import { QuotationPdfData } from '@friendly-crm/shared';
 
-export interface QuotationPdfData {
-  quoteNumber: string;
-  validUntil?: string | Date;
-  items?: Array<{
-    description?: string;
-    quantity: number;
-    unitPrice?: number | string | null;
-    total?: number | string | null;
-    lineTotal?: number | string | null;
-  }>;
-  subtotal?: string | number | null;
-  subTotal?: string | number | null;
-  taxTotal?: string | number | null;
-  discountTotal?: string | number | null;
-  grandTotal?: string | number | null;
-  [key: string]: any;
-}
+// pdfkit is a CommonJS module whose root export is the document constructor
+const PDFDocument = require('pdfkit');
+
+export type { QuotationPdfData };
 
 @Injectable()
 export class PdfEngineService {

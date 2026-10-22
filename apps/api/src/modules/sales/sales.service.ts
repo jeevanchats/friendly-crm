@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { sql, eq, and, desc } from 'drizzle-orm';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
+import { PdfEngineService } from './pdf/pdf-engine.service';
 import {
   db,
   quotations,
@@ -66,7 +67,8 @@ export class SalesService {
   private readonly logger = new Logger(SalesService.name);
 
   constructor(
-    @Optional() private readonly notificationOutboxService?: NotificationOutboxService
+    @Optional() private readonly notificationOutboxService?: NotificationOutboxService,
+    @Optional() private readonly pdfEngine: PdfEngineService = new PdfEngineService()
   ) {}
 
   /**
@@ -1032,5 +1034,27 @@ export class SalesService {
       );
       return { data: maskedRows, total: rows.length };
     }
+  }
+
+  /**
+   * 6. Generate Quotation PDF Buffer using PdfEngineService
+   */
+  async generateQuotationPdf(id: string, tenantId: string, userRole: TenantRole): Promise<Buffer> {
+    const data = await this.getQuotationById(id, tenantId, userRole);
+    return this.pdfEngine.generateQuotationPdf({
+      quoteNumber: data.quote.quoteNumber,
+      validUntil: data.quote.validUntil,
+      subTotal: data.quote.subTotal,
+      taxTotal: data.quote.taxTotal,
+      discountTotal: data.quote.discountTotal,
+      grandTotal: data.quote.grandTotal,
+      items: data.items.map((i: any) => ({
+        description: i.description || i.itemName,
+        quantity: Number(i.quantity),
+        unitPrice: i.unitPrice,
+        total: i.lineTotal,
+        lineTotal: i.lineTotal,
+      })),
+    });
   }
 }
