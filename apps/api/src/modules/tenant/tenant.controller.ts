@@ -8,7 +8,7 @@ import {
   CurrentTenant,
 } from '../../common';
 
-@Controller('tenants')
+@Controller(['tenants', 'tenant'])
 export class TenantController {
   constructor(private readonly tenantService: TenantService) {}
 
@@ -17,7 +17,7 @@ export class TenantController {
     return this.tenantService.onboardTenant(dto);
   }
 
-  @Get('current')
+  @Get(['current', 'details'])
   @UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
   @RequirePermission('tenant:read')
   async getCurrentTenant(@CurrentTenant() tenant: { id: string }) {

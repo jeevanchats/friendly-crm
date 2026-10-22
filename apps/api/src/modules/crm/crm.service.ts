@@ -135,93 +135,99 @@ export class CrmService {
       const activeDb = this.getDb();
 
       // Execute within transaction enforcing RLS
-      return await activeDb.transaction(async (tx: any) => {
-        // Enforce Row-Level Security for this transaction
-        await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+      if (typeof activeDb?.transaction === 'function') {
+        return await activeDb.transaction(async (tx: any) => {
+          // Enforce Row-Level Security for this transaction
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-        // Match existing customer or create a new profile
-        let [customer] = await tx
-          .select()
-          .from(customers)
-          .where(and(eq(customers.tenantId, tenantId), eq(customers.phone, normalizedPhone)))
-          .limit(1);
+          // Match existing customer or create a new profile
+          let [customer] = await tx
+            .select()
+            .from(customers)
+            .where(and(eq(customers.tenantId, tenantId), eq(customers.phone, normalizedPhone)))
+            .limit(1);
 
-        let isNewCustomer = false;
-        if (!customer) {
-          isNewCustomer = true;
-          [customer] = await tx
-            .insert(customers)
+          let isNewCustomer = false;
+          if (!customer) {
+            isNewCustomer = true;
+            [customer] = await tx
+              .insert(customers)
+              .values({
+                tenantId,
+                name: customerName,
+                companyName: dto.companyName?.trim() || null,
+                phone: normalizedPhone,
+                whatsappNumber: dto.whatsappNumber ? this.normalizePhone(dto.whatsappNumber) : normalizedPhone,
+                email: dto.email || null,
+                createdById: effectiveActorId,
+              })
+              .returning();
+          }
+
+          // Create the Lead
+          const [lead] = await tx
+            .insert(leads)
             .values({
               tenantId,
-              name: customerName,
-              companyName: dto.companyName?.trim() || null,
-              phone: normalizedPhone,
-              whatsappNumber: dto.whatsappNumber ? this.normalizePhone(dto.whatsappNumber) : normalizedPhone,
-              email: dto.email || null,
-              createdById: effectiveActorId,
+              customerId: customer.id,
+              title: leadTitle,
+              source: dto.source,
+              stage: dto.stage || 'NEW',
+              priority: dto.priority || 'MEDIUM',
+              estimatedValue: dto.estimatedValue ? dto.estimatedValue.toString() : null,
+              notes: dto.notes || null,
+              assignedToId: dto.assignedToId || effectiveActorId,
+              customData: dto.customData || {},
             })
             .returning();
-        }
 
-        // Create the Lead
-        const [lead] = await tx
-          .insert(leads)
-          .values({
+          // Auto-schedule Follow-up Task (+24 hours default)
+          const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          const [followUpTask] = await tx
+            .insert(tasks)
+            .values({
+              tenantId,
+              customerId: customer.id,
+              leadId: lead.id,
+              type: 'FOLLOW_UP_CALL',
+              title: `Follow up with ${customer.name} (${leadTitle})`,
+              dueAt: dueDate,
+              assignedToId: effectiveActorId,
+            })
+            .returning();
+
+          // Write Immutable Activity
+          await tx.insert(activities).values({
             tenantId,
-            customerId: customer.id,
-            title: leadTitle,
-            source: dto.source,
-            stage: dto.stage || 'NEW',
-            priority: dto.priority || 'MEDIUM',
-            estimatedValue: dto.estimatedValue ? dto.estimatedValue.toString() : null,
-            notes: dto.notes || null,
-            assignedToId: dto.assignedToId || effectiveActorId,
-            customData: dto.customData || {},
-          })
-          .returning();
+            actorId: effectiveActorId,
+            entityType: 'LEAD',
+            entityId: lead.id,
+            action: 'LEAD_INTAKE_COMPLETED',
+            metadata: {
+              isNewCustomer,
+              source: dto.source,
+              customerId: customer.id,
+              followUpTaskId: followUpTask.id,
+              industryKey,
+            },
+          });
 
-        // Auto-schedule Follow-up Task (+24 hours default)
-        const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        const [followUpTask] = await tx
-          .insert(tasks)
-          .values({
-            tenantId,
-            customerId: customer.id,
-            leadId: lead.id,
-            type: 'FOLLOW_UP_CALL',
-            title: `Follow up with ${customer.name} (${leadTitle})`,
-            dueAt: dueDate,
-            assignedToId: effectiveActorId,
-          })
-          .returning();
-
-        // Write Immutable Activity
-        await tx.insert(activities).values({
-          tenantId,
-          actorId: effectiveActorId,
-          entityType: 'LEAD',
-          entityId: lead.id,
-          action: 'LEAD_INTAKE_COMPLETED',
-          metadata: {
+          return {
+            success: true,
+            customer,
+            lead,
+            followUpTask,
             isNewCustomer,
-            source: dto.source,
-            customerId: customer.id,
-            followUpTaskId: followUpTask.id,
-            industryKey,
-          },
+            industry: industryKey,
+          };
         });
-
-        return {
-          success: true,
-          customer,
-          lead,
-          followUpTask,
-          isNewCustomer,
-          industry: industryKey,
-        };
-      });
+      }
     } catch (dbErr: any) {
+      if (dbErr instanceof BadRequestException || dbErr instanceof NotFoundException || dbErr instanceof ForbiddenException) {
+        throw dbErr;
+      }
       this.logger.warn(`Postgres offline; utilizing memory fallback: ${dbErr.message}`);
+    }
 
       // Memory Fallback
       let customer = this.memoryCustomers.find(
@@ -290,7 +296,6 @@ export class CrmService {
         industry: industryKey,
       };
     }
-  }
 
   /**
    * 2. GET /api/crm/leads

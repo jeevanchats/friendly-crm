@@ -250,6 +250,89 @@ export const globalMemoryLeads: Array<any> = [
   },
 ];
 
+export const globalMemoryQuotations: Array<any> = [
+  {
+    id: 'quote-demo-1',
+    tenantId: 't-demo-printing',
+    quoteNumber: 'QT-2026-0042',
+    version: 1,
+    customerId: 'c-demo-1',
+    leadId: 'lead-demo-1',
+    status: 'SENT',
+    subTotal: '150000.00',
+    taxTotal: '27000.00',
+    discountTotal: '5000.00',
+    grandTotal: '172000.00',
+    validUntil: new Date(Date.now() + 15 * 86400000),
+    termsAndConditions: 'Payment: 50% advance with PO, 50% on dispatch.\nDelivery: 7 working days after artwork approval.',
+    customData: {
+      job_type: 'PACKAGING_BOX',
+      paper_board_gsm: '350 GSM Cyber Premium Board',
+      print_colors: 'CMYK_PLUS_PANTONE',
+      finishing_ops: ['MATT_LAM', 'SPOT_UV', 'DIE_PUNCH'],
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+];
+
+export const globalMemoryQuotationItems: Array<any> = [
+  {
+    id: 'qi-demo-1',
+    tenantId: 't-demo-printing',
+    quotationId: 'quote-demo-1',
+    itemName: 'Diwali Premium Rigid Boxes (Lidded)',
+    description: '350 GSM Cyber Premium Board, Matt Lamination, Gold Foil Stamping',
+    quantity: '5000.00',
+    unit: 'Nos',
+    unitPrice: '30.00',
+    taxPercent: '18.00',
+    lineTotal: '177000.00',
+  },
+];
+
+export const globalMemoryOrderItems: Array<any> = [
+  {
+    id: 'item-ord-demo-1-1',
+    tenantId: 't-demo-printing',
+    orderId: 'ord-demo-1',
+    itemName: 'Diwali Premium Rigid Boxes (Lidded)',
+    description: '350 GSM Cyber Premium Board, Matt Lamination, Gold Foil Stamping',
+    quantity: '5000.00',
+    unit: 'Nos',
+    unitPrice: '30.00',
+    taxPercent: '18.00',
+    lineTotal: '177000.00',
+  },
+];
+
 export const globalMemoryTasks: Array<any> = [];
 export const globalMemoryActivities: Array<any> = [];
-export const globalMemoryPayments: Array<any> = [];
+export const globalMemoryPayments: Array<any> = [
+  {
+    id: 'pay-demo-1',
+    tenantId: 't-demo-printing',
+    receiptNumber: 'RCP-2026-0101',
+    orderId: 'ord-demo-1',
+    customerId: 'c-demo-1',
+    amount: '86000.00',
+    mode: 'UPI',
+    referenceNo: 'UPI/62891028391',
+    receivedById: 'u-demo-1',
+    paidAt: new Date(Date.now() - 3600000 * 5),
+    notes: 'Initial 50% advance for raw material',
+  },
+  {
+    id: 'pay-demo-2',
+    tenantId: 't-demo-printing',
+    receiptNumber: 'RCP-2026-0098',
+    orderId: 'ord-demo-2',
+    customerId: 'c-demo-2',
+    amount: '50000.00',
+    mode: 'BANK_TRANSFER',
+    referenceNo: 'NEFT-AXIS-91823019',
+    receivedById: 'u-demo-1',
+    paidAt: new Date(Date.now() - 3600000 * 24),
+    notes: 'Advance transfer',
+  },
+];

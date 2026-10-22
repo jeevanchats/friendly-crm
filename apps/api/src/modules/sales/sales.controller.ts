@@ -70,18 +70,19 @@ export class SalesController {
     @CurrentUser() user: { id: string } | undefined,
     @Headers('x-industry-key') industryHeader: string | undefined,
     @Param('id') quotationId: string,
-    @Body() body?: { advanceReceived?: number; expectedDeliveryAt?: string; industryKey?: string }
+    @Body() body?: { advanceReceived?: number; advanceAmount?: number; expectedDeliveryAt?: string; industryKey?: string }
   ) {
     const tenantId = tenant.id;
     const userId = user?.id || '';
     const industryKey = (body?.industryKey || industryHeader || 'printing').toLowerCase();
+    const advance = Number(body?.advanceReceived ?? body?.advanceAmount ?? 0);
 
     return this.salesService.convertQuoteToOrder(
       tenantId,
       userId,
       industryKey,
       quotationId,
-      body?.advanceReceived || 0,
+      advance,
       body?.expectedDeliveryAt
     );
   }

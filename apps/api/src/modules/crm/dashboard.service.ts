@@ -1,171 +1,166 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { sql, eq, and, lte, asc, desc } from 'drizzle-orm';
 import { db, tasks, quotations, orders, customers, activities } from '@friendly-crm/db';
 import { TenantRole, hasPermission } from '@friendly-crm/shared';
 import { randomUUID } from 'crypto';
+import {
+  globalMemoryTasks,
+  globalMemoryActivities,
+  globalMemoryQuotations,
+  globalMemoryOrders,
+  globalMemoryCustomers,
+} from './memory-store';
 
 @Injectable()
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
-
-  // In-memory fallback repository for local offline development & tests
-  private memoryTasks: Array<any> = [
-    {
-      id: 'task-demo-1',
-      tenantId: 't-demo-printing',
-      customerId: 'c-demo-1',
-      customerName: 'Sri Murugan Textiles & Sweets',
-      customerPhone: '+919840123456',
-      leadId: 'lead-demo-1',
-      type: 'FOLLOW_UP_CALL',
-      title: 'Call Sri Murugan Textiles for packaging artwork approval',
-      dueAt: new Date(Date.now() - 3600000).toISOString(), // Overdue
-      status: 'PENDING',
-      assignedToId: 'u-demo-1',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    {
-      id: 'task-demo-2',
-      tenantId: 't-demo-printing',
-      customerId: 'c-demo-2',
-      customerName: 'Karthik Precision Engineering',
-      customerPhone: '+919876543210',
-      leadId: 'lead-demo-2',
-      type: 'WHATSAPP_MESSAGE',
-      title: 'WhatsApp revised quotation with tin mounting options',
-      dueAt: new Date(Date.now() + 1800000).toISOString(), // Due today
-      status: 'PENDING',
-      assignedToId: 'u-demo-1',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  ];
-
-  private memoryActivities: Array<any> = [
-    {
-      id: 'act-init-1',
-      tenantId: 't-demo-printing',
-      actorId: 'u-demo-1',
-      entityType: 'LEAD',
-      entityId: 'lead-demo-1',
-      action: 'LEAD_CREATED',
-      metadata: { source: 'WHATSAPP' },
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-    },
-  ];
 
   /**
    * Fetches Home Screen KPIs + Priority Follow-up List (Section 4)
    */
   async getHomeDashboard(tenantId: string, userId: string, userRole: TenantRole) {
     try {
-      return await db.transaction(async (tx) => {
-        // 1. Enforce PostgreSQL Row-Level Security
-        await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+      if (typeof db?.transaction === 'function') {
+        return await db.transaction(async (tx) => {
+          // 1. Enforce PostgreSQL Row-Level Security
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-        const endOfToday = new Date();
-        endOfToday.setHours(23, 59, 59, 999);
+          const endOfToday = new Date();
+          endOfToday.setHours(23, 59, 59, 999);
 
-        // Salespersons only see their own assigned tasks; Owners/Managers see all
-        const isScopedToUser = userRole === 'SALESPERSON';
+          // Salespersons only see their own assigned tasks; Owners/Managers see all
+          const isScopedToUser = userRole === 'SALESPERSON';
 
-        // 2. KPI 1: Pending & Overdue Follow-ups Count (Due <= Today)
-        const [followUpStats] = await tx
-          .select({ count: sql<number>`count(*)::int` })
-          .from(tasks)
-          .where(
-            and(
-              eq(tasks.tenantId, tenantId),
-              eq(tasks.status, 'PENDING'),
-              lte(tasks.dueAt, endOfToday),
-              isScopedToUser ? eq(tasks.assignedToId, userId) : undefined
+          // 2. KPI 1: Pending & Overdue Follow-ups Count (Due <= Today)
+          const [followUpStats] = await tx
+            .select({ count: sql<number>`count(*)::int` })
+            .from(tasks)
+            .where(
+              and(
+                eq(tasks.tenantId, tenantId),
+                eq(tasks.status, 'PENDING'),
+                lte(tasks.dueAt, endOfToday),
+                isScopedToUser ? eq(tasks.assignedToId, userId) : undefined
+              )
+            );
+
+          // 3. KPI 2: Open Quotations (Status = 'SENT' or 'DRAFT')
+          const [quoteStats] = await tx
+            .select({
+              count: sql<number>`count(*)::int`,
+              totalValue: sql<string>`COALESCE(SUM(grand_total), 0)::text`,
+            })
+            .from(quotations)
+            .where(and(eq(quotations.tenantId, tenantId), eq(quotations.status, 'SENT')));
+
+          // 4. KPI 3 & 4: Active Orders Count + Total Pending Receivables (Balance Due)
+          const [orderStats] = await tx
+            .select({
+              activeCount: sql<number>`count(*) FILTER (WHERE production_stage != 'DELIVERED' AND production_stage != 'INSTALLED')::int`,
+              totalReceivables: sql<string>`COALESCE(SUM(balance_due), 0)::text`,
+            })
+            .from(orders)
+            .where(eq(orders.tenantId, tenantId));
+
+          // 5. Priority Follow-Up Queue (Overdue first, then Today) joined with Customer Phone
+          const priorityTasks = await tx
+            .select({
+              id: tasks.id,
+              type: tasks.type,
+              title: tasks.title,
+              dueAt: tasks.dueAt,
+              customerId: customers.id,
+              customerName: customers.name,
+              customerPhone: customers.phone,
+            })
+            .from(tasks)
+            .innerJoin(customers, eq(tasks.customerId, customers.id))
+            .where(
+              and(
+                eq(tasks.tenantId, tenantId),
+                eq(tasks.status, 'PENDING'),
+                lte(tasks.dueAt, endOfToday),
+                isScopedToUser ? eq(tasks.assignedToId, userId) : undefined
+              )
             )
-          );
+            .orderBy(asc(tasks.dueAt))
+            .limit(20);
 
-        // 3. KPI 2: Open Quotations (Status = 'SENT' or 'DRAFT')
-        const [quoteStats] = await tx
-          .select({
-            count: sql<number>`count(*)::int`,
-            totalValue: sql<string>`COALESCE(SUM(grand_total), 0)::text`,
-          })
-          .from(quotations)
-          .where(and(eq(quotations.tenantId, tenantId), eq(quotations.status, 'SENT')));
+          const canSeeReceivables = hasPermission(userRole, 'payment:view');
 
-        // 4. KPI 3 & 4: Active Orders Count + Total Pending Receivables (Balance Due)
-        const [orderStats] = await tx
-          .select({
-            activeCount: sql<number>`count(*) FILTER (WHERE production_stage != 'DELIVERED' AND production_stage != 'INSTALLED')::int`,
-            totalReceivables: sql<string>`COALESCE(SUM(balance_due), 0)::text`,
-          })
-          .from(orders)
-          .where(eq(orders.tenantId, tenantId));
-
-        // 5. Priority Follow-Up Queue (Overdue first, then Today) joined with Customer Phone
-        const priorityTasks = await tx
-          .select({
-            id: tasks.id,
-            type: tasks.type,
-            title: tasks.title,
-            dueAt: tasks.dueAt,
-            customerId: customers.id,
-            customerName: customers.name,
-            customerPhone: customers.phone,
-          })
-          .from(tasks)
-          .innerJoin(customers, eq(tasks.customerId, customers.id))
-          .where(
-            and(
-              eq(tasks.tenantId, tenantId),
-              eq(tasks.status, 'PENDING'),
-              lte(tasks.dueAt, endOfToday),
-              isScopedToUser ? eq(tasks.assignedToId, userId) : undefined
-            )
-          )
-          .orderBy(asc(tasks.dueAt))
-          .limit(20);
-
-        const canSeeReceivables = hasPermission(userRole, 'payment:view');
-
-        return {
-          summaryCards: {
-            dueFollowUps: followUpStats?.count ?? 0,
-            openQuotations: quoteStats?.count ?? 0,
-            openQuotationsValue: quoteStats?.totalValue ?? '0.00',
-            activeOrders: orderStats?.activeCount ?? 0,
-            totalReceivables: canSeeReceivables ? (orderStats?.totalReceivables ?? '0.00') : null,
-          },
-          priorityTasks,
-        };
-      });
+          return {
+            summaryCards: {
+              dueFollowUps: followUpStats?.count ?? 0,
+              openQuotations: quoteStats?.count ?? 0,
+              openQuotationsValue: quoteStats?.totalValue ?? '0.00',
+              activeOrders: orderStats?.activeCount ?? 0,
+              totalReceivables: canSeeReceivables ? (orderStats?.totalReceivables ?? '0.00') : null,
+            },
+            priorityTasks,
+          };
+        });
+      }
     } catch (err: any) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+        throw err;
+      }
       this.logger.warn(`Postgres offline; utilizing memory fallback for getHomeDashboard: ${err.message}`);
+    }
 
-      const pendingTasks = this.memoryTasks.filter(
-        (t) => t.tenantId === tenantId && t.status === 'PENDING'
-      );
+    const isScopedToUser = userRole === 'SALESPERSON';
+    const pendingTasks = globalMemoryTasks.filter(
+      (t) =>
+        t.tenantId === tenantId &&
+        t.status === 'PENDING' &&
+        (!isScopedToUser || t.assignedToId === userId)
+    );
 
-      const canSeeReceivables = hasPermission(userRole, 'payment:view');
+    const openQuotes = globalMemoryQuotations.filter(
+      (q) => q.tenantId === tenantId && ['SENT', 'DRAFT'].includes(q.status)
+    );
+    const openQuotesVal = openQuotes.reduce(
+      (sum, q) => sum + parseFloat(q.grandTotal || '0'),
+      0
+    );
 
-      return {
-        summaryCards: {
-          dueFollowUps: pendingTasks.length,
-          openQuotations: 2,
-          openQuotationsValue: '185000.00',
-          activeOrders: 3,
-          totalReceivables: canSeeReceivables ? '108000.00' : null,
-        },
-        priorityTasks: pendingTasks.map((t) => ({
+    const tenantOrders = globalMemoryOrders.filter((o) => o.tenantId === tenantId);
+    const activeOrders = tenantOrders.filter(
+      (o) => !['DELIVERED', 'INSTALLED'].includes(o.productionStage)
+    );
+    const totalReceivables = tenantOrders.reduce(
+      (sum, o) => sum + parseFloat(o.balanceDue || '0'),
+      0
+    );
+
+    const canSeeReceivables = hasPermission(userRole, 'payment:view');
+
+    return {
+      summaryCards: {
+        dueFollowUps: pendingTasks.length,
+        openQuotations: openQuotes.length,
+        openQuotationsValue: openQuotesVal.toFixed(2),
+        activeOrders: activeOrders.length,
+        totalReceivables: canSeeReceivables ? totalReceivables.toFixed(2) : null,
+      },
+      priorityTasks: pendingTasks.map((t) => {
+        const cust = globalMemoryCustomers.find((c) => c.id === t.customerId);
+        return {
           id: t.id,
           type: t.type,
           title: t.title,
           dueAt: t.dueAt,
           customerId: t.customerId,
-          customerName: t.customerName,
-          customerPhone: t.customerPhone,
-        })),
-      };
-    }
+          customerName: t.customerName || cust?.name || 'Customer',
+          customerPhone: t.customerPhone || cust?.phone || '',
+        };
+      }),
+    };
   }
 
   /**
@@ -179,78 +174,106 @@ export class DashboardService {
     nextFollowUpAt?: string
   ) {
     try {
-      return await db.transaction(async (tx) => {
-        await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+      if (typeof db?.transaction === 'function') {
+        return await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-        const [completed] = await tx
-          .update(tasks)
-          .set({
-            status: 'COMPLETED',
-            outcomeNote,
-            completedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)))
-          .returning();
+          const [completed] = await tx
+            .update(tasks)
+            .set({
+              status: 'COMPLETED',
+              outcomeNote,
+              completedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)))
+            .returning();
 
-        // Schedule next follow-up if requested
-        if (completed && nextFollowUpAt) {
-          await tx.insert(tasks).values({
-            tenantId,
-            customerId: completed.customerId,
-            leadId: completed.leadId,
-            type: 'FOLLOW_UP_CALL',
-            title: completed.title,
-            dueAt: new Date(nextFollowUpAt),
-            assignedToId: userId,
-          });
-        }
+          if (!completed) {
+            throw new NotFoundException(`Task ${taskId} not found in this tenant`);
+          }
 
-        const [activity] = await tx
-          .insert(activities)
-          .values({
-            tenantId,
-            actorId: userId,
-            entityType: 'LEAD',
-            entityId: completed?.leadId || completed?.customerId || completed?.id || taskId,
-            action: 'FOLLOW_UP_COMPLETED',
-            metadata: { taskId, outcomeNote, nextFollowUpAt },
-          })
-          .returning();
+          // Schedule next follow-up if requested
+          if (nextFollowUpAt) {
+            await tx.insert(tasks).values({
+              tenantId,
+              customerId: completed.customerId,
+              leadId: completed.leadId,
+              type: 'FOLLOW_UP_CALL',
+              title: completed.title,
+              dueAt: new Date(nextFollowUpAt),
+              assignedToId: userId,
+            });
+          }
 
-        return {
-          task: completed,
-          activity,
-        };
-      });
-    } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for completeFollowUpTask: ${err.message}`);
+          const [activity] = await tx
+            .insert(activities)
+            .values({
+              tenantId,
+              actorId: userId,
+              entityType: 'LEAD',
+              entityId: completed?.leadId || completed?.customerId || completed?.id || taskId,
+              action: 'FOLLOW_UP_COMPLETED',
+              metadata: { taskId, outcomeNote, nextFollowUpAt },
+            })
+            .returning();
 
-      const task = this.memoryTasks.find((t) => t.id === taskId);
-      if (task) {
-        task.status = 'COMPLETED';
-        task.outcomeNote = outcomeNote;
-        task.completedAt = new Date().toISOString();
-        task.updatedAt = new Date().toISOString();
+          return {
+            task: completed,
+            activity,
+          };
+        });
       }
+    } catch (err: any) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+        throw err;
+      }
+      this.logger.warn(`Postgres offline; utilizing memory fallback for completeFollowUpTask: ${err.message}`);
+    }
 
-      const activity = {
+    const task = globalMemoryTasks.find((t) => t.id === taskId && t.tenantId === tenantId);
+    if (!task) {
+      throw new NotFoundException(`Task ${taskId} not found in this tenant`);
+    }
+
+    task.status = 'COMPLETED';
+    task.outcomeNote = outcomeNote;
+    task.completedAt = new Date().toISOString();
+    task.updatedAt = new Date().toISOString();
+
+    if (nextFollowUpAt) {
+      const nextTask = {
         id: randomUUID(),
         tenantId,
-        actorId: userId,
-        entityType: 'LEAD',
-        entityId: task?.leadId || task?.customerId || taskId,
-        action: 'FOLLOW_UP_COMPLETED',
-        metadata: { taskId, outcomeNote, nextFollowUpAt },
-        createdAt: new Date().toISOString(),
+        customerId: task.customerId,
+        leadId: task.leadId,
+        type: 'FOLLOW_UP_CALL',
+        title: task.title,
+        dueAt: new Date(nextFollowUpAt).toISOString(),
+        status: 'PENDING',
+        assignedToId: userId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
-      this.memoryActivities.unshift(activity);
-
-      return {
-        task: task || { id: taskId, status: 'COMPLETED', outcomeNote },
-        activity,
-      };
+      globalMemoryTasks.unshift(nextTask);
     }
+
+    const activity = {
+      id: randomUUID(),
+      tenantId,
+      actorId: userId,
+      entityType: 'LEAD',
+      entityId: task.leadId || task.customerId || taskId,
+      action: 'FOLLOW_UP_COMPLETED',
+      metadata: { taskId, outcomeNote, nextFollowUpAt },
+      createdAt: new Date().toISOString(),
+    };
+    globalMemoryActivities.unshift(activity);
+
+    return {
+      task,
+      activity,
+    };
   }
 
   /**
@@ -258,17 +281,22 @@ export class DashboardService {
    */
   async getActivities(tenantId: string) {
     try {
-      return await db.transaction(async (tx) => {
-        await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
-        return await tx
-          .select()
-          .from(activities)
-          .where(eq(activities.tenantId, tenantId))
-          .orderBy(desc(activities.createdAt))
-          .limit(50);
-      });
-    } catch {
-      return this.memoryActivities.filter((a) => a.tenantId === tenantId);
+      if (typeof db?.transaction === 'function') {
+        return await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          return await tx
+            .select()
+            .from(activities)
+            .where(eq(activities.tenantId, tenantId))
+            .orderBy(desc(activities.createdAt))
+            .limit(50);
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Postgres offline; utilizing memory fallback for getActivities: ${err.message}`);
     }
+
+    return globalMemoryActivities.filter((a) => a.tenantId === tenantId);
   }
 }
+

@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { sql, eq, and, desc } from 'drizzle-orm';
 import {
   db,
@@ -6,14 +12,26 @@ import {
   quotationItems,
   orders,
   orderItems,
+  payments,
   leads,
   activities,
   customers,
   tenants,
 } from '@friendly-crm/db';
-import { INDUSTRY_TEMPLATES, IndustryKey, getIndustryTemplate } from '@friendly-crm/shared';
+import { getIndustryTemplate, IndustryKey } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
 import { randomUUID } from 'crypto';
+import {
+  globalMemoryQuotations,
+  globalMemoryQuotationItems,
+  globalMemoryOrders,
+  globalMemoryOrderItems,
+  globalMemoryCustomers,
+  globalMemoryLeads,
+  globalMemoryActivities,
+  globalMemoryTenants,
+  globalMemoryPayments,
+} from '../crm/memory-store';
 
 export interface QuoteLineItemInput {
   itemName: string;
@@ -37,51 +55,6 @@ export interface CreateQuotationDto {
 @Injectable()
 export class SalesService {
   private readonly logger = new Logger(SalesService.name);
-
-  // In-memory fallback repository for local offline development & tests
-  private memoryQuotations: Array<any> = [
-    {
-      id: 'quote-demo-1',
-      tenantId: 't-demo-printing',
-      quoteNumber: 'QT-2026-0042',
-      version: 1,
-      customerId: 'c-demo-1',
-      leadId: 'lead-demo-1',
-      status: 'SENT',
-      subTotal: '150000.00',
-      taxTotal: '27000.00',
-      discountTotal: '5000.00',
-      grandTotal: '172000.00',
-      validUntil: new Date(Date.now() + 15 * 86400000),
-      termsAndConditions: 'Payment: 50% advance with PO, 50% on dispatch.\nDelivery: 7 working days after artwork approval.',
-      customData: {
-        job_type: 'PACKAGING_BOX',
-        paper_board_gsm: '350 GSM Cyber Premium Board',
-        print_colors: 'CMYK_PLUS_PANTONE',
-        finishing_ops: ['MATT_LAM', 'SPOT_UV', 'DIE_PUNCH'],
-      },
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  ];
-
-  private memoryQuotationItems: Array<any> = [
-    {
-      id: 'qi-demo-1',
-      tenantId: 't-demo-printing',
-      quotationId: 'quote-demo-1',
-      itemName: 'Diwali Premium Rigid Boxes (Lidded)',
-      description: '350 GSM Cyber Premium Board, Matt Lamination, Gold Foil Stamping',
-      quantity: '5000.00',
-      unit: 'Nos',
-      unitPrice: '30.00',
-      taxPercent: '18.00',
-      lineTotal: '177000.00',
-    },
-  ];
-
-  private memoryOrders: Array<any> = [];
-  private memoryOrderItems: Array<any> = [];
 
   /**
    * Helper to retrieve active database transaction from TenantRlsInterceptor or default db client
@@ -138,85 +111,140 @@ export class SalesService {
     try {
       const activeDb = this.getDb();
 
-      return await activeDb.transaction(async (tx: any) => {
-        await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+      if (typeof activeDb?.transaction === 'function') {
+        return await activeDb.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-        const [quote] = await tx
-          .insert(quotations)
-          .values({
+          // Validate customer exists and belongs to active tenant
+          const [customer] = await tx
+            .select()
+            .from(customers)
+            .where(and(eq(customers.id, dto.customerId), eq(customers.tenantId, tenantId)))
+            .limit(1);
+
+          if (!customer) {
+            throw new NotFoundException('Customer not found in this tenant organization');
+          }
+
+          if (dto.leadId) {
+            const [lead] = await tx
+              .select()
+              .from(leads)
+              .where(and(eq(leads.id, dto.leadId), eq(leads.tenantId, tenantId)))
+              .limit(1);
+            if (!lead) {
+              throw new NotFoundException('Lead not found in this tenant organization');
+            }
+          }
+
+          const [quote] = await tx
+            .insert(quotations)
+            .values({
+              tenantId,
+              quoteNumber,
+              version: 1,
+              customerId: dto.customerId,
+              leadId: dto.leadId || null,
+              status: 'SENT',
+              subTotal: this.roundMoney(subTotal),
+              taxTotal: this.roundMoney(taxTotal),
+              discountTotal: this.roundMoney(discount),
+              grandTotal: this.roundMoney(grandTotal),
+              validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
+              termsAndConditions: dto.termsAndConditions || null,
+              customData: dto.customData || {},
+            })
+            .returning();
+
+          const insertedItems = await tx
+            .insert(quotationItems)
+            .values(computedItems.map((i) => ({ ...i, quotationId: quote.id })))
+            .returning();
+
+          // Advance linked Lead to QUOTED stage automatically
+          if (dto.leadId) {
+            await tx
+              .update(leads)
+              .set({ stage: 'QUOTED', estimatedValue: this.roundMoney(grandTotal) })
+              .where(and(eq(leads.id, dto.leadId), eq(leads.tenantId, tenantId)));
+          }
+
+          await tx.insert(activities).values({
             tenantId,
-            quoteNumber,
-            version: 1,
-            customerId: dto.customerId,
-            leadId: dto.leadId || null,
-            status: 'SENT',
-            subTotal: this.roundMoney(subTotal),
-            taxTotal: this.roundMoney(taxTotal),
-            discountTotal: this.roundMoney(discount),
-            grandTotal: this.roundMoney(grandTotal),
-            validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
-            termsAndConditions: dto.termsAndConditions || null,
-            customData: dto.customData || {},
-          })
-          .returning();
+            actorId: userId || null,
+            entityType: 'QUOTATION',
+            entityId: quote.id,
+            action: 'QUOTATION_CREATED_V1',
+            metadata: { quoteNumber, grandTotal: quote.grandTotal },
+          });
 
-        const insertedItems = await tx
-          .insert(quotationItems)
-          .values(computedItems.map((i) => ({ ...i, quotationId: quote.id })))
-          .returning();
-
-        // Advance linked Lead to QUOTED stage automatically
-        if (dto.leadId) {
-          await tx
-            .update(leads)
-            .set({ stage: 'QUOTED', estimatedValue: this.roundMoney(grandTotal) })
-            .where(and(eq(leads.id, dto.leadId), eq(leads.tenantId, tenantId)));
-        }
-
-        await tx.insert(activities).values({
-          tenantId,
-          actorId: userId || null,
-          entityType: 'QUOTATION',
-          entityId: quote.id,
-          action: 'QUOTATION_CREATED_V1',
-          metadata: { quoteNumber, grandTotal: quote.grandTotal },
+          return { ...quote, items: insertedItems };
         });
-
-        return { ...quote, items: insertedItems };
-      });
+      }
     } catch (err: any) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+        throw err;
+      }
       this.logger.warn(`Postgres offline; utilizing memory fallback for createQuotation: ${err.message}`);
-
-      const quoteId = randomUUID();
-      const quote = {
-        id: quoteId,
-        tenantId,
-        quoteNumber,
-        version: 1,
-        customerId: dto.customerId,
-        leadId: dto.leadId || null,
-        status: 'SENT',
-        subTotal: this.roundMoney(subTotal),
-        taxTotal: this.roundMoney(taxTotal),
-        discountTotal: this.roundMoney(discount),
-        grandTotal: this.roundMoney(grandTotal),
-        validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
-        termsAndConditions: dto.termsAndConditions || 'Payment: 50% advance, 50% before dispatch.',
-        customData: dto.customData || {},
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      this.memoryQuotations.unshift(quote);
-
-      const items = computedItems.map((item) => ({
-        ...item,
-        id: randomUUID(),
-        quotationId: quoteId,
-      }));
-      this.memoryQuotationItems.push(...items);
-
-      return { ...quote, items };
     }
+
+    // Unified Memory Fallback
+    const customer = globalMemoryCustomers.find(
+      (c) => c.id === dto.customerId && c.tenantId === tenantId
+    );
+    if (!customer) {
+      throw new NotFoundException('Customer not found in this tenant organization');
+    }
+
+    if (dto.leadId) {
+      const lead = globalMemoryLeads.find((l) => l.id === dto.leadId && l.tenantId === tenantId);
+      if (!lead) {
+        throw new NotFoundException('Lead not found in this tenant organization');
+      }
+      lead.stage = 'QUOTED';
+      lead.estimatedValue = this.roundMoney(grandTotal);
+    }
+
+    const quoteId = randomUUID();
+    const quote = {
+      id: quoteId,
+      tenantId,
+      quoteNumber,
+      version: 1,
+      customerId: dto.customerId,
+      leadId: dto.leadId || null,
+      status: 'SENT',
+      subTotal: this.roundMoney(subTotal),
+      taxTotal: this.roundMoney(taxTotal),
+      discountTotal: this.roundMoney(discount),
+      grandTotal: this.roundMoney(grandTotal),
+      validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
+      termsAndConditions: dto.termsAndConditions || 'Payment: 50% advance, 50% before dispatch.',
+      customData: dto.customData || {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    globalMemoryQuotations.unshift(quote);
+
+    const items = computedItems.map((item) => ({
+      ...item,
+      id: randomUUID(),
+      quotationId: quoteId,
+    }));
+    globalMemoryQuotationItems.push(...items);
+
+    globalMemoryActivities.unshift({
+      id: randomUUID(),
+      tenantId,
+      actorId: userId || null,
+      entityType: 'QUOTATION',
+      entityId: quote.id,
+      action: 'QUOTATION_CREATED_V1',
+      metadata: { quoteNumber, grandTotal: quote.grandTotal },
+      createdAt: new Date(),
+    });
+
+    return { ...quote, items };
   }
 
   /**
@@ -256,100 +284,118 @@ export class SalesService {
     try {
       const activeDb = this.getDb();
 
-      return await activeDb.transaction(async (tx: any) => {
-        await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+      if (typeof activeDb?.transaction === 'function') {
+        return await activeDb.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-        const [prevQuote] = await tx
-          .select()
-          .from(quotations)
-          .where(and(eq(quotations.id, existingQuoteId), eq(quotations.tenantId, tenantId)))
-          .limit(1);
+          const [prevQuote] = await tx
+            .select()
+            .from(quotations)
+            .where(and(eq(quotations.id, existingQuoteId), eq(quotations.tenantId, tenantId)))
+            .limit(1);
 
-        if (!prevQuote) throw new NotFoundException('Original quotation not found');
+          if (!prevQuote) throw new NotFoundException('Original quotation not found in this tenant');
 
-        // Mark previous version as superseded
-        await tx
-          .update(quotations)
-          .set({ status: 'REJECTED' })
-          .where(eq(quotations.id, prevQuote.id));
+          // Mark previous version as superseded
+          await tx
+            .update(quotations)
+            .set({ status: 'REJECTED' })
+            .where(eq(quotations.id, prevQuote.id));
 
-        const nextVersion = prevQuote.version + 1;
+          const nextVersion = prevQuote.version + 1;
 
-        const [revisedQuote] = await tx
-          .insert(quotations)
-          .values({
+          const [revisedQuote] = await tx
+            .insert(quotations)
+            .values({
+              tenantId,
+              quoteNumber: prevQuote.quoteNumber,
+              version: nextVersion,
+              parentQuoteId: prevQuote.id,
+              customerId: prevQuote.customerId,
+              leadId: prevQuote.leadId,
+              status: 'SENT',
+              subTotal: this.roundMoney(subTotal),
+              taxTotal: this.roundMoney(taxTotal),
+              discountTotal: this.roundMoney(discount),
+              grandTotal: this.roundMoney(grandTotal),
+              termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
+              customData: dto.customData || prevQuote.customData,
+            })
+            .returning();
+
+          const insertedItems = await tx
+            .insert(quotationItems)
+            .values(computedItems.map((i) => ({ ...i, quotationId: revisedQuote.id })))
+            .returning();
+
+          await tx.insert(activities).values({
             tenantId,
-            quoteNumber: prevQuote.quoteNumber, // Keeps same base number, increments version
-            version: nextVersion,
-            parentQuoteId: prevQuote.id,
-            customerId: prevQuote.customerId,
-            leadId: prevQuote.leadId,
-            status: 'SENT',
-            subTotal: this.roundMoney(subTotal),
-            taxTotal: this.roundMoney(taxTotal),
-            discountTotal: this.roundMoney(discount),
-            grandTotal: this.roundMoney(grandTotal),
-            termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
-            customData: dto.customData || prevQuote.customData,
-          })
-          .returning();
+            actorId: userId || null,
+            entityType: 'QUOTATION',
+            entityId: revisedQuote.id,
+            action: `QUOTATION_REVISED_V${nextVersion}`,
+            metadata: { previousQuoteId: prevQuote.id, grandTotal: revisedQuote.grandTotal },
+          });
 
-        const insertedItems = await tx
-          .insert(quotationItems)
-          .values(computedItems.map((i) => ({ ...i, quotationId: revisedQuote.id })))
-          .returning();
-
-        await tx.insert(activities).values({
-          tenantId,
-          actorId: userId || null,
-          entityType: 'QUOTATION',
-          entityId: revisedQuote.id,
-          action: `QUOTATION_REVISED_V${nextVersion}`,
-          metadata: { previousQuoteId: prevQuote.id, grandTotal: revisedQuote.grandTotal },
+          return { ...revisedQuote, items: insertedItems };
         });
-
-        return { ...revisedQuote, items: insertedItems };
-      });
+      }
     } catch (err: any) {
-      if (err instanceof NotFoundException) throw err;
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+        throw err;
+      }
       this.logger.warn(`Postgres offline; utilizing memory fallback for createRevision: ${err.message}`);
-
-      const prevQuote = this.memoryQuotations.find((q) => q.id === existingQuoteId);
-      if (!prevQuote) throw new NotFoundException('Original quotation not found');
-
-      prevQuote.status = 'REJECTED';
-      const nextVersion = prevQuote.version + 1;
-      const revisedQuoteId = randomUUID();
-
-      const revisedQuote = {
-        id: revisedQuoteId,
-        tenantId,
-        quoteNumber: prevQuote.quoteNumber,
-        version: nextVersion,
-        parentQuoteId: prevQuote.id,
-        customerId: prevQuote.customerId,
-        leadId: prevQuote.leadId,
-        status: 'SENT',
-        subTotal: this.roundMoney(subTotal),
-        taxTotal: this.roundMoney(taxTotal),
-        discountTotal: this.roundMoney(discount),
-        grandTotal: this.roundMoney(grandTotal),
-        termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
-        customData: dto.customData || prevQuote.customData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      this.memoryQuotations.unshift(revisedQuote);
-
-      const items = computedItems.map((item) => ({
-        ...item,
-        id: randomUUID(),
-        quotationId: revisedQuoteId,
-      }));
-      this.memoryQuotationItems.push(...items);
-
-      return { ...revisedQuote, items };
     }
+
+    // Unified Memory Fallback
+    const prevQuote = globalMemoryQuotations.find(
+      (q) => q.id === existingQuoteId && q.tenantId === tenantId
+    );
+    if (!prevQuote) throw new NotFoundException('Original quotation not found in this tenant');
+
+    prevQuote.status = 'REJECTED';
+    const nextVersion = prevQuote.version + 1;
+    const revisedQuoteId = randomUUID();
+
+    const revisedQuote = {
+      id: revisedQuoteId,
+      tenantId,
+      quoteNumber: prevQuote.quoteNumber,
+      version: nextVersion,
+      parentQuoteId: prevQuote.id,
+      customerId: prevQuote.customerId,
+      leadId: prevQuote.leadId,
+      status: 'SENT',
+      subTotal: this.roundMoney(subTotal),
+      taxTotal: this.roundMoney(taxTotal),
+      discountTotal: this.roundMoney(discount),
+      grandTotal: this.roundMoney(grandTotal),
+      termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
+      customData: dto.customData || prevQuote.customData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    globalMemoryQuotations.unshift(revisedQuote);
+
+    const items = computedItems.map((item) => ({
+      ...item,
+      id: randomUUID(),
+      quotationId: revisedQuoteId,
+    }));
+    globalMemoryQuotationItems.push(...items);
+
+    globalMemoryActivities.unshift({
+      id: randomUUID(),
+      tenantId,
+      actorId: userId || null,
+      entityType: 'QUOTATION',
+      entityId: revisedQuote.id,
+      action: `QUOTATION_REVISED_V${nextVersion}`,
+      metadata: { previousQuoteId: prevQuote.id, grandTotal: revisedQuote.grandTotal },
+      createdAt: new Date(),
+    });
+
+    return { ...revisedQuote, items };
   }
 
   /**
@@ -370,144 +416,230 @@ export class SalesService {
     try {
       const activeDb = this.getDb();
 
-      return await activeDb.transaction(async (tx: any) => {
-        await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+      if (typeof activeDb?.transaction === 'function') {
+        return await activeDb.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-        const [quote] = await tx
-          .select()
-          .from(quotations)
-          .where(and(eq(quotations.id, quotationId), eq(quotations.tenantId, tenantId)))
-          .limit(1);
+          const [quote] = await tx
+            .select()
+            .from(quotations)
+            .where(and(eq(quotations.id, quotationId), eq(quotations.tenantId, tenantId)))
+            .limit(1);
 
-        if (!quote) throw new NotFoundException('Quotation not found');
-        if (quote.status === 'CONVERTED') {
-          throw new BadRequestException('Quotation is already converted to an order');
-        }
+          if (!quote) throw new NotFoundException('Quotation not found in this tenant');
+          if (quote.status === 'CONVERTED') {
+            throw new BadRequestException('Quotation is already converted to an order');
+          }
 
-        const items = await tx
-          .select()
-          .from(quotationItems)
-          .where(eq(quotationItems.quotationId, quote.id));
+          const items = await tx
+            .select()
+            .from(quotationItems)
+            .where(and(eq(quotationItems.quotationId, quote.id), eq(quotationItems.tenantId, tenantId)));
 
-        const total = parseFloat(quote.grandTotal);
-        const balance = total - advanceReceived;
+          const total = parseFloat(quote.grandTotal);
+          const balance = total - advanceReceived;
 
-        const [order] = await tx
-          .insert(orders)
-          .values({
-            tenantId,
-            orderNumber,
-            customerId: quote.customerId,
-            quotationId: quote.id,
-            productionStage: firstStage,
-            totalAmount: this.roundMoney(total),
-            advanceReceived: this.roundMoney(advanceReceived),
-            balanceDue: this.roundMoney(balance),
-            expectedDeliveryAt: expectedDeliveryAt ? new Date(expectedDeliveryAt) : null,
-            customData: quote.customData,
-          })
-          .returning();
+          const [order] = await tx
+            .insert(orders)
+            .values({
+              tenantId,
+              orderNumber,
+              customerId: quote.customerId,
+              quotationId: quote.id,
+              productionStage: firstStage,
+              totalAmount: this.roundMoney(total),
+              advanceReceived: this.roundMoney(advanceReceived),
+              balanceDue: this.roundMoney(balance),
+              expectedDeliveryAt: expectedDeliveryAt ? new Date(expectedDeliveryAt) : null,
+              customData: quote.customData,
+            })
+            .returning();
 
-        // Copy quote items into immutable order items
-        await tx.insert(orderItems).values(
-          items.map((item: any) => ({
-            tenantId,
-            orderId: order.id,
-            itemName: item.itemName,
-            description: item.description,
-            quantity: item.quantity,
-            unit: item.unit,
-            unitPrice: item.unitPrice,
-            taxPercent: item.taxPercent,
-            lineTotal: item.lineTotal,
-          }))
-        );
+          if (items.length > 0) {
+            await tx.insert(orderItems).values(
+              items.map((item) => ({
+                tenantId,
+                orderId: order.id,
+                itemName: item.itemName,
+                description: item.description,
+                quantity: item.quantity,
+                unit: item.unit,
+                unitPrice: item.unitPrice,
+                taxPercent: item.taxPercent,
+                lineTotal: item.lineTotal,
+              }))
+            );
+          }
 
-        // Mark quotation CONVERTED & Lead WON
-        await tx
-          .update(quotations)
-          .set({ status: 'CONVERTED' })
-          .where(eq(quotations.id, quote.id));
-
-        if (quote.leadId) {
+          // Mark quote as CONVERTED
           await tx
-            .update(leads)
-            .set({ stage: 'WON' })
-            .where(eq(leads.id, quote.leadId));
-        }
+            .update(quotations)
+            .set({ status: 'CONVERTED' })
+            .where(and(eq(quotations.id, quote.id), eq(quotations.tenantId, tenantId)));
 
-        await tx.insert(activities).values({
-          tenantId,
-          actorId: userId || null,
-          entityType: 'ORDER',
-          entityId: order.id,
-          action: 'ORDER_CONVERTED_FROM_QUOTE',
-          metadata: {
-            quotationId: quote.id,
-            orderNumber,
-            initialStage: firstStage,
-            advanceReceived: order.advanceReceived,
-          },
+          // Mark linked lead as WON
+          if (quote.leadId) {
+            await tx
+              .update(leads)
+              .set({ stage: 'WON' })
+              .where(and(eq(leads.id, quote.leadId), eq(leads.tenantId, tenantId)));
+          }
+
+          if (advanceReceived > 0) {
+            const receiptNumber = `RCP-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+            await tx.insert(payments).values({
+              tenantId,
+              receiptNumber,
+              customerId: quote.customerId,
+              orderId: order.id,
+              amount: this.roundMoney(advanceReceived),
+              mode: 'UPI',
+              referenceNo: `REF-${Date.now().toString().slice(-6)}`,
+              receivedById: userId || null,
+              notes: 'Advance received at quotation conversion',
+              paidAt: new Date(),
+            });
+          }
+
+          await tx.insert(activities).values({
+            tenantId,
+            actorId: userId || null,
+            entityType: 'ORDER',
+            entityId: order.id,
+            action: 'QUOTE_CONVERTED_TO_ORDER',
+            metadata: { orderNumber, quotationId: quote.id, totalAmount: order.totalAmount },
+          });
+
+          return {
+            success: true,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            ...order,
+            quotation: { ...quote, status: 'CONVERTED' },
+          };
         });
-
-        return order;
-      });
-    } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
-      this.logger.warn(`Postgres offline; utilizing memory fallback for convertQuoteToOrder: ${err.message}`);
-
-      const quote = this.memoryQuotations.find((q) => q.id === quotationId);
-      if (!quote) throw new NotFoundException('Quotation not found');
-      if (quote.status === 'CONVERTED') {
-        throw new BadRequestException('Quotation is already converted to an order');
       }
-
-      quote.status = 'CONVERTED';
-      const items = this.memoryQuotationItems.filter((i) => i.quotationId === quotationId);
-
-      const total = parseFloat(quote.grandTotal);
-      const balance = total - advanceReceived;
-      const orderId = randomUUID();
-
-      const order = {
-        id: orderId,
-        tenantId,
-        orderNumber,
-        customerId: quote.customerId,
-        quotationId: quote.id,
-        productionStage: firstStage,
-        totalAmount: this.roundMoney(total),
-        advanceReceived: this.roundMoney(advanceReceived),
-        balanceDue: this.roundMoney(balance),
-        expectedDeliveryAt: expectedDeliveryAt ? new Date(expectedDeliveryAt) : null,
-        customData: quote.customData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      this.memoryOrders.unshift(order);
-
-      const copyItems = items.map((item) => ({
-        ...item,
-        id: randomUUID(),
-        orderId,
-      }));
-      this.memoryOrderItems.push(...copyItems);
-
-      return order;
+    } catch (err: any) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+        throw err;
+      }
+      this.logger.warn(`Postgres offline; utilizing memory fallback for convertQuoteToOrder: ${err.message}`);
     }
+
+    // Unified Memory Fallback
+    const quote = globalMemoryQuotations.find(
+      (q) => q.id === quotationId && q.tenantId === tenantId
+    );
+    if (!quote) throw new NotFoundException('Quotation not found in this tenant');
+    if (quote.status === 'CONVERTED') {
+      throw new BadRequestException('Quotation is already converted to an order');
+    }
+
+    quote.status = 'CONVERTED';
+    const items = globalMemoryQuotationItems.filter(
+      (i) => i.quotationId === quotationId && i.tenantId === tenantId
+    );
+
+    const total = parseFloat(quote.grandTotal);
+    const balance = total - advanceReceived;
+    const orderId = randomUUID();
+
+    const order = {
+      id: orderId,
+      tenantId,
+      orderNumber,
+      customerId: quote.customerId,
+      quotationId: quote.id,
+      productionStage: firstStage,
+      totalAmount: this.roundMoney(total),
+      advanceReceived: this.roundMoney(advanceReceived),
+      balanceDue: this.roundMoney(balance),
+      expectedDeliveryAt: expectedDeliveryAt ? new Date(expectedDeliveryAt) : null,
+      customData: quote.customData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    globalMemoryOrders.unshift(order);
+
+    const copyItems = items.map((item) => ({
+      ...item,
+      id: randomUUID(),
+      orderId,
+      tenantId,
+    }));
+    globalMemoryOrderItems.push(...copyItems);
+
+    if (advanceReceived > 0) {
+      const receiptNumber = `RCP-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+      globalMemoryPayments.unshift({
+        id: randomUUID(),
+        tenantId,
+        receiptNumber,
+        customerId: quote.customerId,
+        orderId,
+        amount: this.roundMoney(advanceReceived),
+        mode: 'UPI',
+        referenceNo: `REF-${Date.now().toString().slice(-6)}`,
+        receivedById: userId || null,
+        paidAt: new Date(),
+        notes: 'Advance received at quotation conversion',
+      });
+    }
+
+    // Update customer active orders
+    const customer = globalMemoryCustomers.find(
+      (c) => c.id === quote.customerId && c.tenantId === tenantId
+    );
+    if (customer) {
+      customer.activeOrdersCount = (customer.activeOrdersCount || 0) + 1;
+      const currentReceivable = parseFloat(customer.totalReceivable || '0');
+      customer.totalReceivable = this.roundMoney(currentReceivable + balance);
+    }
+
+    // Mark lead WON
+    if (quote.leadId) {
+      const lead = globalMemoryLeads.find((l) => l.id === quote.leadId && l.tenantId === tenantId);
+      if (lead) {
+        lead.stage = 'WON';
+      }
+    }
+
+    globalMemoryActivities.unshift({
+      id: randomUUID(),
+      tenantId,
+      actorId: userId || null,
+      entityType: 'ORDER',
+      entityId: orderId,
+      action: 'QUOTE_CONVERTED_TO_ORDER',
+      metadata: { orderNumber, quotationId: quote.id, totalAmount: order.totalAmount },
+      createdAt: new Date(),
+    });
+
+    return {
+      success: true,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      ...order,
+      quotation: quote,
+    };
   }
 
   /**
-   * 4. Retrieve Full Quotation Details with Customer, Items, and Tenant for PDF rendering
+   * 4. Retrieve Full Quotation Details with Customer, Items, and Tenant
    */
   async getQuotationById(id: string, tenantId?: string) {
     try {
       const activeDb = this.getDb();
 
+      const whereConditions = [eq(quotations.id, id)];
+      if (tenantId) {
+        whereConditions.push(eq(quotations.tenantId, tenantId));
+      }
+
       const [quote] = await activeDb
         .select()
         .from(quotations)
-        .where(eq(quotations.id, id))
+        .where(and(...whereConditions))
         .limit(1);
 
       if (!quote) throw new NotFoundException(`Quotation with id '${id}' not found`);
@@ -515,13 +647,13 @@ export class SalesService {
       const [customer] = await activeDb
         .select()
         .from(customers)
-        .where(eq(customers.id, quote.customerId))
+        .where(and(eq(customers.id, quote.customerId), eq(customers.tenantId, quote.tenantId)))
         .limit(1);
 
       const items = await activeDb
         .select()
         .from(quotationItems)
-        .where(eq(quotationItems.quotationId, quote.id));
+        .where(and(eq(quotationItems.quotationId, quote.id), eq(quotationItems.tenantId, quote.tenantId)));
 
       const [tenant] = await activeDb
         .select()
@@ -529,12 +661,13 @@ export class SalesService {
         .where(eq(tenants.id, quote.tenantId))
         .limit(1);
 
-      const industryKey = tenant?.industryKey || 'printing';
+      const industryKey = (tenant?.industryKey || 'printing') as IndustryKey;
       const template = getIndustryTemplate(industryKey);
 
       return {
         quote,
         customer: customer || {
+          id: quote.customerId,
           name: 'Direct Customer',
           phone: '+919840123456',
           companyName: null,
@@ -543,56 +676,57 @@ export class SalesService {
         },
         items,
         tenant: tenant || {
-          name: 'Sivakasi Fine Prints & Packaging',
+          name: 'Business Tenant',
           phone: '+91 98400 11223',
-          gstNumber: '33AABCU9603R1ZM',
+          gstNumber: null,
           industryKey,
         },
         industryTemplate: template,
       };
     } catch (err: any) {
-      if (err instanceof NotFoundException) throw err;
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+        throw err;
+      }
       this.logger.warn(`Postgres offline; utilizing memory fallback for getQuotationById: ${err.message}`);
-
-      const quote = this.memoryQuotations.find((q) => q.id === id) || this.memoryQuotations[0];
-      if (!quote) throw new NotFoundException(`Quotation with id '${id}' not found`);
-
-      const items = this.memoryQuotationItems.filter((i) => i.quotationId === quote.id);
-      const industryKey = 'printing';
-      const template = getIndustryTemplate(industryKey);
-
-      return {
-        quote,
-        customer: {
-          id: quote.customerId,
-          name: 'Sri Murugan Textiles & Sweets',
-          phone: '+91 98401 23456',
-          companyName: 'Murugan Retailers Pvt Ltd',
-          gstin: '33AAAAA0000A1Z5',
-          billingAddress: '42, Mill Road, Crosscut, Coimbatore, Tamil Nadu - 641002',
-        },
-        items: items.length > 0 ? items : [
-          {
-            id: 'qi-fallback-1',
-            itemName: 'Diwali Rigid Sweet Boxes (10,000 Qty)',
-            description: '350 GSM Cyber Premium Board, Matt Lamination, Gold Foil Stamping',
-            quantity: '10000.00',
-            unit: 'Nos',
-            unitPrice: '15.00',
-            taxPercent: '18.00',
-            lineTotal: '177000.00',
-          },
-        ],
-        tenant: {
-          name: 'Sivakasi Fine Prints & Packaging',
-          phone: '+91 98400 11223',
-          gstNumber: '33AABCU9603R1ZM',
-          address: '12, Printing Press Colony, Sivakasi, Tamil Nadu - 626123',
-          industryKey,
-        },
-        industryTemplate: template,
-      };
     }
+
+    // Unified Memory Fallback — STRICT TENANT SCOPE, NO FALLBACK TO FIRST DEMO QUOTE!
+    const quote = globalMemoryQuotations.find(
+      (q) => q.id === id && (!tenantId || q.tenantId === tenantId)
+    );
+    if (!quote) {
+      throw new NotFoundException(`Quotation with id '${id}' not found`);
+    }
+
+    const customer = globalMemoryCustomers.find(
+      (c) => c.id === quote.customerId && c.tenantId === quote.tenantId
+    );
+    const items = globalMemoryQuotationItems.filter(
+      (i) => i.quotationId === quote.id && i.tenantId === quote.tenantId
+    );
+    const tenant = globalMemoryTenants.get(quote.tenantId);
+    const industryKey = (tenant?.industryKey || 'printing') as IndustryKey;
+    const template = getIndustryTemplate(industryKey);
+
+    return {
+      quote,
+      customer: customer || {
+        id: quote.customerId,
+        name: 'Direct Customer',
+        phone: '+919840123456',
+        companyName: null,
+        billingAddress: null,
+        gstin: null,
+      },
+      items,
+      tenant: tenant || {
+        name: 'Tenant ' + quote.tenantId.slice(0, 8),
+        phone: '+91 98400 11223',
+        gstNumber: null,
+        industryKey,
+      },
+      industryTemplate: template,
+    };
   }
 
   /**
@@ -609,7 +743,7 @@ export class SalesService {
 
       return { data: rows, total: rows.length };
     } catch {
-      const rows = this.memoryQuotations.filter((q) => q.tenantId === tenantId);
+      const rows = globalMemoryQuotations.filter((q) => q.tenantId === tenantId);
       return { data: rows, total: rows.length };
     }
   }
