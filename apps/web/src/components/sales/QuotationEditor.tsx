@@ -54,8 +54,8 @@ export function QuotationEditor() {
   };
 
   const subtotal = items.reduce((acc, it) => acc + it.quantity * it.unitPrice, 0);
-  const grandTotal = items.reduce((acc, it) => acc + it.total, 0);
-  const taxTotal = Math.round(grandTotal - items.reduce((acc, it) => acc + it.quantity * it.unitPrice * (1 - it.discountPercent / 100), 0));
+  const grandTotal = items.reduce((acc, it) => acc + (it.total || 0), 0);
+  const taxTotal = Math.round(grandTotal - items.reduce((acc, it) => acc + it.quantity * it.unitPrice * (1 - (it.discountPercent || 0) / 100), 0));
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
@@ -95,7 +95,7 @@ export function QuotationEditor() {
             <input
               type="text"
               placeholder="Item name / description"
-              value={item.description}
+              value={item.description || ''}
               onChange={(e) => updateItem(index, 'description', e.target.value)}
               className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded bg-white"
             />
@@ -143,7 +143,7 @@ export function QuotationEditor() {
             </div>
 
             <div className="text-right text-xs font-semibold text-slate-800">
-              Item Total: ₹{item.total.toLocaleString()}
+              Item Total: ₹{(item.total || 0).toLocaleString()}
             </div>
           </div>
         ))}

@@ -5,10 +5,11 @@ import {
   Body,
   Param,
   Headers,
+  BadRequestException,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { SalesService, CreateQuotationDto } from './sales.service';
+import { SalesService } from './sales.service';
 import {
   AuthGuard,
   TenantGuard,
@@ -19,6 +20,11 @@ import {
   CurrentTenant,
   CurrentUser,
 } from '../../common';
+import {
+  CreateQuotationSchema,
+  ConvertQuoteToOrderSchema,
+  CreateQuotationDto,
+} from '@friendly-crm/shared';
 
 @Controller('sales')
 @UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
@@ -35,11 +41,24 @@ export class SalesController {
   async createQuotation(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
-    @Body() dto: CreateQuotationDto
+    @Headers('idempotency-key') headerKey: string | undefined,
+    @Headers('x-idempotency-key') xHeaderKey: string | undefined,
+    @Body() rawBody: unknown
   ) {
+    const parsed = CreateQuotationSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const errorMsg = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'ValidationError',
+        message: errorMsg,
+      });
+    }
+
     const tenantId = tenant.id;
     const userId = user?.id || '';
-    return this.salesService.createQuotation(tenantId, userId, dto);
+    const idempotencyKey = headerKey || xHeaderKey || parsed.data.idempotencyKey;
+    return this.salesService.createQuotation(tenantId, userId, parsed.data as any, idempotencyKey);
   }
 
   /**
@@ -52,11 +71,21 @@ export class SalesController {
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
     @Param('id') quotationId: string,
-    @Body() dto: CreateQuotationDto
+    @Body() rawBody: unknown
   ) {
+    const parsed = CreateQuotationSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const errorMsg = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'ValidationError',
+        message: errorMsg,
+      });
+    }
+
     const tenantId = tenant.id;
     const userId = user?.id || '';
-    return this.salesService.createRevision(tenantId, userId, quotationId, dto);
+    return this.salesService.createRevision(tenantId, userId, quotationId, parsed.data as any);
   }
 
   /**
@@ -69,13 +98,27 @@ export class SalesController {
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
     @Headers('x-industry-key') industryHeader: string | undefined,
+    @Headers('idempotency-key') headerKey: string | undefined,
+    @Headers('x-idempotency-key') xHeaderKey: string | undefined,
     @Param('id') quotationId: string,
-    @Body() body?: { advanceReceived?: number; advanceAmount?: number; expectedDeliveryAt?: string; industryKey?: string }
+    @Body() rawBody?: unknown
   ) {
+    const parsed = ConvertQuoteToOrderSchema.safeParse(rawBody || {});
+    if (!parsed.success) {
+      const errorMsg = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'ValidationError',
+        message: errorMsg,
+      });
+    }
+
     const tenantId = tenant.id;
     const userId = user?.id || '';
-    const industryKey = (body?.industryKey || industryHeader || 'printing').toLowerCase();
-    const advance = Number(body?.advanceReceived ?? body?.advanceAmount ?? 0);
+    const data = parsed.data;
+    const industryKey = (data.industryKey || industryHeader || 'printing').toLowerCase();
+    const advance = Number(data.advanceReceived ?? data.advanceAmount ?? 0);
+    const idempotencyKey = headerKey || xHeaderKey || data.idempotencyKey;
 
     return this.salesService.convertQuoteToOrder(
       tenantId,
@@ -83,7 +126,13 @@ export class SalesController {
       industryKey,
       quotationId,
       advance,
-      body?.expectedDeliveryAt
+      data.expectedDeliveryAt || undefined,
+      idempotencyKey,
+      {
+        mode: data.paymentMode,
+        reference: data.paymentReference,
+        notes: data.notes || undefined,
+      }
     );
   }
 

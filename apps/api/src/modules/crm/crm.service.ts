@@ -181,8 +181,17 @@ export class CrmService {
             })
             .returning();
 
-          // Auto-schedule Follow-up Task (+24 hours default)
-          const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          // Auto-schedule Follow-up Task (+24 hours default, or custom followUpDueAt if provided)
+          let dueDate: Date;
+          if (dto.followUpDueAt) {
+            const parsed = new Date(dto.followUpDueAt);
+            if (isNaN(parsed.getTime())) {
+              throw new BadRequestException('Invalid followUpDueAt date format');
+            }
+            dueDate = parsed;
+          } else {
+            dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+          }
           const [followUpTask] = await tx
             .insert(tasks)
             .values({
@@ -272,6 +281,17 @@ export class CrmService {
       };
       this.memoryLeads.unshift(lead);
 
+      let dueDate: Date;
+      if (dto.followUpDueAt) {
+        const parsed = new Date(dto.followUpDueAt);
+        if (isNaN(parsed.getTime())) {
+          throw new BadRequestException('Invalid followUpDueAt date format');
+        }
+        dueDate = parsed;
+      } else {
+        dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      }
+
       const followUpTask = {
         id: randomUUID(),
         tenantId,
@@ -279,7 +299,7 @@ export class CrmService {
         leadId: lead.id,
         type: 'FOLLOW_UP_CALL',
         title: `Follow up with ${customer.name} (${leadTitle})`,
-        dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        dueAt: dueDate,
         status: 'PENDING',
         assignedToId: effectiveActorId,
         createdAt: new Date(),

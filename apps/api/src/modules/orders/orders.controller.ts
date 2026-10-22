@@ -6,10 +6,12 @@ import {
   Param,
   Query,
   Body,
+  Headers,
+  BadRequestException,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { OrdersService, RecordPaymentDto } from './orders.service';
+import { OrdersService } from './orders.service';
 import {
   AuthGuard,
   TenantGuard,
@@ -20,7 +22,12 @@ import {
   CurrentTenant,
   CurrentUser,
 } from '../../common';
-import { TenantRole } from '@friendly-crm/shared';
+import {
+  TenantRole,
+  UpdateOrderStageSchema,
+  RecordPaymentSchema,
+  RecordPaymentDto,
+} from '@friendly-crm/shared';
 
 @Controller('orders')
 @UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
@@ -53,15 +60,25 @@ export class OrdersController {
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
     @Param('id') orderId: string,
-    @Body() body: { nextStageId: string; customDataUpdates?: Record<string, any> }
+    @Body() rawBody: unknown
   ) {
+    const parsed = UpdateOrderStageSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const errorMsg = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'ValidationError',
+        message: errorMsg,
+      });
+    }
+
     const userId = user?.id || '';
     return this.ordersService.updateOrderStage(
       tenant.id,
       userId,
       orderId,
-      body.nextStageId,
-      body.customDataUpdates
+      parsed.data.nextStageId,
+      parsed.data.customDataUpdates
     );
   }
 
@@ -75,11 +92,24 @@ export class OrdersController {
   async recordPayment(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
+    @Headers('idempotency-key') headerKey: string | undefined,
+    @Headers('x-idempotency-key') xHeaderKey: string | undefined,
     @Param('id') orderId: string,
-    @Body() dto: RecordPaymentDto
+    @Body() rawBody: unknown
   ) {
+    const parsed = RecordPaymentSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const errorMsg = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'ValidationError',
+        message: errorMsg,
+      });
+    }
+
     const userId = user?.id || '';
-    return this.ordersService.recordPayment(tenant.id, userId, orderId, dto);
+    const idempotencyKey = headerKey || xHeaderKey || parsed.data.idempotencyKey;
+    return this.ordersService.recordPayment(tenant.id, userId, orderId, parsed.data, idempotencyKey);
   }
 
   /**

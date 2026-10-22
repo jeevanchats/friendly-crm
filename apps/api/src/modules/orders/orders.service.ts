@@ -16,9 +16,17 @@ import {
   invoices,
   paymentAllocations,
   activities,
+  tenants,
 } from '@friendly-crm/db';
-import { TenantRole, hasPermission } from '@friendly-crm/shared';
+import { TenantRole, hasPermission, getIndustryTemplate, IndustryKey } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
+import {
+  getNextDbDocumentNumber,
+  getNextMemoryDocumentNumber,
+  getIdempotentResult,
+  setIdempotentResult,
+  roundMoney,
+} from '../../common/utils/document-number.util';
 import { randomUUID } from 'crypto';
 import {
   globalMemoryOrders,
@@ -26,6 +34,7 @@ import {
   globalMemoryPayments,
   globalMemoryActivities,
   globalMemoryCustomers,
+  globalMemoryTenants,
 } from '../crm/memory-store';
 
 export interface RecordPaymentDto {
@@ -124,9 +133,10 @@ export class OrdersService {
     nextStageId: string,
     customDataUpdates?: Record<string, any>
   ) {
-    if (!nextStageId) {
+    if (!nextStageId || typeof nextStageId !== 'string' || !nextStageId.trim()) {
       throw new BadRequestException('nextStageId is required');
     }
+    const cleanStageId = nextStageId.trim();
 
     try {
       const activeDb = this.getDb();
@@ -144,6 +154,22 @@ export class OrdersService {
             throw new NotFoundException(`Order ${orderId} not found`);
           }
 
+          // Verify nextStageId belongs to tenant's active industry template stages
+          const [tenant] = await tx
+            .select({ industryKey: tenants.industryKey })
+            .from(tenants)
+            .where(eq(tenants.id, tenantId))
+            .limit(1);
+
+          const industryKey = (tenant?.industryKey || 'printing') as IndustryKey;
+          const template = getIndustryTemplate(industryKey);
+          const isValidStage = template.orderStages.some((s) => s.id === cleanStageId);
+          if (!isValidStage) {
+            throw new BadRequestException(
+              `Invalid production stage '${cleanStageId}' for industry '${industryKey}'. Valid stages are: ${template.orderStages.map((s) => s.id).join(', ')}`
+            );
+          }
+
           const prevStage = existing.productionStage;
           const newCustomData = customDataUpdates
             ? { ...(existing.customData || {}), ...customDataUpdates }
@@ -152,7 +178,7 @@ export class OrdersService {
           const [updated] = await tx
             .update(orders)
             .set({
-              productionStage: nextStageId,
+              productionStage: cleanStageId,
               customData: newCustomData,
               updatedAt: new Date(),
             })
@@ -168,7 +194,7 @@ export class OrdersService {
             action: 'STAGE_UPDATED',
             metadata: {
               prevStage,
-              nextStage: nextStageId,
+              nextStage: cleanStageId,
               customDataUpdates: customDataUpdates || null,
             },
           });
@@ -190,8 +216,18 @@ export class OrdersService {
       throw new NotFoundException(`Order ${orderId} not found in this tenant`);
     }
 
+    const memTenant = globalMemoryTenants.get(tenantId);
+    const industryKey = (memTenant?.industryKey || 'printing') as IndustryKey;
+    const template = getIndustryTemplate(industryKey);
+    const isValidStage = template.orderStages.some((s) => s.id === cleanStageId);
+    if (!isValidStage) {
+      throw new BadRequestException(
+        `Invalid production stage '${cleanStageId}' for industry '${industryKey}'. Valid stages are: ${template.orderStages.map((s) => s.id).join(', ')}`
+      );
+    }
+
     const prevStage = order.productionStage;
-    order.productionStage = nextStageId;
+    order.productionStage = cleanStageId;
     if (customDataUpdates) {
       order.customData = { ...(order.customData || {}), ...customDataUpdates };
     }
@@ -204,7 +240,7 @@ export class OrdersService {
       entityType: 'ORDER',
       entityId: orderId,
       action: 'STAGE_UPDATED',
-      metadata: { prevStage, nextStage: nextStageId, customDataUpdates: customDataUpdates || null },
+      metadata: { prevStage, nextStage: cleanStageId, customDataUpdates: customDataUpdates || null },
       createdAt: new Date(),
     });
 
@@ -234,14 +270,22 @@ export class OrdersService {
     tenantId: string,
     userId: string,
     orderId: string,
-    dto: RecordPaymentDto
+    dto: RecordPaymentDto,
+    idempotencyKey?: string
   ) {
     const amount = Number(dto.amount);
     if (!amount || amount <= 0 || isNaN(amount)) {
       throw new BadRequestException('Payment amount must be greater than zero');
     }
 
-    const receiptNumber = `RCP-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+    const key = idempotencyKey || (dto as any).idempotencyKey;
+    if (key) {
+      const cached = getIdempotentResult(tenantId, 'record-payment', key);
+      if (cached) {
+        return { ...cached, isIdempotent: true };
+      }
+    }
+
     const mode = dto.mode || 'UPI';
 
     try {
@@ -260,6 +304,25 @@ export class OrdersService {
             throw new NotFoundException(`Order ${orderId} not found`);
           }
 
+          if (dto.referenceNo && dto.referenceNo.trim()) {
+            const [existingRef] = await tx
+              .select()
+              .from(payments)
+              .where(
+                and(
+                  eq(payments.tenantId, tenantId),
+                  eq(payments.orderId, orderId),
+                  eq(payments.referenceNo, dto.referenceNo.trim())
+                )
+              )
+              .limit(1);
+            if (existingRef) {
+              throw new BadRequestException(
+                `Payment with reference number '${dto.referenceNo.trim()}' has already been recorded`
+              );
+            }
+          }
+
           const currentAdvance = parseFloat(order.advanceReceived || '0.00');
           const currentTotal = parseFloat(order.totalAmount);
           const currentBalance = parseFloat(order.balanceDue);
@@ -273,6 +336,8 @@ export class OrdersService {
           const newAdvance = currentAdvance + amount;
           const newBalance = Math.max(0, currentTotal - newAdvance);
 
+          const receiptNumber = await getNextDbDocumentNumber(tx, payments, payments.receiptNumber, 'RCP', tenantId);
+
           // 1. Insert Payment
           const [payment] = await tx
             .insert(payments)
@@ -281,9 +346,9 @@ export class OrdersService {
               receiptNumber,
               customerId: order.customerId,
               orderId: order.id,
-              amount: amount.toFixed(2),
+              amount: roundMoney(amount),
               mode,
-              referenceNo: dto.referenceNo || null,
+              referenceNo: dto.referenceNo?.trim() || null,
               receivedById: userId,
               notes: dto.notes || null,
               paidAt: new Date(),
@@ -294,8 +359,8 @@ export class OrdersService {
           const [updatedOrder] = await tx
             .update(orders)
             .set({
-              advanceReceived: newAdvance.toFixed(2),
-              balanceDue: newBalance.toFixed(2),
+              advanceReceived: roundMoney(newAdvance),
+              balanceDue: roundMoney(newBalance),
               updatedAt: new Date(),
             })
             .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
@@ -310,16 +375,37 @@ export class OrdersService {
             action: 'PAYMENT_RECORDED',
             metadata: {
               receiptNumber,
-              amount: amount.toFixed(2),
+              amount: roundMoney(amount),
               mode,
-              balanceRemaining: newBalance.toFixed(2),
+              balanceRemaining: roundMoney(newBalance),
             },
           });
 
-          return {
+          // 4. Update Customer totalReceivable
+          const [customer] = await tx
+            .select()
+            .from(customers)
+            .where(and(eq(customers.id, order.customerId), eq(customers.tenantId, tenantId)))
+            .limit(1);
+          if (customer) {
+            const curRec = parseFloat(customer.totalReceivable || '0.00');
+            const updatedRec = Math.max(0, curRec - amount);
+            await tx
+              .update(customers)
+              .set({ totalReceivable: roundMoney(updatedRec) })
+              .where(eq(customers.id, customer.id));
+          }
+
+          const result = {
             payment,
             order: updatedOrder,
           };
+
+          if (key) {
+            setIdempotentResult(tenantId, 'record-payment', key, result);
+          }
+
+          return result;
         });
       }
     } catch (err: any) {
@@ -336,6 +422,17 @@ export class OrdersService {
       throw new NotFoundException(`Order ${orderId} not found in this tenant`);
     }
 
+    if (dto.referenceNo && dto.referenceNo.trim()) {
+      const existingRef = globalMemoryPayments.find(
+        (p) => p.tenantId === tenantId && p.orderId === orderId && p.referenceNo === dto.referenceNo.trim()
+      );
+      if (existingRef) {
+        throw new BadRequestException(
+          `Payment with reference number '${dto.referenceNo.trim()}' has already been recorded`
+        );
+      }
+    }
+
     const currentAdvance = parseFloat(order.advanceReceived || '0.00');
     const currentTotal = parseFloat(order.totalAmount);
     const currentBalance = parseFloat(order.balanceDue);
@@ -349,15 +446,17 @@ export class OrdersService {
     const newAdvance = currentAdvance + amount;
     const newBalance = Math.max(0, currentTotal - newAdvance);
 
+    const receiptNumber = getNextMemoryDocumentNumber(globalMemoryPayments, 'receiptNumber', 'RCP', tenantId);
+
     const payment = {
       id: randomUUID(),
       tenantId,
       receiptNumber,
       customerId: order.customerId,
       orderId: order.id,
-      amount: amount.toFixed(2),
+      amount: roundMoney(amount),
       mode,
-      referenceNo: dto.referenceNo || `REF-${Date.now().toString().slice(-6)}`,
+      referenceNo: dto.referenceNo ? dto.referenceNo.trim() : `REF-${Date.now().toString().slice(-6)}`,
       receivedById: userId,
       paidAt: new Date(),
       notes: dto.notes || null,
@@ -365,9 +464,17 @@ export class OrdersService {
 
     globalMemoryPayments.unshift(payment);
 
-    order.advanceReceived = newAdvance.toFixed(2);
-    order.balanceDue = newBalance.toFixed(2);
+    order.advanceReceived = roundMoney(newAdvance);
+    order.balanceDue = roundMoney(newBalance);
     order.updatedAt = new Date();
+
+    const customer = globalMemoryCustomers.find(
+      (c) => c.id === order.customerId && c.tenantId === tenantId
+    );
+    if (customer) {
+      const curRec = parseFloat(customer.totalReceivable || '0.00');
+      customer.totalReceivable = roundMoney(Math.max(0, curRec - amount));
+    }
 
     globalMemoryActivities.unshift({
       id: randomUUID(),
@@ -378,17 +485,23 @@ export class OrdersService {
       action: 'PAYMENT_RECORDED',
       metadata: {
         receiptNumber,
-        amount: amount.toFixed(2),
+        amount: roundMoney(amount),
         mode,
-        balanceRemaining: newBalance.toFixed(2),
+        balanceRemaining: roundMoney(newBalance),
       },
       createdAt: new Date(),
     });
 
-    return {
+    const result = {
       payment,
       order,
     };
+
+    if (key) {
+      setIdempotentResult(tenantId, 'record-payment', key, result);
+    }
+
+    return result;
   }
 
   /**

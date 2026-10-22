@@ -32,6 +32,13 @@ import {
   globalMemoryTenants,
   globalMemoryPayments,
 } from '../crm/memory-store';
+import {
+  getNextDbDocumentNumber,
+  getNextMemoryDocumentNumber,
+  getIdempotentResult,
+  setIdempotentResult,
+  roundMoney,
+} from '../../common/utils/document-number.util';
 
 export interface QuoteLineItemInput {
   itemName: string;
@@ -72,20 +79,43 @@ export class SalesService {
   }
 
   /**
-   * 1. Create Initial Quotation (v1) & auto-advance Lead stage to 'QUOTED'
+   * Helper to validate and compute line items, preventing zero/negative quantities and negative prices
    */
-  async createQuotation(tenantId: string, userId: string, dto: CreateQuotationDto) {
-    if (!dto.items?.length) {
+  private computeValidatedLineItems(items: QuoteLineItemInput[], tenantId: string) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
       throw new BadRequestException('Quotation must contain at least one line item.');
     }
 
     let subTotal = 0;
     let taxTotal = 0;
 
-    const computedItems = dto.items.map((item) => {
-      const qty = Number(item.quantity) || 1;
-      const rate = Number(item.unitPrice) || 0;
-      const taxRate = Number(item.taxPercent !== undefined ? item.taxPercent : 18);
+    const computedItems = items.map((item, index) => {
+      const name = (item.itemName || (item as any).description || '').trim();
+      if (!name) {
+        throw new BadRequestException(`Line item at index ${index} must have a valid item name.`);
+      }
+
+      const qty = Number(item.quantity);
+      if (isNaN(qty) || qty <= 0) {
+        throw new BadRequestException(
+          `Line item '${name}' has invalid quantity: ${item.quantity}. Quantity must be greater than 0.`
+        );
+      }
+
+      const rate = Number(item.unitPrice);
+      if (isNaN(rate) || rate < 0) {
+        throw new BadRequestException(
+          `Line item '${name}' has invalid unit price: ${item.unitPrice}. Unit price cannot be negative.`
+        );
+      }
+
+      const taxRate = item.taxPercent !== undefined ? Number(item.taxPercent) : 18;
+      if (isNaN(taxRate) || taxRate < 0 || taxRate > 100) {
+        throw new BadRequestException(
+          `Line item '${name}' has invalid tax percent: ${item.taxPercent}. Tax percent must be between 0 and 100.`
+        );
+      }
+
       const base = qty * rate;
       const tax = base * (taxRate / 100);
       const lineTotal = base + tax;
@@ -94,7 +124,7 @@ export class SalesService {
 
       return {
         tenantId,
-        itemName: item.itemName,
+        itemName: name,
         description: item.description || null,
         quantity: this.roundMoney(qty),
         unit: item.unit || 'Nos',
@@ -104,9 +134,44 @@ export class SalesService {
       };
     });
 
-    const discount = Number(dto.discountAmount) || 0;
+    return { computedItems, subTotal, taxTotal };
+  }
+
+  /**
+   * Helper to validate non-negative discount bounded by quotation value
+   */
+  private validateDiscount(discountAmount: number | undefined, totalValue: number): number {
+    const discount = Number(discountAmount || 0);
+    if (isNaN(discount) || discount < 0) {
+      throw new BadRequestException('Discount cannot be negative.');
+    }
+    if (discount > totalValue) {
+      throw new BadRequestException(
+        `Discount amount (₹${discount}) cannot exceed quotation value (₹${totalValue}).`
+      );
+    }
+    return discount;
+  }
+
+  /**
+   * 1. Create Initial Quotation (v1) & auto-advance Lead stage to 'QUOTED'
+   */
+  async createQuotation(tenantId: string, userId: string, dto: CreateQuotationDto, idempotencyKey?: string) {
+    if (!dto.customerId || typeof dto.customerId !== 'string' || !dto.customerId.trim()) {
+      throw new BadRequestException('Customer ID is required.');
+    }
+
+    const key = idempotencyKey || (dto as any).idempotencyKey;
+    if (key) {
+      const cached = getIdempotentResult(tenantId, 'create-quotation', key);
+      if (cached) {
+        return { ...cached, isIdempotent: true };
+      }
+    }
+
+    const { computedItems, subTotal, taxTotal } = this.computeValidatedLineItems(dto.items, tenantId);
+    const discount = this.validateDiscount(dto.discountAmount, subTotal + taxTotal);
     const grandTotal = Math.max(0, subTotal + taxTotal - discount);
-    const quoteNumber = `QT-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
 
     try {
       const activeDb = this.getDb();
@@ -136,6 +201,8 @@ export class SalesService {
               throw new NotFoundException('Lead not found in this tenant organization');
             }
           }
+
+          const quoteNumber = await getNextDbDocumentNumber(tx, quotations, quotations.quoteNumber, 'QT', tenantId);
 
           const [quote] = await tx
             .insert(quotations)
@@ -178,7 +245,11 @@ export class SalesService {
             metadata: { quoteNumber, grandTotal: quote.grandTotal },
           });
 
-          return { ...quote, items: insertedItems };
+          const result = { ...quote, items: insertedItems };
+          if (key) {
+            setIdempotentResult(tenantId, 'create-quotation', key, result);
+          }
+          return result;
         });
       }
     } catch (err: any) {
@@ -205,6 +276,7 @@ export class SalesService {
       lead.estimatedValue = this.roundMoney(grandTotal);
     }
 
+    const quoteNumber = getNextMemoryDocumentNumber(globalMemoryQuotations, 'quoteNumber', 'QT', tenantId);
     const quoteId = randomUUID();
     const quote = {
       id: quoteId,
@@ -244,7 +316,11 @@ export class SalesService {
       createdAt: new Date(),
     });
 
-    return { ...quote, items };
+    const result = { ...quote, items };
+    if (key) {
+      setIdempotentResult(tenantId, 'create-quotation', key, result);
+    }
+    return result;
   }
 
   /**
@@ -256,29 +332,8 @@ export class SalesService {
     existingQuoteId: string,
     dto: CreateQuotationDto
   ) {
-    let subTotal = 0;
-    let taxTotal = 0;
-    const computedItems = dto.items.map((item) => {
-      const qty = Number(item.quantity) || 1;
-      const rate = Number(item.unitPrice) || 0;
-      const taxRate = Number(item.taxPercent !== undefined ? item.taxPercent : 18);
-      const base = qty * rate;
-      const tax = base * (taxRate / 100);
-      subTotal += base;
-      taxTotal += tax;
-      return {
-        tenantId,
-        itemName: item.itemName,
-        description: item.description || null,
-        quantity: this.roundMoney(qty),
-        unit: item.unit || 'Nos',
-        unitPrice: this.roundMoney(rate),
-        taxPercent: this.roundMoney(taxRate),
-        lineTotal: this.roundMoney(base + tax),
-      };
-    });
-
-    const discount = Number(dto.discountAmount) || 0;
+    const { computedItems, subTotal, taxTotal } = this.computeValidatedLineItems(dto.items, tenantId);
+    const discount = this.validateDiscount(dto.discountAmount, subTotal + taxTotal);
     const grandTotal = Math.max(0, subTotal + taxTotal - discount);
 
     try {
@@ -407,11 +462,25 @@ export class SalesService {
     industryKey: string,
     quotationId: string,
     advanceReceived: number = 0,
-    expectedDeliveryAt?: string
+    expectedDeliveryAt?: string,
+    idempotencyKey?: string,
+    paymentDetails?: { mode?: string; reference?: string; notes?: string }
   ) {
+    const advance = Number(advanceReceived || 0);
+    if (isNaN(advance) || advance < 0) {
+      throw new BadRequestException('Advance amount cannot be negative');
+    }
+
+    const key = idempotencyKey;
+    if (key) {
+      const cached = getIdempotentResult(tenantId, 'convert-quote', key);
+      if (cached) {
+        return { ...cached, isIdempotent: true };
+      }
+    }
+
     const template = getIndustryTemplate(industryKey);
     const firstStage = template.orderStages[0]?.id || 'ORDER_CONFIRMED';
-    const orderNumber = `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
 
     try {
       const activeDb = this.getDb();
@@ -427,17 +496,48 @@ export class SalesService {
             .limit(1);
 
           if (!quote) throw new NotFoundException('Quotation not found in this tenant');
+
           if (quote.status === 'CONVERTED') {
+            if (key) {
+              const [existingOrder] = await tx
+                .select()
+                .from(orders)
+                .where(and(eq(orders.quotationId, quote.id), eq(orders.tenantId, tenantId)))
+                .limit(1);
+              if (existingOrder) {
+                return {
+                  success: true,
+                  orderId: existingOrder.id,
+                  orderNumber: existingOrder.orderNumber,
+                  ...existingOrder,
+                  quotation: quote,
+                  isIdempotent: true,
+                };
+              }
+            }
             throw new BadRequestException('Quotation is already converted to an order');
           }
+          if (quote.status === 'REJECTED') {
+            throw new BadRequestException('Cannot convert a rejected or superseded quotation');
+          }
+          if (quote.status === 'CANCELLED') {
+            throw new BadRequestException('Cannot convert a cancelled quotation');
+          }
+
+          const total = parseFloat(quote.grandTotal);
+          if (advance > total) {
+            throw new BadRequestException(
+              `Advance received (₹${advance}) cannot exceed quotation grand total (₹${total})`
+            );
+          }
+          const balance = total - advance;
+
+          const orderNumber = await getNextDbDocumentNumber(tx, orders, orders.orderNumber, 'ORD', tenantId);
 
           const items = await tx
             .select()
             .from(quotationItems)
             .where(and(eq(quotationItems.quotationId, quote.id), eq(quotationItems.tenantId, tenantId)));
-
-          const total = parseFloat(quote.grandTotal);
-          const balance = total - advanceReceived;
 
           const [order] = await tx
             .insert(orders)
@@ -448,7 +548,7 @@ export class SalesService {
               quotationId: quote.id,
               productionStage: firstStage,
               totalAmount: this.roundMoney(total),
-              advanceReceived: this.roundMoney(advanceReceived),
+              advanceReceived: this.roundMoney(advance),
               balanceDue: this.roundMoney(balance),
               expectedDeliveryAt: expectedDeliveryAt ? new Date(expectedDeliveryAt) : null,
               customData: quote.customData,
@@ -485,20 +585,34 @@ export class SalesService {
               .where(and(eq(leads.id, quote.leadId), eq(leads.tenantId, tenantId)));
           }
 
-          if (advanceReceived > 0) {
-            const receiptNumber = `RCP-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+          if (advance > 0) {
+            const receiptNumber = await getNextDbDocumentNumber(tx, payments, payments.receiptNumber, 'RCP', tenantId);
             await tx.insert(payments).values({
               tenantId,
               receiptNumber,
               customerId: quote.customerId,
               orderId: order.id,
-              amount: this.roundMoney(advanceReceived),
-              mode: 'UPI',
-              referenceNo: `REF-${Date.now().toString().slice(-6)}`,
+              amount: this.roundMoney(advance),
+              mode: paymentDetails?.mode || 'UPI',
+              referenceNo: paymentDetails?.reference || `REF-${Date.now().toString().slice(-6)}`,
               receivedById: userId || null,
-              notes: 'Advance received at quotation conversion',
+              notes: paymentDetails?.notes || 'Advance received at quotation conversion',
               paidAt: new Date(),
             });
+          }
+
+          // Update Customer Receivable
+          const [customer] = await tx
+            .select()
+            .from(customers)
+            .where(and(eq(customers.id, quote.customerId), eq(customers.tenantId, tenantId)))
+            .limit(1);
+          if (customer) {
+            const currentRec = parseFloat(customer.totalReceivable || '0.00');
+            await tx
+              .update(customers)
+              .set({ totalReceivable: this.roundMoney(currentRec + balance) })
+              .where(eq(customers.id, customer.id));
           }
 
           await tx.insert(activities).values({
@@ -510,13 +624,19 @@ export class SalesService {
             metadata: { orderNumber, quotationId: quote.id, totalAmount: order.totalAmount },
           });
 
-          return {
+          const result = {
             success: true,
             orderId: order.id,
             orderNumber: order.orderNumber,
             ...order,
             quotation: { ...quote, status: 'CONVERTED' },
           };
+
+          if (key) {
+            setIdempotentResult(tenantId, 'convert-quote', key, result);
+          }
+
+          return result;
         });
       }
     } catch (err: any) {
@@ -531,17 +651,46 @@ export class SalesService {
       (q) => q.id === quotationId && q.tenantId === tenantId
     );
     if (!quote) throw new NotFoundException('Quotation not found in this tenant');
+
     if (quote.status === 'CONVERTED') {
+      if (key) {
+        const existingOrder = globalMemoryOrders.find(
+          (o) => o.quotationId === quote.id && o.tenantId === tenantId
+        );
+        if (existingOrder) {
+          return {
+            success: true,
+            orderId: existingOrder.id,
+            orderNumber: existingOrder.orderNumber,
+            ...existingOrder,
+            quotation: quote,
+            isIdempotent: true,
+          };
+        }
+      }
       throw new BadRequestException('Quotation is already converted to an order');
     }
+    if (quote.status === 'REJECTED') {
+      throw new BadRequestException('Cannot convert a rejected or superseded quotation');
+    }
+    if (quote.status === 'CANCELLED') {
+      throw new BadRequestException('Cannot convert a cancelled quotation');
+    }
+
+    const total = parseFloat(quote.grandTotal);
+    if (advance > total) {
+      throw new BadRequestException(
+        `Advance received (₹${advance}) cannot exceed quotation grand total (₹${total})`
+      );
+    }
+    const balance = total - advance;
 
     quote.status = 'CONVERTED';
     const items = globalMemoryQuotationItems.filter(
       (i) => i.quotationId === quotationId && i.tenantId === tenantId
     );
 
-    const total = parseFloat(quote.grandTotal);
-    const balance = total - advanceReceived;
+    const orderNumber = getNextMemoryDocumentNumber(globalMemoryOrders, 'orderNumber', 'ORD', tenantId);
     const orderId = randomUUID();
 
     const order = {
@@ -552,7 +701,7 @@ export class SalesService {
       quotationId: quote.id,
       productionStage: firstStage,
       totalAmount: this.roundMoney(total),
-      advanceReceived: this.roundMoney(advanceReceived),
+      advanceReceived: this.roundMoney(advance),
       balanceDue: this.roundMoney(balance),
       expectedDeliveryAt: expectedDeliveryAt ? new Date(expectedDeliveryAt) : null,
       customData: quote.customData,
@@ -569,20 +718,20 @@ export class SalesService {
     }));
     globalMemoryOrderItems.push(...copyItems);
 
-    if (advanceReceived > 0) {
-      const receiptNumber = `RCP-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+    if (advance > 0) {
+      const receiptNumber = getNextMemoryDocumentNumber(globalMemoryPayments, 'receiptNumber', 'RCP', tenantId);
       globalMemoryPayments.unshift({
         id: randomUUID(),
         tenantId,
         receiptNumber,
         customerId: quote.customerId,
         orderId,
-        amount: this.roundMoney(advanceReceived),
-        mode: 'UPI',
-        referenceNo: `REF-${Date.now().toString().slice(-6)}`,
+        amount: this.roundMoney(advance),
+        mode: paymentDetails?.mode || 'UPI',
+        referenceNo: paymentDetails?.reference || `REF-${Date.now().toString().slice(-6)}`,
         receivedById: userId || null,
         paidAt: new Date(),
-        notes: 'Advance received at quotation conversion',
+        notes: paymentDetails?.notes || 'Advance received at quotation conversion',
       });
     }
 
@@ -615,13 +764,19 @@ export class SalesService {
       createdAt: new Date(),
     });
 
-    return {
+    const result = {
       success: true,
       orderId: order.id,
       orderNumber: order.orderNumber,
       ...order,
       quotation: quote,
     };
+
+    if (key) {
+      setIdempotentResult(tenantId, 'convert-quote', key, result);
+    }
+
+    return result;
   }
 
   /**

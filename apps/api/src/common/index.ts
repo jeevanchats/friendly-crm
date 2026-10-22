@@ -8,3 +8,4 @@ export * from './decorators/tenant.decorator';
 export * from './decorators/current-user.decorator';
 export * from './interceptors/audit.interceptor';
 export * from './interceptors/tenant-rls.interceptor';
+export * from './utils/document-number.util';
