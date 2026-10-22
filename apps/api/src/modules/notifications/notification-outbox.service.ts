@@ -342,4 +342,40 @@ export class NotificationOutboxService {
 
     return job;
   }
+
+  /**
+   * 6. Handle webhook delivery status callback (DELIVERED, READ, FAILED)
+   */
+  async handleDeliveryCallback(
+    providerMessageId: string,
+    status: 'DELIVERED' | 'READ' | 'FAILED',
+    metadata?: any
+  ): Promise<boolean> {
+    try {
+      if (typeof db?.transaction === 'function') {
+        const [updated] = await db
+          .update(notificationOutbox)
+          .set({
+            status: status === 'FAILED' ? 'DEAD_LETTER' : status,
+            processedAt: new Date(),
+          })
+          .where(sql`${notificationOutbox.id}::text = ${providerMessageId} OR ${notificationOutbox.lastError} LIKE ${`%${providerMessageId}%`}`)
+          .returning();
+        if (updated) return true;
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed DB callback update: ${err.message}`);
+    }
+
+    // Memory fallback update
+    const job = globalMemoryOutbox.find(
+      (j) => j.id === providerMessageId || j.error?.includes(providerMessageId)
+    );
+    if (job) {
+      job.status = status === 'FAILED' ? 'DEAD_LETTER' : (status as any);
+      job.processedAt = new Date();
+      return true;
+    }
+    return false;
+  }
 }

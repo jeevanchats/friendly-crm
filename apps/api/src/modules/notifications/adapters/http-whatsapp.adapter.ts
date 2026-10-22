@@ -8,14 +8,20 @@ import {
 @Injectable()
 export class HttpWhatsAppAdapter implements INotificationAdapter {
   readonly name = 'hostinger-whatsapp';
+  readonly providerName = 'HOSTINGER_WHATSAPP';
   private readonly logger = new Logger(HttpWhatsAppAdapter.name);
 
+  public overrideUrl?: string;
+  public overrideKey?: string;
+
+  constructor() {}
+
   private get apiUrl(): string {
-    return process.env.HOSTINGER_WHATSAPP_API_URL || '';
+    return this.overrideUrl || process.env.HOSTINGER_WHATSAPP_API_URL || '';
   }
 
   private get apiKey(): string {
-    return process.env.HOSTINGER_WHATSAPP_API_KEY || '';
+    return this.overrideKey || process.env.HOSTINGER_WHATSAPP_API_KEY || '';
   }
 
   async sendMessage(options: SendMessageOptions): Promise<SendMessageResult> {

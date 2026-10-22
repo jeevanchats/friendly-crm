@@ -22,6 +22,8 @@ const SENSITIVE_KEY_PATTERNS = [
   /cookie/i,
   /credit[-_]?card/i,
   /cvv/i,
+  /bank[-_]?acc/i,
+  /account[-_]?no/i,
 ];
 
 function sanitizeForAudit(obj: any): any {
