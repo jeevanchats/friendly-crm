@@ -4,7 +4,16 @@ import { randomUUID, createHmac } from 'crypto';
 import { AppModule } from '../src/app.module';
 import { AuthService } from '../src/modules/auth/auth.service';
 import { DevSmsGateway } from '../src/modules/auth/sms-gateway';
-import { globalMemoryTenants, globalMemoryCustomers, globalMemoryOrders, globalMemoryAuditLogs } from '../src/modules/crm/memory-store';
+import {
+  globalMemoryTenants,
+  globalMemoryCustomers,
+  globalMemoryOrders,
+  globalMemoryAuditLogs,
+  globalMemoryQuotations,
+  globalMemoryQuotationItems,
+  globalMemoryActivities,
+} from '../src/modules/crm/memory-store';
+import { CustomerQuoteService } from '../src/modules/sales/customer-quote.service';
 import { DevNotificationAdapter } from '../src/modules/notifications/adapters/dev-notification.adapter';
 
 describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
@@ -263,12 +272,145 @@ describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
     expect(audit?.changes?.after).toEqual({ upiId: 'webhooktest@okhdfc' });
 
     // the customer (already verified earlier in this file) now gets a payment link in the dues summary
-    const dues = await send('919840555111', '2');
+    const dues = await send('919840555111', '3');
     expect(dues).toContain('Pending dues');
     expect(dues).toContain('upi://pay?pa=webhooktest%40okhdfc');
 
     const cleared = await patch(tokenOwner, { upiId: null });
     expect((await cleared.json()).upiId).toBeNull();
-    expect(await send('919840555111', '2')).not.toContain('upi://');
+    expect(await send('919840555111', '3')).not.toContain('upi://');
+  });
+
+  describe('customer approves a quote on WhatsApp', () => {
+    const CUST = 'cust-quote-1';
+    const CUST_META = '919840666222';
+    const future = () => new Date(Date.now() + 10 * 86400000);
+    const quote = (over: Record<string, unknown>) => ({
+      tenantId: TENANT_ID,
+      customerId: CUST,
+      version: 1,
+      status: 'SENT',
+      subTotal: '25000.00',
+      taxTotal: '0.00',
+      discountTotal: '0.00',
+      grandTotal: '25000.00',
+      validUntil: future(),
+      customData: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...over,
+    });
+    const item = (quotationId: string) => ({
+      id: `qi-${quotationId}`,
+      tenantId: TENANT_ID,
+      quotationId,
+      itemName: 'Wall Calendars 2027',
+      quantity: '500.00',
+      unit: 'Nos',
+      unitPrice: '50.00',
+      taxPercent: '0.00',
+      lineTotal: '25000.00',
+    });
+
+    beforeAll(() => {
+      globalMemoryCustomers.push({
+        id: CUST,
+        tenantId: TENANT_ID,
+        name: 'Meena Traders',
+        phone: '+919840666222',
+        whatsappNumber: '+919840666222',
+        openingBalance: '0.00',
+        creditLimit: '0.00',
+        activeOrdersCount: 0,
+        totalReceivable: '0.00',
+        createdAt: new Date(),
+      } as any);
+      globalMemoryCustomers.push({ id: 'cust-quote-2', tenantId: TENANT_ID, name: 'Other Co', phone: '+919840666333', createdAt: new Date() } as any);
+      const quotes = [
+        quote({ id: 'quote-ss-1', quoteNumber: 'QT-SS-1' }),
+        quote({ id: 'quote-ss-expired', quoteNumber: 'QT-SS-EXP', validUntil: new Date(Date.now() - 86400000) }),
+        quote({ id: 'quote-ss-other', quoteNumber: 'QT-SS-OTH', customerId: 'cust-quote-2' }),
+        quote({ id: 'quote-ss-race', quoteNumber: 'QT-SS-RACE', grandTotal: '10000.00' }),
+      ];
+      globalMemoryQuotations.push(...(quotes as any[]));
+      globalMemoryQuotationItems.push(...quotes.map((q: any) => item(q.id)));
+    });
+
+    const ctx = { phone: '+919840666222', messageId: 'wamid.test' };
+
+    it('approve in chat -> order created, quote converted, audited; a second tap creates nothing', async () => {
+      expect(await send(CUST_META, 'hi')).toContain('registered with us');
+      await send(CUST_META, 'Meena Traders');
+
+      // two open quotes (QT-SS-1 and QT-SS-RACE) -> the bot lists them
+      const list = await send(CUST_META, 'quotes');
+      expect(list).toContain('Which quote?');
+      expect(list).toContain('QT-SS-1');
+      expect(list).not.toContain('QT-SS-EXP'); // expired quotes are not offered
+      expect(list).not.toContain('QT-SS-OTH'); // another customer's quote is never shown
+      const pick = list.match(/(\d+)\.?\s+QT-SS-1\b/)?.[1];
+      expect(pick).toBeDefined();
+      const detail = await send(CUST_META, pick!);
+      expect(detail).toContain('Wall Calendars 2027');
+      expect(detail).toContain('₹25,000');
+
+      const done = await send(CUST_META, '1');
+      expect(done).toContain('approved');
+      const created = globalMemoryOrders.filter((o: any) => o.quotationId === 'quote-ss-1');
+      expect(created).toHaveLength(1);
+      expect(created[0]).toMatchObject({ tenantId: TENANT_ID, customerId: CUST, totalAmount: '25000.00', balanceDue: '25000.00' });
+      expect(done).toContain(created[0].orderNumber);
+      expect(globalMemoryQuotations.find((q: any) => q.id === 'quote-ss-1')!.status).toBe('CONVERTED');
+
+      const audit = globalMemoryAuditLogs.find((a: any) => a.action === 'QUOTE_APPROVED_BY_CUSTOMER' && a.entityId === 'quote-ss-1');
+      expect(audit?.actorId).toBeNull();
+      expect(audit?.changes?.metadata).toMatchObject({
+        channel: 'WHATSAPP',
+        phone: '+919840666222',
+        customerId: CUST,
+        grandTotal: '25000.00',
+        orderNumber: created[0].orderNumber,
+      });
+      expect(audit?.changes?.metadata?.messageId).toBeTruthy();
+
+      const after = await send(CUST_META, 'quotes'); // only the other open quote is left
+      expect(after).toContain('QT-SS-RACE');
+      expect(after).not.toContain('QT-SS-1');
+      expect(globalMemoryOrders.filter((o: any) => o.quotationId === 'quote-ss-1')).toHaveLength(1);
+    });
+
+    it('refuses another customer\'s quote, an expired quote, a changed price and a replay', async () => {
+      const svc = app.get(CustomerQuoteService);
+      expect(await svc.approve(TENANT_ID, CUST, 'printing', 'quote-ss-other', '25000.00', ctx)).toEqual({ ok: false, reason: 'NOT_AVAILABLE' });
+      expect(await svc.approve(TENANT_ID, CUST, 'printing', 'quote-ss-expired', '25000.00', ctx)).toEqual({ ok: false, reason: 'EXPIRED' });
+      expect(await svc.approve(TENANT_ID, CUST, 'printing', 'quote-ss-race', '9999.00', ctx)).toEqual({ ok: false, reason: 'CHANGED' });
+      expect(await svc.approve('another-tenant', CUST, 'printing', 'quote-ss-race', '10000.00', ctx)).toEqual({ ok: false, reason: 'NOT_AVAILABLE' });
+      expect(globalMemoryOrders.some((o: any) => ['quote-ss-other', 'quote-ss-expired'].includes(o.quotationId))).toBe(false);
+      expect(globalMemoryQuotations.find((q: any) => q.id === 'quote-ss-race')!.status).toBe('SENT');
+
+      const replay = await svc.approve(TENANT_ID, CUST, 'printing', 'quote-ss-1', '25000.00', ctx);
+      expect(replay).toMatchObject({ ok: true, alreadyApproved: true });
+    });
+
+    it('two simultaneous approvals create exactly one order', async () => {
+      const svc = app.get(CustomerQuoteService);
+      const [a, b] = await Promise.all([
+        svc.approve(TENANT_ID, CUST, 'printing', 'quote-ss-race', '10000.00', ctx),
+        svc.approve(TENANT_ID, CUST, 'printing', 'quote-ss-race', '10000.00', ctx),
+      ]);
+      expect([a, b].every((r) => r.ok)).toBe(true);
+      expect([a, b].filter((r: any) => r.alreadyApproved)).toHaveLength(1);
+      expect(globalMemoryOrders.filter((o: any) => o.quotationId === 'quote-ss-race')).toHaveLength(1);
+    });
+
+    it('records a change request on the quote timeline without approving', async () => {
+      const svc = app.get(CustomerQuoteService);
+      globalMemoryQuotations.push(quote({ id: 'quote-ss-change', quoteNumber: 'QT-SS-CHG' }) as any);
+      expect(await svc.requestChange(TENANT_ID, CUST, 'quote-ss-change', 'Make it 800 pcs', ctx)).toBe(true);
+      const act = globalMemoryActivities.find((a: any) => a.action === 'QUOTE_CHANGE_REQUESTED' && a.entityId === 'quote-ss-change');
+      expect(act?.metadata).toMatchObject({ request: 'Make it 800 pcs', channel: 'WHATSAPP' });
+      expect(globalMemoryQuotations.find((q: any) => q.id === 'quote-ss-change')!.status).toBe('SENT');
+      expect(await svc.requestChange(TENANT_ID, 'cust-quote-2', 'quote-ss-change', 'not mine', ctx)).toBe(false);
+    });
   });
 });

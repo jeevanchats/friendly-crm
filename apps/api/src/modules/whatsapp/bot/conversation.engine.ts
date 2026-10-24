@@ -72,11 +72,40 @@ export interface CustomerOrderView {
   expectedDeliveryAt?: string | Date | null;
 }
 
+/** A quote waiting for the customer's decision. */
+export interface CustomerQuoteView {
+  id: string;
+  quoteNumber: string;
+  version: number;
+  grandTotal: string;
+  validUntil: string | null;
+  items: Array<{ itemName: string; quantity: string; unit: string }>;
+}
+
+export interface QuoteDecisionContext {
+  phone: string;
+  messageId: string;
+}
+
+export type QuoteApproveResult =
+  | { ok: true; orderNumber: string; alreadyApproved: boolean }
+  | { ok: false; reason: 'NOT_AVAILABLE' | 'EXPIRED' | 'CHANGED' };
+
 /** Everything the engine needs from the outside world. Keeps the engine pure and testable. */
 export interface BotPorts {
   findCustomerByPhone(phone: string): Promise<CustomerIdentity[]>;
   /** Orders belonging to THIS customer only, newest first. */
   listCustomerOrders(who: CustomerIdentity): Promise<CustomerOrderView[]>;
+  /** Quotes sent to THIS customer that are still open. */
+  listCustomerQuotes(who: CustomerIdentity): Promise<CustomerQuoteView[]>;
+  /** Approves the quote as shown (expectedTotal guards against a price change since display). */
+  approveCustomerQuote(
+    who: CustomerIdentity,
+    quoteId: string,
+    expectedTotal: string,
+    ctx: QuoteDecisionContext
+  ): Promise<QuoteApproveResult>;
+  requestQuoteChange(who: CustomerIdentity, quoteId: string, text: string, ctx: QuoteDecisionContext): Promise<boolean>;
   findStaffByPhone(phone: string): Promise<StaffIdentity[]>;
   createLead(who: StaffIdentity, input: NewLeadInput): Promise<void>;
   findOrders(who: StaffIdentity, query: string): Promise<OrderSummary[]>;
@@ -99,6 +128,9 @@ type BotState =
   | { step: 'PICK_BUSINESS' }
   | { step: 'PICK_LANGUAGE' }
   | { step: 'VERIFY' }
+  | { step: 'QUOTE_PICK'; quotes: CustomerQuoteView[] }
+  | { step: 'QUOTE_CONFIRM'; quote: CustomerQuoteView }
+  | { step: 'QUOTE_CHANGE'; quote: CustomerQuoteView }
   | { step: 'SELF_SERVICE'; enabled: boolean }
   | { step: 'LEAD'; phase: 'NAME' | 'PHONE' | 'NEED' | 'FIELD' | 'CONFIRM'; draft: LeadDraft; fieldIndex: number }
   | { step: 'ORDER_QUERY'; purpose: 'STATUS' | 'STAGE' }
@@ -133,6 +165,7 @@ const LANGS = new Set(['language', 'lang', 'மொழி']);
 const MAX_ORDER_RESULTS = 5;
 const MAX_VERIFY_ATTEMPTS = 3;
 const MAX_DUES_LISTED = 8;
+const QUOTES = new Set(['quotes', 'quote', 'approve', 'quotation', 'கொட்டேஷன்']);
 const DUES = new Set(['dues', 'pay', 'balance', 'நிலுவை', 'பாக்கி']);
 
 /** Case-, space- and punctuation-insensitive form used to compare names and order numbers. */
@@ -655,7 +688,7 @@ export class ConversationEngine {
     s.state = { step: 'IDLE' };
     const body = [
       t(locale, 'c_greeting', { name: who.customerName.split(' ')[0], business: who.tenantName }),
-      numbered([t(locale, 'c_menu_orders'), t(locale, 'c_menu_dues'), t(locale, 'menu_language')]),
+      numbered([t(locale, 'c_menu_orders'), t(locale, 'c_menu_quotes'), t(locale, 'c_menu_dues'), t(locale, 'menu_language')]),
       t(locale, 'c_footer'),
     ].join('\n\n');
     return [prefix ? `${prefix}\n\n${body}` : body];
@@ -683,10 +716,16 @@ export class ConversationEngine {
       return this.showCustomerMenu(s, who, chosen, t(chosen, 'language_set'));
     }
 
+    if (s.state.step === 'QUOTE_PICK') return this.quotePick(text, s, locale);
+    if (s.state.step === 'QUOTE_CONFIRM') return this.quoteConfirm(msg, text, s, who, locale);
+    if (s.state.step === 'QUOTE_CHANGE') return this.quoteChange(msg, text, s, who, locale);
+
+    if (QUOTES.has(lc)) return this.startQuotes(s, who, locale);
     if (DUES.has(lc)) return this.customerDues(who, locale);
-    const pick = parseIndex(text, 3);
-    if (pick === 2) return this.startLanguagePick(s, locale);
-    if (pick === 1) return this.customerDues(who, locale);
+    const pick = parseIndex(text, 4);
+    if (pick === 3) return this.startLanguagePick(s, locale);
+    if (pick === 2) return this.customerDues(who, locale);
+    if (pick === 1) return this.startQuotes(s, who, locale);
     if (pick === 0) return this.customerOrders(who, locale);
 
     // Anything that looks like an order number (digits, 3+) is treated as an order lookup.
@@ -704,6 +743,105 @@ export class ConversationEngine {
     const cards = found.slice(0, MAX_ORDER_RESULTS).map((o) => this.customerOrderCard(o, who, locale));
     const tail = who.tenantPhone ? `\n\n${t(locale, 'c_call_us', { phone: who.tenantPhone })}` : '';
     return [cards.join('\n\n') + tail];
+  }
+
+  // ---------------------------------------------------------------- customer quote approval
+  private async startQuotes(s: BotSession, who: CustomerIdentity, locale: string): Promise<string[]> {
+    const quotes = await this.ports.listCustomerQuotes(who);
+    if (quotes.length === 0) {
+      s.state = { step: 'IDLE' };
+      return [t(locale, 'c_quotes_none')];
+    }
+    if (quotes.length === 1) return this.showQuote(s, quotes[0], locale);
+    s.state = { step: 'QUOTE_PICK', quotes };
+    const labels = quotes.map((q) => `${q.quoteNumber} · ${fmtMoney(q.grandTotal)}`);
+    return [`${t(locale, 'c_quotes_pick')}\n${numbered(labels)}`];
+  }
+
+  private showQuote(s: BotSession, quote: CustomerQuoteView, locale: string): string[] {
+    s.state = { step: 'QUOTE_CONFIRM', quote };
+    const lines = [`*${quote.quoteNumber}* (v${quote.version})`];
+    for (const i of quote.items.slice(0, 6)) lines.push(`• ${i.itemName} × ${Number(i.quantity)} ${i.unit}`);
+    if (quote.items.length > 6) lines.push(`• … +${quote.items.length - 6}`);
+    lines.push(`*${t(locale, 'label_total')}: ${fmtMoney(quote.grandTotal)}*`);
+    if (quote.validUntil) {
+      const d = new Date(quote.validUntil);
+      if (!isNaN(d.getTime())) {
+        const date = d.toLocaleDateString(locale === 'ta' ? 'ta-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+        lines.push(t(locale, 'c_quote_valid_until', { date }));
+      }
+    }
+    const options = numbered([t(locale, 'c_quote_approve'), t(locale, 'c_quote_change')]);
+    return [`${lines.join('\n')}\n\n${options}`];
+  }
+
+  private async quotePick(text: string, s: BotSession, locale: string): Promise<string[]> {
+    const st = s.state as Extract<BotState, { step: 'QUOTE_PICK' }>;
+    const idx = parseIndex(text, st.quotes.length);
+    if (idx === null) return [t(locale, 'choose_number')];
+    return this.showQuote(s, st.quotes[idx], locale);
+  }
+
+  private async quoteConfirm(
+    msg: InboundMessage,
+    text: string,
+    s: BotSession,
+    who: CustomerIdentity,
+    locale: string
+  ): Promise<string[]> {
+    const st = s.state as Extract<BotState, { step: 'QUOTE_CONFIRM' }>;
+    const idx = parseIndex(text, 2);
+    if (idx === null) return [t(locale, 'choose_number')];
+    if (idx === 1) {
+      s.state = { step: 'QUOTE_CHANGE', quote: st.quote };
+      return [t(locale, 'c_quote_change_prompt')];
+    }
+
+    s.state = { step: 'IDLE' }; // leave the confirm step BEFORE the write, so a repeated "1" cannot approve twice
+    const call = who.tenantPhone ? `\n${t(locale, 'c_call_us', { phone: who.tenantPhone })}` : '';
+    let res: QuoteApproveResult;
+    try {
+      res = await this.ports.approveCustomerQuote(who, st.quote.id, st.quote.grandTotal, {
+        phone: msg.from,
+        messageId: msg.id,
+      });
+    } catch {
+      return [t(locale, 'c_quote_error') + call];
+    }
+    if (!res.ok) {
+      const reason = (res as Extract<QuoteApproveResult, { ok: false }>).reason;
+      const key = reason === 'EXPIRED' ? 'c_quote_expired' : reason === 'CHANGED' ? 'c_quote_changed' : 'c_quote_unavailable';
+      return [t(locale, key) + call];
+    }
+    const done = res as Extract<QuoteApproveResult, { ok: true }>;
+    if (done.alreadyApproved) return [t(locale, 'c_quote_already', { order: done.orderNumber })];
+    return [
+      t(locale, 'c_quote_approved', {
+        quote: st.quote.quoteNumber,
+        order: done.orderNumber,
+        total: fmtMoney(st.quote.grandTotal),
+      }),
+    ];
+  }
+
+  private async quoteChange(
+    msg: InboundMessage,
+    text: string,
+    s: BotSession,
+    who: CustomerIdentity,
+    locale: string
+  ): Promise<string[]> {
+    const st = s.state as Extract<BotState, { step: 'QUOTE_CHANGE' }>;
+    if (!text.trim()) return [t(locale, 'c_quote_change_prompt')];
+    s.state = { step: 'IDLE' };
+    const call = who.tenantPhone ? `\n${t(locale, 'c_call_us', { phone: who.tenantPhone })}` : '';
+    let ok = false;
+    try {
+      ok = await this.ports.requestQuoteChange(who, st.quote.id, text.trim(), { phone: msg.from, messageId: msg.id });
+    } catch {
+      return [t(locale, 'c_quote_error') + call];
+    }
+    return [(ok ? t(locale, 'c_quote_change_sent') : t(locale, 'c_quote_unavailable')) + call];
   }
 
   /**

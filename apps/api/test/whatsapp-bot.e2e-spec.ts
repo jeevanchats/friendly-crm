@@ -6,6 +6,8 @@ import {
   BotSession,
   CustomerIdentity,
   CustomerOrderView,
+  CustomerQuoteView,
+  QuoteApproveResult,
 } from '../src/modules/whatsapp/bot/conversation.engine';
 import { buildUpiLink, isValidUpiId } from '../src/modules/payments/upi';
 import { InMemorySessionStore } from '../src/modules/whatsapp/bot/session-store';
@@ -47,7 +49,12 @@ function setup(
   orders: OrderSummary[] = [],
   customers: CustomerIdentity[] = [],
   customerOrders: Record<string, CustomerOrderView[]> = {},
-  opts: { rate?: { max: number; windowMs: number }; clock?: () => number } = {}
+  opts: {
+    rate?: { max: number; windowMs: number };
+    clock?: () => number;
+    quotes?: CustomerQuoteView[];
+    approve?: () => Promise<QuoteApproveResult>;
+  } = {}
 ) {
   const calls = {
     createLead: [] as any[],
@@ -56,6 +63,9 @@ function setup(
     orderQueries: [] as string[],
     customerOrderCalls: [] as string[],
     setSelfService: [] as boolean[],
+    quoteList: 0,
+    approve: [] as any[],
+    change: [] as any[],
   };
   const state = { selfService: true, failSet: false };
   const failures = { createLead: false };
@@ -65,6 +75,18 @@ function setup(
     listCustomerOrders: async (who) => {
       calls.customerOrderCalls.push(who.customerId);
       return customerOrders[who.customerId] ?? [];
+    },
+    listCustomerQuotes: async () => {
+      calls.quoteList++;
+      return opts.quotes ?? [];
+    },
+    approveCustomerQuote: async (who, quoteId, expectedTotal, ctx) => {
+      calls.approve.push({ who, quoteId, expectedTotal, ctx });
+      return opts.approve ? opts.approve() : { ok: true, orderNumber: 'ORD-2026-9001', alreadyApproved: false };
+    },
+    requestQuoteChange: async (who, quoteId, text, ctx) => {
+      calls.change.push({ who, quoteId, text, ctx });
+      return true;
     },
     createLead: async (who, input) => {
       if (failures.createLead) throw new Error('db down');
@@ -404,7 +426,7 @@ describe('WhatsApp conversation engine', () => {
       expect(orderReply).toContain('நிலை');
       expect(orderReply).toContain('நிலுவை');
       await say('menu', CUSTOMER_PHONE);
-      await say('3', CUSTOMER_PHONE); // language
+      await say('4', CUSTOMER_PHONE); // language
       expect(await say('1', CUSTOMER_PHONE)).toContain('Language set to English');
     });
 
@@ -429,6 +451,135 @@ describe('WhatsApp conversation engine', () => {
       expect(await say('1', CUSTOMER_PHONE)).toContain('VO-77');
     });
 
+    describe('quote approval', () => {
+      const quote = (over: Partial<CustomerQuoteView> = {}): CustomerQuoteView => ({
+        id: 'q1',
+        quoteNumber: 'QT-2026-0042',
+        version: 1,
+        grandTotal: '172000.00',
+        validUntil: '2030-01-15T00:00:00.000Z',
+        items: [{ itemName: 'Diwali Rigid Boxes', quantity: '5000.00', unit: 'Nos' }],
+        ...over,
+      });
+
+      it('shows the quote and approves it with one tap, creating the order', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(say);
+        const detail = await say('2', CUSTOMER_PHONE);
+        expect(detail).toContain('QT-2026-0042');
+        expect(detail).toContain('Diwali Rigid Boxes × 5000 Nos');
+        expect(detail).toContain('₹1,72,000');
+        expect(detail).toContain('Approve and place the order');
+        expect(calls.approve).toHaveLength(0); // looking is not approving
+
+        const done = await say('1', CUSTOMER_PHONE);
+        expect(done).toContain('ORD-2026-9001');
+        expect(done).toContain('approved');
+        expect(calls.approve).toHaveLength(1);
+        expect(calls.approve[0]).toMatchObject({
+          quoteId: 'q1',
+          expectedTotal: '172000.00',
+          ctx: { phone: CUSTOMER_PHONE },
+        });
+        expect(calls.approve[0].ctx.messageId).toBeTruthy();
+      });
+
+      it('a repeated "1" after approving does not approve again', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(say);
+        await say('quotes', CUSTOMER_PHONE);
+        await say('1', CUSTOMER_PHONE);
+        const again = await say('1', CUSTOMER_PHONE); // now it is just the main menu option "1": My orders
+        expect(again).not.toContain('approved');
+        expect(calls.approve).toHaveLength(1);
+      });
+
+      it('lets the customer choose between several quotes', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, {
+          quotes: [quote(), quote({ id: 'q2', quoteNumber: 'QT-2026-0050', grandTotal: '9000.00' })],
+        });
+        await open(say);
+        const list = await say('2', CUSTOMER_PHONE);
+        expect(list).toContain('Which quote?');
+        expect(list).toContain('QT-2026-0050');
+        expect(await say('2', CUSTOMER_PHONE)).toContain('₹9,000');
+        await say('1', CUSTOMER_PHONE);
+        expect(calls.approve[0].quoteId).toBe('q2');
+      });
+
+      it('says so when there are no quotes waiting', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [] });
+        await open(say);
+        expect(await say('quotes', CUSTOMER_PHONE)).toContain('no quotes waiting');
+        expect(calls.approve).toHaveLength(0);
+      });
+
+      it('records a change request instead of approving', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        expect(await say('2', CUSTOMER_PHONE)).toContain('what you would like changed');
+        const sent = await say('Please make it 3000 boxes', CUSTOMER_PHONE);
+        expect(sent).toContain('noted your request');
+        expect(calls.change).toHaveLength(1);
+        expect(calls.change[0]).toMatchObject({ quoteId: 'q1', text: 'Please make it 3000 boxes' });
+        expect(calls.approve).toHaveLength(0);
+      });
+
+      it.each([
+        ['EXPIRED', 'expired'],
+        ['CHANGED', 'price on this quote changed'],
+        ['NOT_AVAILABLE', 'can no longer be approved'],
+      ] as const)('explains a refused approval (%s) and creates nothing', async (reason, text) => {
+        const { say } = setup([], [], [customer()], orders, { quotes: [quote()], approve: async () => ({ ok: false, reason }) });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        const out = await say('1', CUSTOMER_PHONE);
+        expect(out).toContain(text);
+        expect(out).not.toContain('ORD-2026-9001');
+      });
+
+      it('reports an approval that errored as NOT approved', async () => {
+        const { say } = setup([], [], [customer()], orders, {
+          quotes: [quote()],
+          approve: async () => {
+            throw new Error('db down');
+          },
+        });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        const out = await say('1', CUSTOMER_PHONE);
+        expect(out).toContain('nothing was approved');
+        expect(out).not.toContain('ORD-');
+      });
+
+      it('reports an already-approved quote with its existing order', async () => {
+        const { say } = setup([], [], [customer()], orders, {
+          quotes: [quote()],
+          approve: async () => ({ ok: true, orderNumber: 'ORD-2026-0007', alreadyApproved: true }),
+        });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        expect(await say('1', CUSTOMER_PHONE)).toContain('already approved');
+      });
+
+      it('is not reachable before the ownership check passes', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await say('hi', CUSTOMER_PHONE);
+        const out = await say('quotes', CUSTOMER_PHONE);
+        expect(out).toContain("doesn't match");
+        expect(calls.quoteList).toBe(0);
+        expect(calls.approve).toHaveLength(0);
+      });
+
+      it('replies in Tamil', async () => {
+        const { say } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await say('வணக்கம்', CUSTOMER_PHONE);
+        await say('Sri Krishna Sweets', CUSTOMER_PHONE);
+        expect(await say('2', CUSTOMER_PHONE)).toContain('ஆர்டர் செய்ய');
+      });
+    });
+
     describe('dues summary with UPI links', () => {
       const dueOrders: Record<string, CustomerOrderView[]> = {
         c1: [
@@ -442,7 +593,7 @@ describe('WhatsApp conversation engine', () => {
       it('lists only orders with a balance, the total, and a UPI link per order plus pay-all', async () => {
         const { say } = setup([], [], [withUpi], dueOrders);
         await open(say);
-        const out = await say('2', CUSTOMER_PHONE);
+        const out = await say('3', CUSTOMER_PHONE);
         expect(out).toContain('Pending dues: ₹76,234.5');
         expect(out).toContain('(2 orders)');
         expect(out).toContain('ORD-2026-4011');
@@ -464,7 +615,7 @@ describe('WhatsApp conversation engine', () => {
       it('shows the amounts but no payment links when the business has no UPI ID', async () => {
         const { say } = setup([], [], [customer()], dueOrders);
         await open(say);
-        const out = await say('2', CUSTOMER_PHONE);
+        const out = await say('3', CUSTOMER_PHONE);
         expect(out).toContain('₹75,000');
         expect(out).not.toContain('upi://');
         expect(out).toContain('call us');
@@ -473,7 +624,7 @@ describe('WhatsApp conversation engine', () => {
       it('never builds a link from an invalid UPI ID', async () => {
         const { say } = setup([], [], [customer({ upiId: 'not a upi id' })], dueOrders);
         await open(say);
-        const out = await say('2', CUSTOMER_PHONE);
+        const out = await say('3', CUSTOMER_PHONE);
         expect(out).not.toContain('upi://');
         expect(out).toContain('₹75,000');
       });
@@ -481,7 +632,7 @@ describe('WhatsApp conversation engine', () => {
       it('says so when nothing is due', async () => {
         const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] });
         await open(say);
-        expect(await say('2', CUSTOMER_PHONE)).toContain('no pending dues');
+        expect(await say('3', CUSTOMER_PHONE)).toContain('no pending dues');
       });
 
       it('is not available before the ownership check passes', async () => {
@@ -497,7 +648,7 @@ describe('WhatsApp conversation engine', () => {
         const { say } = setup([], [], [withUpi], dueOrders);
         await say('வணக்கம்', CUSTOMER_PHONE);
         await say('Sri Krishna Sweets', CUSTOMER_PHONE);
-        expect(await say('2', CUSTOMER_PHONE)).toContain('நிலுவைத் தொகை');
+        expect(await say('3', CUSTOMER_PHONE)).toContain('நிலுவைத் தொகை');
       });
     });
 

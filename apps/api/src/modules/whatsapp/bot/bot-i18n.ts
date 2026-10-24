@@ -129,6 +129,47 @@ export const MESSAGES = {
     ta: '*{business}* க்கு இந்த எண்ணை சரிபார்க்க முடியவில்லை, எனவே ஆர்டர் விவரங்களை இங்கே காட்ட இயலாது.',
   },
   c_menu_orders: { en: 'My orders', ta: 'என் ஆர்டர்கள்' },
+  c_menu_quotes: { en: 'Quotes to approve', ta: 'ஒப்புதலுக்கான கொட்டேஷன்கள்' },
+  c_quotes_none: {
+    en: 'You have no quotes waiting for approval.',
+    ta: 'ஒப்புதலுக்காக காத்திருக்கும் கொட்டேஷன்கள் எதுவும் இல்லை.',
+  },
+  c_quotes_pick: { en: 'Which quote?', ta: 'எந்த கொட்டேஷன்?' },
+  c_quote_valid_until: { en: 'Valid until {date}', ta: 'செல்லுபடியாகும் நாள்: {date}' },
+  c_quote_approve: { en: 'Approve and place the order ✅', ta: 'ஒப்புக்கொண்டு ஆர்டர் செய்ய ✅' },
+  c_quote_change: { en: 'Ask for a change ✏️', ta: 'மாற்றம் கேட்க ✏️' },
+  c_quote_approved: {
+    en: 'Thank you! ✅ Quote *{quote}* approved. Your order *{order}* is confirmed (total {total}). We will keep you updated here.',
+    ta: 'நன்றி! ✅ கொட்டேஷன் *{quote}* ஒப்புக்கொள்ளப்பட்டது. உங்கள் ஆர்டர் *{order}* உறுதி செய்யப்பட்டது (மொத்தம் {total}). இங்கேயே தகவல் தருவோம்.',
+  },
+  c_quote_already: {
+    en: 'This quote is already approved. Your order is *{order}*.',
+    ta: 'இந்த கொட்டேஷன் ஏற்கனவே ஒப்புக்கொள்ளப்பட்டது. உங்கள் ஆர்டர் *{order}*.',
+  },
+  c_quote_expired: {
+    en: 'This quote has expired. Please contact us for a fresh quote.',
+    ta: 'இந்த கொட்டேஷன் காலாவதியாகிவிட்டது. புதிய கொட்டேஷனுக்கு எங்களை தொடர்பு கொள்ளவும்.',
+  },
+  c_quote_unavailable: {
+    en: 'This quote can no longer be approved (it may have been revised). Reply *quotes* to see the latest.',
+    ta: 'இந்த கொட்டேஷனை இனி ஒப்புக்கொள்ள இயலாது (திருத்தப்பட்டிருக்கலாம்). சமீபத்தியதைக் காண *quotes* என பதிலளிக்கவும்.',
+  },
+  c_quote_changed: {
+    en: 'The price on this quote changed after you opened it, so nothing was approved. Reply *quotes* to review the latest.',
+    ta: 'நீங்கள் திறந்த பிறகு இந்த கொட்டேஷனின் விலை மாறியது, எனவே எதுவும் ஒப்புக்கொள்ளப்படவில்லை. சமீபத்தியதைப் பார்க்க *quotes* என பதிலளிக்கவும்.',
+  },
+  c_quote_error: {
+    en: "Sorry, we couldn't process that and nothing was approved. Please try again or call us.",
+    ta: 'மன்னிக்கவும், செயல்படுத்த முடியவில்லை, எதுவும் ஒப்புக்கொள்ளப்படவில்லை. மீண்டும் முயற்சிக்கவும் அல்லது எங்களை அழைக்கவும்.',
+  },
+  c_quote_change_prompt: {
+    en: 'Please type what you would like changed on this quote.',
+    ta: 'இந்த கொட்டேஷனில் என்ன மாற்ற வேண்டும் என்பதை டைப் செய்யவும்.',
+  },
+  c_quote_change_sent: {
+    en: "Thanks, we've noted your request and will get back to you shortly.",
+    ta: 'நன்றி, உங்கள் கோரிக்கையை பதிவு செய்தோம். விரைவில் தொடர்பு கொள்வோம்.',
+  },
   c_menu_dues: { en: 'Pending dues & pay', ta: 'நிலுவைத் தொகை & செலுத்த' },
   c_dues_none: { en: 'You have no pending dues. Thank you! 🙏', ta: 'உங்களுக்கு நிலுவைத் தொகை எதுவும் இல்லை. நன்றி! 🙏' },
   c_dues_title: {

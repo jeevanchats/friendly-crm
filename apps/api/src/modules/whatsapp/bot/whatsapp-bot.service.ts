@@ -10,6 +10,7 @@ import { InboundMessage, parseInboundMessages } from './inbound-parser';
 import { InMemorySessionStore } from './session-store';
 import { CustomerIdentityService } from './customer-identity.service';
 import { TenantService } from '../../tenant/tenant.service';
+import { CustomerQuoteService } from '../../sales/customer-quote.service';
 
 /**
  * Wires the pure ConversationEngine to the real CRM / Orders / Auth services and sends replies.
@@ -26,7 +27,8 @@ export class WhatsAppBotService {
     private readonly orders: OrdersService,
     private readonly providers: TenantNotificationProviderManager,
     private readonly customerIdentity: CustomerIdentityService,
-    private readonly tenants: TenantService
+    private readonly tenants: TenantService,
+    private readonly customerQuotes: CustomerQuoteService
   ) {
     this.engine = new ConversationEngine(this.buildPorts(), new InMemorySessionStore<BotSession>());
   }
@@ -89,6 +91,15 @@ export class WhatsAppBotService {
           expectedDeliveryAt: r.expectedDeliveryAt ?? null,
         }));
       },
+
+      // Quote decisions: tenantId/customerId come from the verified phone lookup, never from message text.
+      listCustomerQuotes: (who) => this.customerQuotes.listForCustomer(who.tenantId, who.customerId),
+
+      approveCustomerQuote: (who, quoteId, expectedTotal, ctx) =>
+        this.customerQuotes.approve(who.tenantId, who.customerId, who.industryKey, quoteId, expectedTotal, ctx),
+
+      requestQuoteChange: (who, quoteId, text, ctx) =>
+        this.customerQuotes.requestChange(who.tenantId, who.customerId, quoteId, text, ctx),
 
       setPreferredLanguage: (userId, locale) => this.auth.setPreferredLanguage(userId, locale),
 

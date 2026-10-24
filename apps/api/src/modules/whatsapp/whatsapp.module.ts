@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CrmModule } from '../crm/crm.module';
 import { OrdersModule } from '../orders/orders.module';
 import { TenantModule } from '../tenant/tenant.module';
+import { SalesModule } from '../sales/sales.module';
 import { WhatsAppBotService } from './bot/whatsapp-bot.service';
 import { CustomerIdentityService } from './bot/customer-identity.service';
 
@@ -10,7 +11,7 @@ import { CustomerIdentityService } from './bot/customer-identity.service';
  * their @Global() modules (AuthModule, NotificationsModule).
  */
 @Module({
-  imports: [CrmModule, OrdersModule, TenantModule],
+  imports: [CrmModule, OrdersModule, TenantModule, SalesModule],
   providers: [WhatsAppBotService, CustomerIdentityService],
   exports: [WhatsAppBotService],
 })
