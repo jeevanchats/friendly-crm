@@ -484,6 +484,31 @@ describe('WhatsApp conversation engine', () => {
         expect(calls.approve[0].ctx.messageId).toBeTruthy();
       });
 
+      it('sends the UPI payment link with the approval when the business has a UPI ID', async () => {
+        const { say } = setup([], [], [customer({ upiId: 'senthaamarai@okhdfc' })], orders, { quotes: [quote()] });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        const done = await say('1', CUSTOMER_PHONE);
+        expect(done).toContain('ORD-2026-9001');
+        expect(done).toContain('upi://pay?pa=senthaamarai%40okhdfc&pn=Senthaamarai%20Calendars&am=172000.00&cu=INR&tn=ORD-2026-9001');
+        expect(done).toContain('senthaamarai@okhdfc');
+      });
+
+      it('sends no payment link on approval when there is no valid UPI ID, or the quote was already approved', async () => {
+        const noUpi = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(noUpi.say);
+        await noUpi.say('2', CUSTOMER_PHONE);
+        expect(await noUpi.say('1', CUSTOMER_PHONE)).not.toContain('upi://');
+
+        const again = setup([], [], [customer({ upiId: 'senthaamarai@okhdfc' })], orders, {
+          quotes: [quote()],
+          approve: async () => ({ ok: true, orderNumber: 'ORD-2026-0007', alreadyApproved: true }),
+        });
+        await open(again.say);
+        await again.say('2', CUSTOMER_PHONE);
+        expect(await again.say('1', CUSTOMER_PHONE)).not.toContain('upi://');
+      });
+
       it('a repeated "1" after approving does not approve again', async () => {
         const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
         await open(say);

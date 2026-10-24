@@ -142,6 +142,10 @@ export const MESSAGES = {
     en: 'Thank you! ✅ Quote *{quote}* approved. Your order *{order}* is confirmed (total {total}). We will keep you updated here.',
     ta: 'நன்றி! ✅ கொட்டேஷன் *{quote}* ஒப்புக்கொள்ளப்பட்டது. உங்கள் ஆர்டர் *{order}* உறுதி செய்யப்பட்டது (மொத்தம் {total}). இங்கேயே தகவல் தருவோம்.',
   },
+  c_quote_pay_hint: {
+    en: 'To get started, you can pay the advance (or the full amount) by UPI. You can change the amount in your UPI app:',
+    ta: 'தொடங்க, முன்பணத்தை (அல்லது முழுத் தொகையை) UPI மூலம் செலுத்தலாம். தொகையை உங்கள் UPI செயலியில் மாற்றிக்கொள்ளலாம்:',
+  },
   c_quote_already: {
     en: 'This quote is already approved. Your order is *{order}*.',
     ta: 'இந்த கொட்டேஷன் ஏற்கனவே ஒப்புக்கொள்ளப்பட்டது. உங்கள் ஆர்டர் *{order}*.',

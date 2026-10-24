@@ -815,13 +815,20 @@ export class ConversationEngine {
     }
     const done = res as Extract<QuoteApproveResult, { ok: true }>;
     if (done.alreadyApproved) return [t(locale, 'c_quote_already', { order: done.orderNumber })];
-    return [
-      t(locale, 'c_quote_approved', {
-        quote: st.quote.quoteNumber,
-        order: done.orderNumber,
-        total: fmtMoney(st.quote.grandTotal),
-      }),
-    ];
+    const approved = t(locale, 'c_quote_approved', {
+      quote: st.quote.quoteNumber,
+      order: done.orderNumber,
+      total: fmtMoney(st.quote.grandTotal),
+    });
+    // The order starts with nothing paid, so offer the UPI link right away (only if the business set a valid UPI ID).
+    const paise = Math.round(Number(st.quote.grandTotal) * 100);
+    if (who.upiId && isValidUpiId(who.upiId) && Number.isInteger(paise) && paise > 0) {
+      const link = buildUpiLink({ upiId: who.upiId, payeeName: who.tenantName, amountPaise: paise, note: done.orderNumber });
+      return [
+        `${approved}\n\n${t(locale, 'c_quote_pay_hint')}\n${link}\n\n${t(locale, 'c_dues_upi_id', { upi: who.upiId })}`,
+      ];
+    }
+    return [approved];
   }
 
   private async quoteChange(
