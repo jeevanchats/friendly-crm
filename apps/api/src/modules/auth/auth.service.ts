@@ -23,7 +23,7 @@ import {
   tenants,
   sql,
 } from '@friendly-crm/db';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gt } from 'drizzle-orm';
 import { DevSmsGateway } from './sms-gateway';
 
 export interface ValidatedUserSession {
@@ -222,7 +222,7 @@ export class AuthService {
             and(
               eq(otpVerifications.phone, phone),
               sql`${otpVerifications.consumedAt} IS NULL`,
-              sql`${otpVerifications.expiresAt} > ${now}`
+              gt(otpVerifications.expiresAt, now)
             )
           )
           .orderBy(desc(otpVerifications.createdAt))
@@ -427,7 +427,7 @@ export class AuthService {
             and(
               eq(sessions.tokenHash, tokenHash),
               sql`${sessions.revokedAt} IS NULL`,
-              sql`${sessions.expiresAt} > ${now}`
+              gt(sessions.expiresAt, now)
             )
           )
           .limit(1);
