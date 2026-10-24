@@ -33,6 +33,8 @@ export const tenants = pgTable('tenants', {
   isActive: boolean('is_active').default(true).notNull(),
   // Owner opt-out: when false, customers texting the WhatsApp number cannot view their own orders.
   customerSelfServiceEnabled: boolean('customer_self_service_enabled').default(true).notNull(),
+  // The business's UPI ID (VPA) that customers pay dues to. Set by the owner; null = no payment links.
+  upiId: varchar('upi_id', { length: 100 }),
   ...timestamps,
 });
 

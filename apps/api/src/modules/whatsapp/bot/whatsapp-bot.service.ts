@@ -78,7 +78,7 @@ export class WhatsAppBotService {
 
       // Scoped by tenantId AND customerId taken from the verified phone lookup, never from message text.
       listCustomerOrders: async (who) => {
-        const rows = await this.orders.getOrdersForCustomer(who.tenantId, who.customerId);
+        const rows = await this.orders.getOrdersForCustomer(who.tenantId, who.customerId, 50);
         return rows.map((r) => ({
           id: r.id,
           orderNumber: r.orderNumber,

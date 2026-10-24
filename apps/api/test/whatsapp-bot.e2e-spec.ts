@@ -7,6 +7,7 @@ import {
   CustomerIdentity,
   CustomerOrderView,
 } from '../src/modules/whatsapp/bot/conversation.engine';
+import { buildUpiLink, isValidUpiId } from '../src/modules/payments/upi';
 import { InMemorySessionStore } from '../src/modules/whatsapp/bot/session-store';
 import { parseInboundMessages, webhookEventKeys, InboundMessage } from '../src/modules/whatsapp/bot/inbound-parser';
 import { TenantRole } from '@friendly-crm/shared';
@@ -403,7 +404,7 @@ describe('WhatsApp conversation engine', () => {
       expect(orderReply).toContain('நிலை');
       expect(orderReply).toContain('நிலுவை');
       await say('menu', CUSTOMER_PHONE);
-      await say('2', CUSTOMER_PHONE); // language
+      await say('3', CUSTOMER_PHONE); // language
       expect(await say('1', CUSTOMER_PHONE)).toContain('Language set to English');
     });
 
@@ -426,6 +427,78 @@ describe('WhatsApp conversation engine', () => {
       expect(prompt).toContain('registered with us');
       expect(await say('Sri Krishna Sweets', CUSTOMER_PHONE)).toContain('My orders');
       expect(await say('1', CUSTOMER_PHONE)).toContain('VO-77');
+    });
+
+    describe('dues summary with UPI links', () => {
+      const dueOrders: Record<string, CustomerOrderView[]> = {
+        c1: [
+          { id: 'o1', orderNumber: 'ORD-2026-4011', productionStage: 'PRINTING_CMYK', totalAmount: '125000.00', advanceReceived: '50000.00', balanceDue: '75000.00' },
+          { id: 'o2', orderNumber: 'ORD-2026-0100', productionStage: 'DELIVERED', totalAmount: '10000', advanceReceived: '10000', balanceDue: '0.00' },
+          { id: 'o3', orderNumber: 'ORD-2026-4020', productionStage: 'ARTWORK_PENDING', balanceDue: '1234.50' },
+        ],
+      };
+      const withUpi = customer({ upiId: 'senthaamarai@okhdfc' });
+
+      it('lists only orders with a balance, the total, and a UPI link per order plus pay-all', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders);
+        await open(say);
+        const out = await say('2', CUSTOMER_PHONE);
+        expect(out).toContain('Pending dues: ₹76,234.5');
+        expect(out).toContain('(2 orders)');
+        expect(out).toContain('ORD-2026-4011');
+        expect(out).toContain('ORD-2026-4020');
+        expect(out).not.toContain('ORD-2026-0100'); // fully paid
+        expect(out).toContain('upi://pay?pa=senthaamarai%40okhdfc&pn=Senthaamarai%20Calendars&am=75000.00&cu=INR&tn=ORD-2026-4011');
+        expect(out).toContain('am=1234.50&cu=INR&tn=ORD-2026-4020');
+        expect(out).toContain('am=76234.50&cu=INR&tn=Dues'); // pay all
+        expect(out).toContain('senthaamarai@okhdfc'); // plain UPI ID if the link does not open
+        expect(out).toContain('+919443011111');
+      });
+
+      it('also answers to the word "dues"', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders);
+        await open(say);
+        expect(await say('dues', CUSTOMER_PHONE)).toContain('Pending dues');
+      });
+
+      it('shows the amounts but no payment links when the business has no UPI ID', async () => {
+        const { say } = setup([], [], [customer()], dueOrders);
+        await open(say);
+        const out = await say('2', CUSTOMER_PHONE);
+        expect(out).toContain('₹75,000');
+        expect(out).not.toContain('upi://');
+        expect(out).toContain('call us');
+      });
+
+      it('never builds a link from an invalid UPI ID', async () => {
+        const { say } = setup([], [], [customer({ upiId: 'not a upi id' })], dueOrders);
+        await open(say);
+        const out = await say('2', CUSTOMER_PHONE);
+        expect(out).not.toContain('upi://');
+        expect(out).toContain('₹75,000');
+      });
+
+      it('says so when nothing is due', async () => {
+        const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] });
+        await open(say);
+        expect(await say('2', CUSTOMER_PHONE)).toContain('no pending dues');
+      });
+
+      it('is not available before the ownership check passes', async () => {
+        const { say, calls } = setup([], [], [withUpi], dueOrders);
+        await say('hi', CUSTOMER_PHONE);
+        const out = await say('dues', CUSTOMER_PHONE);
+        expect(out).toContain("doesn't match");
+        expect(out).not.toContain('upi://');
+        expect(calls.customerOrderCalls.every((id) => id === 'c1')).toBe(true);
+      });
+
+      it('replies in Tamil', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders);
+        await say('வணக்கம்', CUSTOMER_PHONE);
+        await say('Sri Krishna Sweets', CUSTOMER_PHONE);
+        expect(await say('2', CUSTOMER_PHONE)).toContain('நிலுவைத் தொகை');
+      });
     });
 
     describe('ownership check', () => {
@@ -573,5 +646,27 @@ describe('WhatsApp conversation engine', () => {
       const { say } = setup([], [], [customer({ selfServiceEnabled: false })]);
       expect(await say('வணக்கம்', CUSTOMER_PHONE)).toContain('கிடைக்காது');
     });
+  });
+});
+
+describe('UPI helpers', () => {
+  it('validates UPI IDs', () => {
+    for (const ok of ['shop@okhdfc', 'a.b-c_d1@ybl', '9443011111@paytm']) expect(isValidUpiId(ok)).toBe(true);
+    for (const bad of ['', 'shop', '@ybl', 'shop@', 'sh op@ybl', 'shop@ybl&am=1', 'a@b@c', 'x@y']) {
+      expect(isValidUpiId(bad)).toBe(false);
+    }
+  });
+
+  it('builds a link with exact amount and percent-encoded fields', () => {
+    expect(buildUpiLink({ upiId: 'shop@ybl', payeeName: 'A & B Prints', amountPaise: 100050, note: 'ORD 1' })).toBe(
+      'upi://pay?pa=shop%40ybl&pn=A%20%26%20B%20Prints&am=1000.50&cu=INR&tn=ORD%201'
+    );
+    expect(buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 5, note: 'n' })).toContain('am=0.05');
+  });
+
+  it('refuses a bad UPI ID or amount', () => {
+    expect(() => buildUpiLink({ upiId: 'bad', payeeName: 'S', amountPaise: 100, note: 'n' })).toThrow();
+    expect(() => buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 0, note: 'n' })).toThrow();
+    expect(() => buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 1.5, note: 'n' })).toThrow();
   });
 });

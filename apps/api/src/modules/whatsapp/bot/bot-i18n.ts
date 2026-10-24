@@ -129,6 +129,23 @@ export const MESSAGES = {
     ta: '*{business}* க்கு இந்த எண்ணை சரிபார்க்க முடியவில்லை, எனவே ஆர்டர் விவரங்களை இங்கே காட்ட இயலாது.',
   },
   c_menu_orders: { en: 'My orders', ta: 'என் ஆர்டர்கள்' },
+  c_menu_dues: { en: 'Pending dues & pay', ta: 'நிலுவைத் தொகை & செலுத்த' },
+  c_dues_none: { en: 'You have no pending dues. Thank you! 🙏', ta: 'உங்களுக்கு நிலுவைத் தொகை எதுவும் இல்லை. நன்றி! 🙏' },
+  c_dues_title: {
+    en: '*Pending dues: {total}* ({count} orders)',
+    ta: '*நிலுவைத் தொகை: {total}* ({count} ஆர்டர்கள்)',
+  },
+  c_dues_pay: { en: 'Pay', ta: 'செலுத்த' },
+  c_dues_pay_all: { en: 'Pay all {total}', ta: 'முழுவதும் செலுத்த {total}' },
+  c_dues_more: { en: '…and {n} more. Call us for the full list.', ta: '…மேலும் {n}. முழு பட்டியலுக்கு எங்களை அழைக்கவும்.' },
+  c_dues_upi_id: {
+    en: "If a link doesn't open, pay to UPI ID *{upi}* and quote the order number.",
+    ta: 'இணைப்பு திறக்கவில்லை என்றால், UPI ID *{upi}* க்கு செலுத்தி ஆர்டர் எண்ணைக் குறிப்பிடவும்.',
+  },
+  c_dues_no_upi: {
+    en: 'Please call us to pay or to ask about your balance.',
+    ta: 'பணம் செலுத்த அல்லது நிலுவை பற்றி அறிய எங்களை அழைக்கவும்.',
+  },
   c_footer: {
     en: 'Reply with a number, or send your order number. Type *menu* anytime.',
     ta: 'எண்ணை அனுப்பவும் அல்லது உங்கள் ஆர்டர் எண்ணை அனுப்பவும். எப்போதும் *menu* என டைப் செய்யலாம்.',

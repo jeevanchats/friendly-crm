@@ -28,6 +28,7 @@ export class CustomerIdentityService {
           industryKey: r.industry_key,
           defaultLanguage: r.default_language || 'en',
           selfServiceEnabled: r.self_service_enabled !== false,
+          upiId: r.upi_id ?? null,
         }));
       }
     } catch (err: any) {
@@ -47,6 +48,7 @@ export class CustomerIdentityService {
           industryKey: tenant?.industryKey ?? 'printing',
           defaultLanguage: tenant?.defaultLanguage ?? 'en',
           selfServiceEnabled: tenant?.customerSelfServiceEnabled !== false,
+          upiId: tenant?.upiId ?? null,
         };
       });
   }

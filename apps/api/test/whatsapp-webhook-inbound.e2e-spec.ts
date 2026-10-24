@@ -236,4 +236,39 @@ describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
 
     expect(await send('919840555111', '1')).toContain('ORD-SS-7001'); // customers see orders again
   });
+
+  it('PATCH /api/tenant/settings: owner sets the UPI ID (validated, audited); customers then get payment links', async () => {
+    const url = `${baseUrl}/api/tenant/settings`;
+    const hdr = (token: string) => ({
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'x-tenant-id': TENANT_ID,
+    });
+    const patch = (token: string, body: unknown) => fetch(url, { method: 'PATCH', headers: hdr(token), body: JSON.stringify(body) });
+
+    expect((await patch(tokenSales, { upiId: 'shop@okhdfc' })).status).toBe(403);
+    expect((await patch(tokenOwner, { upiId: 'not a upi id' })).status).toBe(400);
+    expect((await patch(tokenOwner, {})).status).toBe(400);
+
+    const ok = await patch(tokenOwner, { upiId: ' webhooktest@okhdfc ' });
+    expect(ok.status).toBe(200);
+    const saved = await ok.json();
+    expect(saved.upiId).toBe('webhooktest@okhdfc');
+    expect(saved.customerSelfServiceEnabled).toBe(true); // untouched
+
+    const audit = globalMemoryAuditLogs.find(
+      (a: any) => a.tenantId === TENANT_ID && a.action === 'SETTINGS_UPDATED' && a.changes?.after?.upiId === 'webhooktest@okhdfc'
+    );
+    expect(audit?.changes?.before).toEqual({ upiId: null });
+    expect(audit?.changes?.after).toEqual({ upiId: 'webhooktest@okhdfc' });
+
+    // the customer (already verified earlier in this file) now gets a payment link in the dues summary
+    const dues = await send('919840555111', '2');
+    expect(dues).toContain('Pending dues');
+    expect(dues).toContain('upi://pay?pa=webhooktest%40okhdfc');
+
+    const cleared = await patch(tokenOwner, { upiId: null });
+    expect((await cleared.json()).upiId).toBeNull();
+    expect(await send('919840555111', '2')).not.toContain('upi://');
+  });
 });

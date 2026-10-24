@@ -8,6 +8,7 @@ import {
 } from '@friendly-crm/shared';
 import { InboundMessage } from './inbound-parser';
 import { SessionStore } from './session-store';
+import { buildUpiLink, isValidUpiId } from '../../payments/upi';
 import {
   MessageKey,
   SUPPORTED_LOCALES,
@@ -56,6 +57,8 @@ export interface CustomerIdentity {
   defaultLanguage: string;
   /** False when the business owner switched customer self-service off. */
   selfServiceEnabled: boolean;
+  /** The business's UPI ID; when set (and valid) the dues summary includes payment links. */
+  upiId?: string | null;
 }
 
 /** What a customer may see about their own order: no internal notes, items or custom data. */
@@ -129,6 +132,8 @@ const LANGS = new Set(['language', 'lang', 'மொழி']);
 
 const MAX_ORDER_RESULTS = 5;
 const MAX_VERIFY_ATTEMPTS = 3;
+const MAX_DUES_LISTED = 8;
+const DUES = new Set(['dues', 'pay', 'balance', 'நிலுவை', 'பாக்கி']);
 
 /** Case-, space- and punctuation-insensitive form used to compare names and order numbers. */
 function canon(s: string): string {
@@ -650,7 +655,7 @@ export class ConversationEngine {
     s.state = { step: 'IDLE' };
     const body = [
       t(locale, 'c_greeting', { name: who.customerName.split(' ')[0], business: who.tenantName }),
-      numbered([t(locale, 'c_menu_orders'), t(locale, 'menu_language')]),
+      numbered([t(locale, 'c_menu_orders'), t(locale, 'c_menu_dues'), t(locale, 'menu_language')]),
       t(locale, 'c_footer'),
     ].join('\n\n');
     return [prefix ? `${prefix}\n\n${body}` : body];
@@ -678,8 +683,10 @@ export class ConversationEngine {
       return this.showCustomerMenu(s, who, chosen, t(chosen, 'language_set'));
     }
 
-    const pick = parseIndex(text, 2);
-    if (pick === 1) return this.startLanguagePick(s, locale);
+    if (DUES.has(lc)) return this.customerDues(who, locale);
+    const pick = parseIndex(text, 3);
+    if (pick === 2) return this.startLanguagePick(s, locale);
+    if (pick === 1) return this.customerDues(who, locale);
     if (pick === 0) return this.customerOrders(who, locale);
 
     // Anything that looks like an order number (digits, 3+) is treated as an order lookup.
@@ -697,6 +704,45 @@ export class ConversationEngine {
     const cards = found.slice(0, MAX_ORDER_RESULTS).map((o) => this.customerOrderCard(o, who, locale));
     const tail = who.tenantPhone ? `\n\n${t(locale, 'c_call_us', { phone: who.tenantPhone })}` : '';
     return [cards.join('\n\n') + tail];
+  }
+
+  /**
+   * Outstanding balances across THIS customer's orders (the port is already scoped to them), each with a
+   * UPI link built from the business's own UPI ID. Amounts are summed in paise to avoid float drift.
+   */
+  private async customerDues(who: CustomerIdentity, locale: string): Promise<string[]> {
+    const toPaise = (v: unknown) => {
+      const n = Math.round(Number(v) * 100);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    const due = (await this.ports.listCustomerOrders(who))
+      .map((o) => ({ o, paise: toPaise(o.balanceDue) }))
+      .filter((x) => x.paise > 0);
+    if (due.length === 0) return [t(locale, 'c_dues_none')];
+
+    const upi = who.upiId && isValidUpiId(who.upiId) ? who.upiId : null;
+    const link = (paise: number, note: string) =>
+      buildUpiLink({ upiId: upi!, payeeName: who.tenantName, amountPaise: paise, note });
+    const rupees = (paise: number) => fmtMoney(paise / 100);
+    const totalPaise = due.reduce((sum, x) => sum + x.paise, 0);
+
+    const blocks = [t(locale, 'c_dues_title', { total: rupees(totalPaise), count: due.length })];
+    for (const { o, paise } of due.slice(0, MAX_DUES_LISTED)) {
+      const lines = [`*${o.orderNumber}* · ${rupees(paise)}`];
+      if (upi) lines.push(`${t(locale, 'c_dues_pay')}: ${link(paise, o.orderNumber)}`);
+      blocks.push(lines.join('\n'));
+    }
+    if (due.length > MAX_DUES_LISTED) blocks.push(t(locale, 'c_dues_more', { n: due.length - MAX_DUES_LISTED }));
+    if (upi) {
+      if (due.length > 1) {
+        blocks.push(`${t(locale, 'c_dues_pay_all', { total: rupees(totalPaise) })}: ${link(totalPaise, 'Dues')}`);
+      }
+      blocks.push(t(locale, 'c_dues_upi_id', { upi }));
+    } else {
+      blocks.push(t(locale, 'c_dues_no_upi'));
+    }
+    if (who.tenantPhone) blocks.push(t(locale, 'c_call_us', { phone: who.tenantPhone }));
+    return [blocks.join('\n\n')];
   }
 
   private customerOrderCard(o: CustomerOrderView, who: CustomerIdentity, locale: string): string {

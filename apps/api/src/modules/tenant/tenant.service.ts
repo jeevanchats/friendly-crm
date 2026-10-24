@@ -5,6 +5,13 @@ import { db, sql, tenants, users, memberships, auditLogs } from '@friendly-crm/d
 import { getIndustryTemplate, IndustryKey } from '@friendly-crm/shared';
 import { globalMemoryTenants, globalMemoryAuditLogs } from '../crm/memory-store';
 import { AuthService } from '../auth/auth.service';
+import { isValidUpiId } from '../payments/upi';
+
+export interface TenantSettings {
+  customerSelfServiceEnabled: boolean;
+  /** The business's UPI ID for customer payment links; null when not set. */
+  upiId: string | null;
+}
 
 export interface CreateTenantDto {
   name: string;
@@ -160,22 +167,22 @@ export class TenantService {
   }
 
   /** Owner-controlled tenant settings. */
-  async getSettings(tenantId: string): Promise<{ customerSelfServiceEnabled: boolean }> {
+  async getSettings(tenantId: string): Promise<TenantSettings> {
     try {
       if (db && typeof db.select === 'function') {
         const [row] = await db
-          .select({ enabled: tenants.customerSelfServiceEnabled })
+          .select({ enabled: tenants.customerSelfServiceEnabled, upiId: tenants.upiId })
           .from(tenants)
           .where(eq(tenants.id, tenantId))
           .limit(1);
-        if (row) return { customerSelfServiceEnabled: row.enabled };
+        if (row) return { customerSelfServiceEnabled: row.enabled, upiId: row.upiId ?? null };
       }
     } catch {
       // Postgres offline: memory fallback below
     }
     const mem = globalMemoryTenants.get(tenantId) as any;
     if (!mem) throw new NotFoundException(`Tenant ${tenantId} not found`);
-    return { customerSelfServiceEnabled: mem.customerSelfServiceEnabled !== false };
+    return { customerSelfServiceEnabled: mem.customerSelfServiceEnabled !== false, upiId: mem.upiId ?? null };
   }
 
   /**
@@ -185,14 +192,36 @@ export class TenantService {
   async updateSettings(
     tenantId: string,
     actorId: string | null,
-    patch: { customerSelfServiceEnabled?: boolean },
+    patch: { customerSelfServiceEnabled?: boolean; upiId?: string | null },
     channel: 'API' | 'WHATSAPP'
-  ): Promise<{ customerSelfServiceEnabled: boolean }> {
-    if (typeof patch.customerSelfServiceEnabled !== 'boolean') {
-      throw new BadRequestException('customerSelfServiceEnabled must be true or false');
+  ): Promise<TenantSettings> {
+    // Only the fields present in the patch change, and only those are audited.
+    const next: Partial<TenantSettings> = {};
+    if (patch.customerSelfServiceEnabled !== undefined) {
+      if (typeof patch.customerSelfServiceEnabled !== 'boolean') {
+        throw new BadRequestException('customerSelfServiceEnabled must be true or false');
+      }
+      next.customerSelfServiceEnabled = patch.customerSelfServiceEnabled;
     }
-    const next = patch.customerSelfServiceEnabled;
-    const before = (await this.getSettings(tenantId)).customerSelfServiceEnabled;
+    if (patch.upiId !== undefined) {
+      const raw = patch.upiId === null ? '' : String(patch.upiId).trim();
+      if (raw !== '' && !isValidUpiId(raw)) {
+        throw new BadRequestException('upiId must look like name@bank (letters, digits, . - _ before the @)');
+      }
+      next.upiId = raw === '' ? null : raw;
+    }
+    if (Object.keys(next).length === 0) {
+      throw new BadRequestException('Nothing to update: send customerSelfServiceEnabled and/or upiId');
+    }
+    const current = await this.getSettings(tenantId);
+    const keys = Object.keys(next) as Array<keyof TenantSettings>;
+    const beforeChanges: Record<string, unknown> = {};
+    const afterChanges: Record<string, unknown> = {};
+    for (const k of keys) {
+      beforeChanges[k] = current[k];
+      afterChanges[k] = next[k];
+    }
+    const merged: TenantSettings = { ...current, ...next };
 
     const audit = {
       id: randomUUID(),
@@ -202,8 +231,8 @@ export class TenantService {
       entityType: 'TENANT',
       entityId: tenantId,
       changes: {
-        before: { customerSelfServiceEnabled: before },
-        after: { customerSelfServiceEnabled: next },
+        before: beforeChanges,
+        after: afterChanges,
         metadata: { channel },
       },
       ipAddress: null,
@@ -215,10 +244,10 @@ export class TenantService {
       if (db && typeof db.transaction === 'function') {
         await db.transaction(async (tx: any) => {
           await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
-          await tx.update(tenants).set({ customerSelfServiceEnabled: next }).where(eq(tenants.id, tenantId));
+          await tx.update(tenants).set(next).where(eq(tenants.id, tenantId));
           await tx.insert(auditLogs).values(audit);
         });
-        return { customerSelfServiceEnabled: next };
+        return merged;
       }
     } catch (err: any) {
       this.logger.warn(`Postgres offline; applying tenant settings to memory store: ${err.message}`);
@@ -226,8 +255,8 @@ export class TenantService {
 
     const mem = globalMemoryTenants.get(tenantId) as any;
     if (!mem) throw new NotFoundException(`Tenant ${tenantId} not found`);
-    mem.customerSelfServiceEnabled = next;
+    Object.assign(mem, next);
     globalMemoryAuditLogs.unshift(audit as any);
-    return { customerSelfServiceEnabled: next };
+    return merged;
   }
 }
