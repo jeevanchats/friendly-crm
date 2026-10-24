@@ -16,8 +16,10 @@ Friendly CRM is structured as a high-performance, modular monorepo managed with 
    - Every database transaction must initialize the PostgreSQL session setting `SET LOCAL app.current_tenant_id = '<tenant_id>'` to enforce RLS at the database engine level.
 2. **Cross-Tenant Leakage Prevention**:
    - Never write a raw SQL query or Drizzle filter without a `where(eq(table.tenantId, tenantId))` clause, even when RLS is active (defense in depth).
-3. **Industry Template Seeding**:
-   - When a tenant is onboarded, initialize industry-specific pipelines (Retail, Manufacturing, Services) and custom field schemas in an atomic transaction.
+3. **Industry Templates (single source of truth)**:
+   - Industries are data-driven. Order stages, lead stages and custom fields come only from `packages/shared/src/industry-templates.json` (read via `getIndustryTemplate`). Never hard-code industry lists, enums or stage names in code; use `isIndustryKey` / `listIndustries()`.
+   - Adding an industry = adding a template entry (with English and Tamil labels), not new code paths.
+   - Custom-field validation goes through `validateCustomData` / `getCustomDataErrors` in `@friendly-crm/shared`.
 
 ---
 

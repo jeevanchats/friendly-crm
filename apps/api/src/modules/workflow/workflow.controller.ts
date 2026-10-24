@@ -17,9 +17,10 @@ export class WorkflowController {
   @RequirePermission('workflow:read')
   async getCustomFields(
     @CurrentTenant() tenant: { id: string },
-    @Query('entityType') entityType: string
+    @Query('entityType') entityType: string,
+    @Query('lang') lang?: string
   ) {
-    return this.workflowService.getCustomFields(tenant.id, entityType);
+    return this.workflowService.getCustomFields(tenant.id, entityType, lang === 'ta' ? 'ta' : 'en');
   }
 
   @Post('validate-fields')

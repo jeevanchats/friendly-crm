@@ -8,6 +8,7 @@ import {
   LeadFilterQueryDto,
   getIndustryTemplate,
   validateCustomData,
+  isIndustryKey,
   IndustryKey,
 } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
@@ -54,7 +55,7 @@ export class CrmService {
    * Resolve active industry for a tenant
    */
   async resolveTenantIndustry(tenantId: string, headerOverride?: string): Promise<IndustryKey> {
-    if (headerOverride && ['printing', 'textiles', 'furniture', 'trading'].includes(headerOverride.toLowerCase())) {
+    if (headerOverride && isIndustryKey(headerOverride)) {
       return headerOverride.toLowerCase() as IndustryKey;
     }
 
