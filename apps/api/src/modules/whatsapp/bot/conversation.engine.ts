@@ -95,6 +95,7 @@ type BotState =
   | { step: 'IDLE' }
   | { step: 'PICK_BUSINESS' }
   | { step: 'PICK_LANGUAGE' }
+  | { step: 'VERIFY' }
   | { step: 'SELF_SERVICE'; enabled: boolean }
   | { step: 'LEAD'; phase: 'NAME' | 'PHONE' | 'NEED' | 'FIELD' | 'CONFIRM'; draft: LeadDraft; fieldIndex: number }
   | { step: 'ORDER_QUERY'; purpose: 'STATUS' | 'STAGE' }
@@ -114,6 +115,12 @@ export interface BotSession {
   tenantId?: string;
   locale?: string;
   state: BotState;
+  /**
+   * Customer sessions only: tenants whose customer record this sender proved they own (by name or
+   * order number). A number can be on a customer record by mistake, so the phone number alone is not proof.
+   */
+  verified?: string[];
+  verifyFailures?: number;
 }
 
 const GREETINGS = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'start', 'வணக்கம்', 'மெனு']);
@@ -121,6 +128,12 @@ const CANCELS = new Set(['cancel', 'stop', 'ரத்து', 'நிறுத�
 const LANGS = new Set(['language', 'lang', 'மொழி']);
 
 const MAX_ORDER_RESULTS = 5;
+const MAX_VERIFY_ATTEMPTS = 3;
+
+/** Case-, space- and punctuation-insensitive form used to compare names and order numbers. */
+function canon(s: string): string {
+  return normalizeDigits(s).normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
+}
 
 type MenuAction = 'LEAD' | 'STATUS' | 'STAGE' | 'LANGUAGE' | 'SELF_SERVICE';
 const MENU: Array<{ action: MenuAction; label: MessageKey; permission?: PermissionAction }> = [
@@ -557,6 +570,8 @@ export class ConversationEngine {
     if (session.kind !== 'CUSTOMER') {
       session.kind = 'CUSTOMER';
       session.tenantId = undefined;
+      session.verified = undefined;
+      session.verifyFailures = undefined;
       session.state = { step: 'IDLE' };
     }
     const text = (msg.text ?? '').trim();
@@ -578,7 +593,10 @@ export class ConversationEngine {
         }
         who = customers[idx];
         session.tenantId = who.tenantId;
-        const menu = this.showCustomerMenu(session, who, normalizeLocale(session.locale ?? who.defaultLanguage));
+        const pickedLocale = normalizeLocale(session.locale ?? who.defaultLanguage);
+        const menu = (session.verified ?? []).includes(who.tenantId)
+          ? this.showCustomerMenu(session, who, pickedLocale)
+          : this.promptVerify(session, who, pickedLocale);
         await this.save(msg.from, session);
         return { replies: menu, tenantId: who.tenantId };
       }
@@ -590,6 +608,42 @@ export class ConversationEngine {
     const replies = await this.routeCustomer(msg, text, session, who, locale);
     await this.save(msg.from, session);
     return { replies, tenantId: who.tenantId };
+  }
+
+  private promptVerify(s: BotSession, who: CustomerIdentity, locale: string): string[] {
+    s.state = { step: 'VERIFY' };
+    return [t(locale, 'c_verify_prompt', { business: who.tenantName })];
+  }
+
+  /**
+   * Ownership check for a number found on a customer record. The first message only triggers the
+   * question (so "hi" never counts as a wrong answer); the next must be the registered name or one of
+   * this customer's order numbers. After MAX_VERIFY_ATTEMPTS misses the session stays locked.
+   */
+  private async verifyCustomer(text: string, s: BotSession, who: CustomerIdentity, locale: string): Promise<string[]> {
+    const call = who.tenantPhone ? `\n${t(locale, 'c_call_us', { phone: who.tenantPhone })}` : '';
+    const locked = () => [t(locale, 'c_verify_locked', { business: who.tenantName }) + call];
+    if ((s.verifyFailures ?? 0) >= MAX_VERIFY_ATTEMPTS) return locked();
+    if (s.state.step !== 'VERIFY') return this.promptVerify(s, who, locale);
+
+    const answer = canon(text);
+    let ok = answer.length > 0 && answer === canon(who.customerName);
+    if (!ok && answer.length >= 3) {
+      // listCustomerOrders returns only this customer's orders; nothing from it is shown unless it matches.
+      const mine = await this.ports.listCustomerOrders(who);
+      ok = mine.some((o) => canon(o.orderNumber) === answer);
+    }
+    if (ok) {
+      s.verified = [...(s.verified ?? []), who.tenantId];
+      s.verifyFailures = 0;
+      return this.showCustomerMenu(s, who, locale);
+    }
+    s.verifyFailures = (s.verifyFailures ?? 0) + 1;
+    if (s.verifyFailures >= MAX_VERIFY_ATTEMPTS) {
+      s.state = { step: 'IDLE' };
+      return locked();
+    }
+    return [`${t(locale, 'c_verify_failed')}\n\n${t(locale, 'c_verify_prompt', { business: who.tenantName })}`];
   }
 
   private showCustomerMenu(s: BotSession, who: CustomerIdentity, locale: string, prefix?: string): string[] {
@@ -610,6 +664,8 @@ export class ConversationEngine {
     locale: string
   ): Promise<string[]> {
     if (msg.type !== 'text') return [t(locale, 'unsupported_media')];
+    // Nothing about the customer (not even their name in the greeting) is shown before this check passes.
+    if (!(s.verified ?? []).includes(who.tenantId)) return this.verifyCustomer(text, s, who, locale);
     const lc = text.toLowerCase();
     if (GREETINGS.has(lc) || CANCELS.has(lc)) return this.showCustomerMenu(s, who, locale);
     if (LANGS.has(lc)) return this.startLanguagePick(s, locale);

@@ -116,6 +116,18 @@ export const MESSAGES = {
     en: 'Hello {name}! 👋 Welcome to *{business}*. How can we help?',
     ta: 'வணக்கம் {name}! 👋 *{business}* க்கு வரவேற்கிறோம். எப்படி உதவலாம்?',
   },
+  c_verify_prompt: {
+    en: 'Welcome to *{business}*. To protect your account, please reply with your name exactly as registered with us, or one of your order numbers.',
+    ta: '*{business}* க்கு வரவேற்கிறோம். உங்கள் கணக்கின் பாதுகாப்புக்காக, எங்களிடம் பதிவு செய்த உங்கள் பெயரை அல்லது உங்கள் ஆர்டர் எண்களில் ஒன்றை அனுப்பவும்.',
+  },
+  c_verify_failed: {
+    en: "Sorry, that doesn't match our records.",
+    ta: 'மன்னிக்கவும், இது எங்கள் பதிவுகளுடன் பொருந்தவில்லை.',
+  },
+  c_verify_locked: {
+    en: "We couldn't verify this number for *{business}*, so order details can't be shown here.",
+    ta: '*{business}* க்கு இந்த எண்ணை சரிபார்க்க முடியவில்லை, எனவே ஆர்டர் விவரங்களை இங்கே காட்ட இயலாது.',
+  },
   c_menu_orders: { en: 'My orders', ta: 'என் ஆர்டர்கள்' },
   c_footer: {
     en: 'Reply with a number, or send your order number. Type *menu* anytime.',

@@ -166,6 +166,14 @@ describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
   it('lets a customer see only their own orders (customer self-service)', async () => {
     const greet = await post(metaBody('919840555111', 'hi'));
     expect(greet.status).toBe(200);
+    // ownership check first: nothing about the customer is shown until they give their registered name
+    const challenge = sendSpy.mock.calls[0][0].message as string;
+    expect(challenge).toContain('registered with us');
+    expect(challenge).not.toContain('Karthik');
+    expect(challenge).not.toContain('ORD-SS-7001');
+
+    sendSpy.mockClear();
+    await post(metaBody('919840555111', 'Karthik Residence'));
     expect(sendSpy.mock.calls[0][0].message).toContain('My orders');
     expect(sendSpy.mock.calls[0][0].message).not.toContain('New enquiry');
 

@@ -338,9 +338,15 @@ describe('WhatsApp conversation engine', () => {
       ],
     };
 
+    // The number alone is not proof: the sender must first give the registered name (or an order number).
+    const open = async (say: (t: string, from?: string) => Promise<string>, answer = 'Sri Krishna Sweets') => {
+      await say('hi', CUSTOMER_PHONE);
+      return say(answer, CUSTOMER_PHONE);
+    };
+
     it('greets a known customer and shows only customer options', async () => {
       const { say } = setup([], [], [customer()], orders);
-      const menu = await say('hi', CUSTOMER_PHONE);
+      const menu = await open(say);
       expect(menu).toContain('Sri');
       expect(menu).toContain('Senthaamarai Calendars');
       expect(menu).toContain('My orders');
@@ -350,7 +356,7 @@ describe('WhatsApp conversation engine', () => {
 
     it("shows the customer's own orders with stage, paid and balance", async () => {
       const { say } = setup([], [], [customer()], orders);
-      await say('hi', CUSTOMER_PHONE);
+      await open(say);
       const out = await say('1', CUSTOMER_PHONE);
       expect(out).toContain('ORD-2026-4011');
       expect(out).toContain('Printing in Progress');
@@ -365,6 +371,7 @@ describe('WhatsApp conversation engine', () => {
 
     it('looks up a specific order by number, only among their own', async () => {
       const { say, calls } = setup([], [], [customer()], orders);
+      await open(say);
       const mine = await say('4011', CUSTOMER_PHONE);
       expect(mine).toContain('ORD-2026-4011');
       expect(mine).not.toContain('ORD-2026-0100');
@@ -380,7 +387,7 @@ describe('WhatsApp conversation engine', () => {
         [customer()],
         orders
       );
-      await say('hi', CUSTOMER_PHONE);
+      await open(say);
       const out = await say('ORD-STAFF-ONLY 123', CUSTOMER_PHONE);
       expect(out).not.toContain('Someone Else');
       expect(calls.orderQueries).toHaveLength(0); // staff search port is never used for customers
@@ -389,7 +396,8 @@ describe('WhatsApp conversation engine', () => {
 
     it('replies in Tamil when the customer writes in Tamil, and can switch language', async () => {
       const { say } = setup([], [], [customer()], orders);
-      const menu = await say('வணக்கம்', CUSTOMER_PHONE);
+      expect(await say('வணக்கம்', CUSTOMER_PHONE)).toContain('பாதுகாப்பு'); // verification prompt, in Tamil
+      const menu = await say('Sri Krishna Sweets', CUSTOMER_PHONE);
       expect(menu).toContain('என் ஆர்டர்கள்');
       const orderReply = await say('1', CUSTOMER_PHONE);
       expect(orderReply).toContain('நிலை');
@@ -401,7 +409,7 @@ describe('WhatsApp conversation engine', () => {
 
     it('says so when there are no orders', async () => {
       const { say } = setup([], [], [customer({ customerId: 'c-empty' })], orders);
-      await say('hi', CUSTOMER_PHONE);
+      await open(say);
       expect(await say('1', CUSTOMER_PHONE)).toContain("couldn't find any orders");
     });
 
@@ -413,8 +421,65 @@ describe('WhatsApp conversation engine', () => {
         { ...orders, c2: [{ id: 'z', orderNumber: 'VO-77', productionStage: 'ARTWORK_PENDING', balanceDue: '500' }] }
       );
       expect(await say('hi', CUSTOMER_PHONE)).toContain('Which business?');
-      expect(await say('2', CUSTOMER_PHONE)).toContain('Vidhyasri Offset');
+      const prompt = await say('2', CUSTOMER_PHONE);
+      expect(prompt).toContain('Vidhyasri Offset');
+      expect(prompt).toContain('registered with us');
+      expect(await say('Sri Krishna Sweets', CUSTOMER_PHONE)).toContain('My orders');
       expect(await say('1', CUSTOMER_PHONE)).toContain('VO-77');
+    });
+
+    describe('ownership check', () => {
+      it('shows nothing about the customer before it passes, not even their name', async () => {
+        const { say, calls } = setup([], [], [customer()], orders);
+        const first = await say('hi', CUSTOMER_PHONE);
+        expect(first).toContain('registered with us');
+        expect(first).not.toContain('Sri');
+        expect(first).not.toContain('My orders');
+        expect(calls.customerOrderCalls).toHaveLength(0);
+        // an order lookup is not honoured until verified: it is treated as the (wrong) answer
+        const probe = await say('4011', CUSTOMER_PHONE);
+        expect(probe).toContain("doesn't match");
+        expect(probe).not.toContain('ORD-2026-4011');
+      });
+
+      it('accepts the name ignoring case, spacing and punctuation', async () => {
+        const { say } = setup([], [], [customer()], orders);
+        await say('hi', CUSTOMER_PHONE);
+        expect(await say('  sri  KRISHNA sweets. ', CUSTOMER_PHONE)).toContain('My orders');
+      });
+
+      it('accepts one of their own order numbers instead of the name', async () => {
+        const { say } = setup([], [], [customer()], orders);
+        await say('hi', CUSTOMER_PHONE);
+        expect(await say('ord-2026-4011', CUSTOMER_PHONE)).toContain('My orders');
+      });
+
+      it("does not accept another customer's order number or a partial name", async () => {
+        const { say } = setup([], [], [customer()], { ...orders, other: [{ id: 'q', orderNumber: 'ORD-OTHER-1', productionStage: 'DELIVERED' }] });
+        await say('hi', CUSTOMER_PHONE);
+        expect(await say('ORD-OTHER-1', CUSTOMER_PHONE)).toContain("doesn't match");
+        expect(await say('Sri', CUSTOMER_PHONE)).toContain("doesn't match");
+      });
+
+      it('locks after 3 wrong answers, even if the right one follows', async () => {
+        const { say, calls } = setup([], [], [customer()], orders);
+        await say('hi', CUSTOMER_PHONE);
+        await say('wrong one', CUSTOMER_PHONE);
+        await say('wrong two', CUSTOMER_PHONE);
+        const locked = await say('wrong three', CUSTOMER_PHONE);
+        expect(locked).toContain("couldn't verify");
+        expect(locked).toContain('+919443011111');
+        expect(await say('Sri Krishna Sweets', CUSTOMER_PHONE)).toContain("couldn't verify");
+        expect(await say('1', CUSTOMER_PHONE)).not.toContain('ORD-2026-4011');
+        expect(calls.customerOrderCalls.every((id) => id === 'c1')).toBe(true);
+      });
+
+      it('stays verified for the rest of the session', async () => {
+        const { say } = setup([], [], [customer()], orders);
+        await open(say);
+        expect(await say('menu', CUSTOMER_PHONE)).toContain('Sri');
+        expect(await say('1', CUSTOMER_PHONE)).toContain('ORD-2026-4011');
+      });
     });
 
     it('staff take precedence when a number is both staff and customer', async () => {
@@ -497,9 +562,10 @@ describe('WhatsApp conversation engine', () => {
         [customer({ selfServiceEnabled: false }), customer({ customerId: 'c2', tenantId: 't2', tenantName: 'Vidhyasri Offset' })],
         { c2: [{ id: 'z', orderNumber: 'VO-77', productionStage: 'ARTWORK_PENDING', balanceDue: '500' }] }
       );
-      const menu = await say('hi', CUSTOMER_PHONE); // single enabled business -> no "which business?"
-      expect(menu).not.toContain('Which business?');
-      expect(menu).toContain('Vidhyasri Offset');
+      const prompt = await say('hi', CUSTOMER_PHONE); // single enabled business -> no "which business?"
+      expect(prompt).not.toContain('Which business?');
+      expect(prompt).toContain('Vidhyasri Offset');
+      expect(await say('Sri Krishna Sweets', CUSTOMER_PHONE)).toContain('Vidhyasri Offset');
       expect(await say('1', CUSTOMER_PHONE)).toContain('VO-77');
     });
 
