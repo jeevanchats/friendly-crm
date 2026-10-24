@@ -25,6 +25,7 @@ import {
 } from '@friendly-crm/db';
 import { eq, and, desc, gt } from 'drizzle-orm';
 import { DevSmsGateway } from './sms-gateway';
+import { globalMemoryTenants } from '../crm/memory-store';
 
 export interface ValidatedUserSession {
   user: {
@@ -47,6 +48,16 @@ export interface UserTenantMembership {
   isActive: boolean;
   tenantName: string;
   industryKey: string;
+}
+
+export interface StaffMembershipByPhone {
+  userId: string;
+  fullName: string;
+  preferredLanguage: string;
+  tenantId: string;
+  tenantName: string;
+  industryKey: string;
+  role: TenantRole;
 }
 
 @Injectable()
@@ -597,6 +608,69 @@ export class AuthService {
         tenantName: 'Tenant ' + m.tenantId.slice(0, 8),
         industryKey: 'printing',
       }));
+  }
+
+  /**
+   * Cross-tenant lookup of active staff memberships for ONE phone number (WhatsApp bot).
+   * Uses the SECURITY DEFINER function lookup_staff_by_phone (migration 0003) because
+   * `memberships` is protected by FORCE ROW LEVEL SECURITY and cannot be listed across
+   * tenants by the restricted runtime role. The in-memory fallback is used ONLY when the
+   * database is unreachable, so a membership revoked in Postgres can never be resurrected
+   * from a stale memory map.
+   */
+  async findStaffByPhone(rawPhone: string): Promise<StaffMembershipByPhone[]> {
+    let phone: string;
+    try {
+      phone = this.normalizePhone(rawPhone);
+    } catch {
+      return [];
+    }
+
+    try {
+      if (db && typeof db.execute === 'function') {
+        const result: any = await db.execute(sql`SELECT * FROM lookup_staff_by_phone(${phone})`);
+        const rows: any[] = Array.isArray(result) ? result : result?.rows ?? [];
+        return rows.map((r) => ({
+          userId: r.user_id,
+          fullName: r.full_name,
+          preferredLanguage: r.preferred_language || 'en',
+          tenantId: r.tenant_id,
+          tenantName: r.tenant_name,
+          industryKey: r.industry_key,
+          role: r.role as TenantRole,
+        }));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Postgres offline; staff phone lookup using memory store: ${err.message}`);
+    }
+
+    const user = Array.from(this.memoryUsers.values()).find((u) => u.phone === phone);
+    if (!user) return [];
+    return Array.from(this.memoryMemberships.values())
+      .filter((m) => m.userId === user.id && m.isActive)
+      .map((m) => {
+        const tenant = globalMemoryTenants.get(m.tenantId);
+        return {
+          userId: user.id,
+          fullName: user.fullName,
+          preferredLanguage: 'en',
+          tenantId: m.tenantId,
+          tenantName: tenant?.name ?? 'Tenant ' + m.tenantId.slice(0, 8),
+          industryKey: tenant?.industryKey ?? 'printing',
+          role: m.role,
+        };
+      });
+  }
+
+  /** Persists a user's preferred language (best effort). */
+  async setPreferredLanguage(userId: string, locale: string): Promise<void> {
+    try {
+      if (db && typeof db.update === 'function') {
+        await db.update(users).set({ preferredLanguage: locale }).where(eq(users.id, userId));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not persist preferred language: ${err.message}`);
+    }
   }
 
   /**

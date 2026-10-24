@@ -20,6 +20,12 @@ export class DevSmsGateway implements ISmsGateway {
 
     // Securely hold in test-inspectable store without printing sensitive OTP in production logs
     DevSmsGateway.otpStore.set(phone, otp);
+
+    // Local development only: show the code in the API console so a developer can log in
+    // without an SMS provider. Never prints in production or tests.
+    if (isDevEnabled && process.env.NODE_ENV !== 'production' && !isTest) {
+      new Logger('DevSmsGateway').warn(`DEV OTP for ${phone}: ${otp}`);
+    }
     return true;
   }
 

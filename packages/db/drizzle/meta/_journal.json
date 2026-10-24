@@ -22,6 +22,27 @@
       "when": 1792600000000,
       "tag": "0002_enable_rls_and_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792701000000,
+      "tag": "0003_staff_phone_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792702000000,
+      "tag": "0004_customer_phone_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792703000000,
+      "tag": "0005_tenant_customer_self_service",
+      "breakpoints": true
     }
   ]
 }

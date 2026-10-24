@@ -7,9 +7,11 @@ import { DevNotificationAdapter } from './adapters/dev-notification.adapter';
 import { HttpWhatsAppAdapter } from './adapters/http-whatsapp.adapter';
 import { TenantNotificationProviderManager } from './adapters/tenant-provider-manager';
 import { DevEmailAdapter } from './adapters/dev-email.adapter';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Global()
 @Module({
+  imports: [WhatsAppModule],
   controllers: [NotificationsController, WhatsAppWebhookController],
   providers: [
     NotificationOutboxService,

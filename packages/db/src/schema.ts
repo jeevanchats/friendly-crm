@@ -31,6 +31,8 @@ export const tenants = pgTable('tenants', {
   gstNumber: varchar('gst_number', { length: 20 }),
   phone: varchar('phone', { length: 20 }).notNull(), // E.164 Normalized (+91...)
   isActive: boolean('is_active').default(true).notNull(),
+  // Owner opt-out: when false, customers texting the WhatsApp number cannot view their own orders.
+  customerSelfServiceEnabled: boolean('customer_self_service_enabled').default(true).notNull(),
   ...timestamps,
 });
 
