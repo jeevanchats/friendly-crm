@@ -12,8 +12,10 @@ import {
   globalMemoryQuotations,
   globalMemoryQuotationItems,
   globalMemoryActivities,
+  globalMemoryPayments,
 } from '../src/modules/crm/memory-store';
 import { CustomerQuoteService } from '../src/modules/sales/customer-quote.service';
+import { NotificationOutboxService } from '../src/modules/notifications/notification-outbox.service';
 import { DevNotificationAdapter } from '../src/modules/notifications/adapters/dev-notification.adapter';
 
 describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
@@ -411,6 +413,63 @@ describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
       expect(act?.metadata).toMatchObject({ request: 'Make it 800 pcs', channel: 'WHATSAPP' });
       expect(globalMemoryQuotations.find((q: any) => q.id === 'quote-ss-change')!.status).toBe('SENT');
       expect(await svc.requestChange(TENANT_ID, 'cust-quote-2', 'quote-ss-change', 'not mine', ctx)).toBe(false);
+    });
+  });
+
+  describe('staff records a payment on WhatsApp', () => {
+    // A dedicated accounts user: the bot rate-limits each sender, and the owner's budget is used up by earlier tests.
+    const ACCOUNTS_ID = 'dddd1111-2222-4333-8444-555566667777';
+    const ACCOUNTS_PHONE = '+919840888333';
+    const ACCOUNTS_META = '919840888333';
+    const order = () => globalMemoryOrders.find((o: any) => o.id === 'ord-selfservice-mine')!;
+
+    beforeAll(() => {
+      authService.registerUser({ id: ACCOUNTS_ID, fullName: 'Webhook Accounts', phone: ACCOUNTS_PHONE });
+      authService.registerMembership(TENANT_ID, ACCOUNTS_ID, 'ACCOUNTS', true);
+    });
+
+    it('updates the order, issues a receipt, and the customer is sent that receipt', async () => {
+      const before = { advance: Number(order().advanceReceived), balance: Number(order().balanceDue) };
+      const menu = await send(ACCOUNTS_META, 'hi');
+      expect(menu).toContain('Record a payment');
+      const num = menu.split('\n').find((l) => l.includes('Record a payment'))!.trim().split('.')[0];
+      await send(ACCOUNTS_META, num);
+      const ask = await send(ACCOUNTS_META, 'ORD-SS-7001');
+      expect(ask).toContain('How much was received');
+      await send(ACCOUNTS_META, '5000');
+      await send(ACCOUNTS_META, '1'); // UPI
+      await send(ACCOUNTS_META, 'UTR-WA-0001');
+      const done = await send(ACCOUNTS_META, '1');
+
+      const payment = globalMemoryPayments.find((p: any) => p.referenceNo === 'UTR-WA-0001');
+      expect(payment).toBeDefined();
+      expect(payment).toMatchObject({ tenantId: TENANT_ID, orderId: 'ord-selfservice-mine', mode: 'UPI', receivedById: ACCOUNTS_ID });
+      expect(Number(payment.amount)).toBe(5000);
+      expect(done).toContain(payment.receiptNumber);
+      expect(Number(order().advanceReceived)).toBe(before.advance + 5000);
+      expect(Number(order().balanceDue)).toBe(before.balance - 5000);
+
+      // the customer's receipt is delivered by the notification outbox
+      sendSpy.mockClear();
+      await app.get(NotificationOutboxService).processOutbox(TENANT_ID);
+      const receipt = sendSpy.mock.calls
+        .map((c: any[]) => c[0])
+        .find((m: any) => m.recipient === '+919840555111' && String(m.message).includes(payment.receiptNumber));
+      expect(receipt).toBeDefined();
+    });
+
+    it('the server refuses a reused UTR and the staff member is told nothing was saved', async () => {
+      const count = globalMemoryPayments.length;
+      const menu = await send(ACCOUNTS_META, 'menu');
+      const num = menu.split('\n').find((l) => l.includes('Record a payment'))!.trim().split('.')[0];
+      await send(ACCOUNTS_META, num);
+      await send(ACCOUNTS_META, 'ORD-SS-7001');
+      expect(await send(ACCOUNTS_META, '9999999')).toContain('more than the balance'); // blocked by the bot itself
+      await send(ACCOUNTS_META, '1000');
+      await send(ACCOUNTS_META, '1');
+      await send(ACCOUNTS_META, 'UTR-WA-0001'); // already used above
+      expect(await send(ACCOUNTS_META, '1')).toContain('Nothing was saved');
+      expect(globalMemoryPayments.length).toBe(count);
     });
   });
 });

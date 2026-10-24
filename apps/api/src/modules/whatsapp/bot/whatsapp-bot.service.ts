@@ -154,6 +154,28 @@ export class WhatsAppBotService {
         need(who.role, 'order:update_stage');
         await this.orders.updateOrderStage(who.tenantId, who.userId, orderId, stageId);
       },
+
+      // Same service as the web API, so validation (no overpayment, duplicate references), receipt numbering,
+      // balances and the customer's PAYMENT_RECEIPT message behave identically from WhatsApp.
+      recordPayment: async (who, orderId, input) => {
+        need(who.role, 'payment:create');
+        const result: any = await this.orders.recordPayment(
+          who.tenantId,
+          who.userId,
+          orderId,
+          {
+            amount: Number(input.amount),
+            mode: input.mode,
+            referenceNo: input.referenceNo,
+            notes: 'Recorded via WhatsApp',
+          } as any,
+          input.idempotencyKey
+        );
+        return {
+          receiptNumber: result.payment?.receiptNumber,
+          balanceRemaining: result.order?.balanceDue ?? null,
+        };
+      },
     };
   }
 }

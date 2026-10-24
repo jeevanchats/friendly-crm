@@ -63,12 +63,13 @@ function setup(
     orderQueries: [] as string[],
     customerOrderCalls: [] as string[],
     setSelfService: [] as boolean[],
+    payments: [] as any[],
     quoteList: 0,
     approve: [] as any[],
     change: [] as any[],
   };
   const state = { selfService: true, failSet: false };
-  const failures = { createLead: false };
+  const failures = { createLead: false, recordPayment: false };
   const ports: BotPorts = {
     findStaffByPhone: async (p) => (p === PHONE ? identities : []),
     findCustomerByPhone: async (p) => (p === CUSTOMER_PHONE ? customers : []),
@@ -79,6 +80,11 @@ function setup(
     listCustomerQuotes: async () => {
       calls.quoteList++;
       return opts.quotes ?? [];
+    },
+    recordPayment: async (who, orderId, input) => {
+      if (failures.recordPayment) throw new Error('db down');
+      calls.payments.push({ who, orderId, input });
+      return { receiptNumber: 'RCP-2026-0001', balanceRemaining: '70000.00' };
     },
     approveCustomerQuote: async (who, quoteId, expectedTotal, ctx) => {
       calls.approve.push({ who, quoteId, expectedTotal, ctx });
@@ -343,6 +349,124 @@ describe('WhatsApp conversation engine', () => {
     const { engine } = setup([staff()]);
     const r = await engine.handle({ id: 'x', from: PHONE, type: 'media', text: '' });
     expect(r.replies[0]).toContain('text messages');
+  });
+
+  describe('staff: record a payment', () => {
+    const orders: OrderSummary[] = [
+      { id: 'o1', orderNumber: 'ORD-2026-4011', customerName: 'Sri Krishna Sweets', productionStage: 'PRINTING_CMYK', balanceDue: '75000.00' },
+      { id: 'o2', orderNumber: 'ORD-2026-4012', customerName: 'Sri Lakshmi Stores', productionStage: 'ARTWORK_PENDING', balanceDue: '1000.00' },
+    ];
+
+    it('is offered to roles that may record payments, as the last option', async () => {
+      const owner = await setup([staff()]).say('hi');
+      expect(owner.trim().split('\n').filter((l) => /^\d\./.test(l)).pop()).toContain('Record a payment');
+      expect(await setup([staff({ role: 'ACCOUNTS' as TenantRole })]).say('hi')).toContain('Record a payment');
+      expect(await setup([staff({ role: 'SALESPERSON' as TenantRole })]).say('hi')).not.toContain('Record a payment');
+      expect(await setup([staff({ role: 'PRODUCTION' as TenantRole })]).say('hi')).not.toContain('Record a payment');
+    });
+
+    it('records a UPI payment with a reference after confirmation, and shows the receipt', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6'); // owner menu: 1 enquiry, 2 status, 3 stage, 4 language, 5 customer updates, 6 payment
+      const ask = await say('4011');
+      expect(ask).toContain('ORD-2026-4011');
+      expect(ask).toContain('Balance: ₹75,000');
+      expect(await say('₹5,000')).toContain('How was it paid?');
+      expect(await say('1')).toContain('reference number'); // UPI
+      const confirm = await say('UTR123456789');
+      expect(confirm).toContain('₹5,000');
+      expect(confirm).toContain('UPI');
+      expect(confirm).toContain('UTR123456789');
+      expect(calls.payments).toHaveLength(0); // nothing is written before the confirmation
+
+      const done = await say('1');
+      expect(done).toContain('RCP-2026-0001');
+      expect(done).toContain('Balance now ₹70,000');
+      expect(calls.payments).toHaveLength(1);
+      expect(calls.payments[0]).toMatchObject({
+        orderId: 'o1',
+        input: { amount: '5000.00', mode: 'UPI', referenceNo: 'UTR123456789' },
+      });
+      expect(calls.payments[0].input.idempotencyKey).toMatch(/^wa-pay:/);
+    });
+
+    it('cash needs no reference, and a repeated "1" does not record twice', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4011');
+      await say('2500.50');
+      const confirm = await say('2'); // cash
+      expect(confirm).toContain('Cash');
+      await say('1');
+      await say('1'); // back at the main menu: this is just "Lead"
+      expect(calls.payments).toHaveLength(1);
+      expect(calls.payments[0].input).toMatchObject({ amount: '2500.50', mode: 'CASH', referenceNo: null });
+    });
+
+    it('lets the user skip the reference with 0', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4011');
+      await say('1000');
+      await say('3'); // bank transfer
+      await say('0');
+      await say('1');
+      expect(calls.payments[0].input).toMatchObject({ mode: 'BANK_TRANSFER', referenceNo: null });
+    });
+
+    it('rejects a bad amount, an amount above the balance, and cancelling records nothing', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4012'); // balance ₹1,000
+      expect(await say('abc')).toContain('as a number');
+      expect(await say('0')).toContain('as a number');
+      expect(await say('-50')).toContain('as a number');
+      expect(await say('12.345')).toContain('as a number');
+      expect(await say('1500')).toContain('more than the balance (₹1,000)');
+      expect(await say('1000')).toContain('How was it paid?');
+      await say('2');
+      const out = await say('2'); // cancel at the confirmation
+      expect(out).toContain('Cancelled');
+      expect(calls.payments).toHaveLength(0);
+    });
+
+    it('picks among several matching orders', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      expect(await say('sri')).toContain('Which order?');
+      expect(await say('2')).toContain('ORD-2026-4012');
+      await say('400');
+      await say('2');
+      await say('1');
+      expect(calls.payments[0]).toMatchObject({ orderId: 'o2' });
+    });
+
+    it('on a failure says nothing was saved and a retry reuses the same idempotency key', async () => {
+      const { say, calls, failures } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4011');
+      await say('5000');
+      await say('2');
+      failures.recordPayment = true;
+      const failed = await say('1');
+      expect(failed).toContain('Nothing was saved');
+      expect(failed).not.toContain('RCP-');
+      failures.recordPayment = false;
+      expect(await say('1')).toContain('RCP-2026-0001');
+      expect(calls.payments).toHaveLength(1);
+    });
+
+    it('is refused for a role without payment permission even if forced', async () => {
+      const { engine } = setup([staff({ role: 'SALESPERSON' as TenantRole })], orders);
+      const r = await engine.handle({ id: 'x', from: PHONE, type: 'text', text: '6' });
+      expect(r.replies.join('')).not.toContain('How much was received');
+    });
   });
 
   describe('customer self-service', () => {

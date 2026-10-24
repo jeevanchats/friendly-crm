@@ -6,6 +6,7 @@ import {
   getIndustryTemplate,
   hasPermission,
 } from '@friendly-crm/shared';
+import { randomUUID } from 'crypto';
 import { InboundMessage } from './inbound-parser';
 import { SessionStore } from './session-store';
 import { buildUpiLink, isValidUpiId } from '../../payments/upi';
@@ -91,6 +92,21 @@ export type QuoteApproveResult =
   | { ok: true; orderNumber: string; alreadyApproved: boolean }
   | { ok: false; reason: 'NOT_AVAILABLE' | 'EXPIRED' | 'CHANGED' };
 
+export type PaymentModeCode = 'UPI' | 'CASH' | 'BANK_TRANSFER' | 'CHEQUE';
+
+export interface RecordPaymentInput {
+  /** Decimal rupees with 2 places, e.g. "5000.00". */
+  amount: string;
+  mode: PaymentModeCode;
+  referenceNo: string | null;
+  idempotencyKey: string;
+}
+
+export interface RecordedPayment {
+  receiptNumber: string;
+  balanceRemaining?: string | number | null;
+}
+
 /** Everything the engine needs from the outside world. Keeps the engine pure and testable. */
 export interface BotPorts {
   findCustomerByPhone(phone: string): Promise<CustomerIdentity[]>;
@@ -110,6 +126,8 @@ export interface BotPorts {
   createLead(who: StaffIdentity, input: NewLeadInput): Promise<void>;
   findOrders(who: StaffIdentity, query: string): Promise<OrderSummary[]>;
   updateOrderStage(who: StaffIdentity, orderId: string, stageId: string): Promise<void>;
+  /** Records money received against an order; the customer is sent the receipt by the notification outbox. */
+  recordPayment(who: StaffIdentity, orderId: string, input: RecordPaymentInput): Promise<RecordedPayment>;
   setPreferredLanguage(userId: string, locale: string): Promise<void>;
   getCustomerSelfService(who: StaffIdentity): Promise<boolean>;
   setCustomerSelfService(who: StaffIdentity, enabled: boolean): Promise<void>;
@@ -133,8 +151,20 @@ type BotState =
   | { step: 'QUOTE_CHANGE'; quote: CustomerQuoteView }
   | { step: 'SELF_SERVICE'; enabled: boolean }
   | { step: 'LEAD'; phase: 'NAME' | 'PHONE' | 'NEED' | 'FIELD' | 'CONFIRM'; draft: LeadDraft; fieldIndex: number }
-  | { step: 'ORDER_QUERY'; purpose: 'STATUS' | 'STAGE' }
-  | { step: 'ORDER_PICK'; candidates: OrderSummary[] }
+  | { step: 'ORDER_QUERY'; purpose: 'STATUS' | 'STAGE' | 'PAYMENT' }
+  | { step: 'ORDER_PICK'; candidates: OrderSummary[]; purpose: 'STAGE' | 'PAYMENT' }
+  | { step: 'PAYMENT_AMOUNT'; order: OrderSummary }
+  | { step: 'PAYMENT_MODE'; order: OrderSummary; paise: number }
+  | { step: 'PAYMENT_REF'; order: OrderSummary; paise: number; mode: PaymentModeCode }
+  | {
+      step: 'PAYMENT_CONFIRM';
+      order: OrderSummary;
+      paise: number;
+      mode: PaymentModeCode;
+      reference: string | null;
+      /** Same key on every retry of this confirmation, so a retried write can never record twice. */
+      idempotencyKey: string;
+    }
   | { step: 'STAGE_PICK'; order: OrderSummary }
   | { step: 'STAGE_CONFIRM'; order: OrderSummary; stageId: string };
 
@@ -173,13 +203,32 @@ function canon(s: string): string {
   return normalizeDigits(s).normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
 }
 
-type MenuAction = 'LEAD' | 'STATUS' | 'STAGE' | 'LANGUAGE' | 'SELF_SERVICE';
+const PAYMENT_MODES: Array<{ code: PaymentModeCode; label: MessageKey }> = [
+  { code: 'UPI', label: 'pay_mode_upi' },
+  { code: 'CASH', label: 'pay_mode_cash' },
+  { code: 'BANK_TRANSFER', label: 'pay_mode_bank' },
+  { code: 'CHEQUE', label: 'pay_mode_cheque' },
+];
+
+/** "5000", "₹5,000", "Rs. 2500.50" -> paise; null if it is not a positive amount with at most 2 decimals. */
+function parseAmountPaise(text: string): number | null {
+  const cleaned = normalizeDigits(text).replace(/₹|rs\.?|inr|,|\s/gi, '');
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(cleaned)) return null;
+  const paise = Math.round(Number(cleaned) * 100);
+  return paise > 0 ? paise : null;
+}
+
+const paiseToAmount = (paise: number) => `${Math.floor(paise / 100)}.${String(paise % 100).padStart(2, '0')}`;
+
+type MenuAction = 'LEAD' | 'STATUS' | 'STAGE' | 'LANGUAGE' | 'SELF_SERVICE' | 'PAYMENT';
 const MENU: Array<{ action: MenuAction; label: MessageKey; permission?: PermissionAction }> = [
   { action: 'LEAD', label: 'menu_new_enquiry', permission: 'lead:create' },
   { action: 'STATUS', label: 'menu_order_status', permission: 'order:view' },
   { action: 'STAGE', label: 'menu_update_stage', permission: 'order:update_stage' },
   { action: 'LANGUAGE', label: 'menu_language' },
   { action: 'SELF_SERVICE', label: 'menu_self_service', permission: 'settings:manage' },
+  // Last, so adding it never renumbers the options staff already know.
+  { action: 'PAYMENT', label: 'menu_record_payment', permission: 'payment:create' },
 ];
 
 // ---------------------------------------------------------------- helpers
@@ -341,6 +390,17 @@ export class ConversationEngine {
         return this.onStagePick(text, s, s.state, who, locale);
       case 'STAGE_CONFIRM':
         return this.onStageConfirm(text, s, s.state, who, locale);
+      case 'PAYMENT_AMOUNT':
+        return this.onPaymentAmount(text, s, s.state, who, locale);
+      case 'PAYMENT_MODE':
+        return this.onPaymentMode(text, s, s.state, locale);
+      case 'PAYMENT_REF':
+        return this.onPaymentRef(text, s, s.state, locale);
+      case 'PAYMENT_CONFIRM':
+        return this.onPaymentConfirm(text, s, s.state, who, locale);
+      default:
+        // Customer-only steps (VERIFY, QUOTE_*) can never be a staff state; start over rather than guess.
+        return this.showMenu(s, who, locale);
     }
   }
 
@@ -373,6 +433,9 @@ export class ConversationEngine {
         return [t(locale, 'ask_order_query')];
       case 'STAGE':
         s.state = { step: 'ORDER_QUERY', purpose: 'STAGE' };
+        return [t(locale, 'ask_order_query')];
+      case 'PAYMENT':
+        s.state = { step: 'ORDER_QUERY', purpose: 'PAYMENT' };
         return [t(locale, 'ask_order_query')];
       case 'LANGUAGE':
         return this.startLanguagePick(s, locale);
@@ -939,7 +1002,7 @@ export class ConversationEngine {
   private async onOrderQuery(
     text: string,
     s: BotSession,
-    purpose: 'STATUS' | 'STAGE',
+    purpose: 'STATUS' | 'STAGE' | 'PAYMENT',
     who: StaffIdentity,
     locale: string
   ): Promise<string[]> {
@@ -950,8 +1013,12 @@ export class ConversationEngine {
     if (purpose === 'STATUS') {
       return [found.map((o) => this.orderLine(o, who, locale)).join('\n\n'), t(locale, 'ask_order_query')];
     }
-    if (found.length === 1) return this.startStagePick(s, found[0], who, locale);
-    s.state = { step: 'ORDER_PICK', candidates: found };
+    if (found.length === 1) {
+      return purpose === 'PAYMENT'
+        ? this.startPaymentAmount(s, found[0], locale)
+        : this.startStagePick(s, found[0], who, locale);
+    }
+    s.state = { step: 'ORDER_PICK', candidates: found, purpose };
     return [
       `${t(locale, 'pick_order')}\n${numbered(found.map((o) => `${o.orderNumber} · ${o.customerName}`))}`,
     ];
@@ -966,8 +1033,122 @@ export class ConversationEngine {
   ): Promise<string[]> {
     const idx = parseIndex(text, st.candidates.length);
     // Not a valid pick → treat the text as a fresh search, which is what a user on the shop floor would mean.
-    if (idx === null) return this.onOrderQuery(text, s, 'STAGE', who, locale);
-    return this.startStagePick(s, st.candidates[idx], who, locale);
+    if (idx === null) return this.onOrderQuery(text, s, st.purpose, who, locale);
+    return st.purpose === 'PAYMENT'
+      ? this.startPaymentAmount(s, st.candidates[idx], locale)
+      : this.startStagePick(s, st.candidates[idx], who, locale);
+  }
+
+  // ---------------------------------------------------------------- record a payment (staff)
+  private startPaymentAmount(s: BotSession, order: OrderSummary, locale: string): string[] {
+    s.state = { step: 'PAYMENT_AMOUNT', order };
+    const has = order.balanceDue !== null && order.balanceDue !== undefined && Number(order.balanceDue) > 0;
+    const balance = has ? t(locale, 'pay_balance_line', { balance: fmtMoney(order.balanceDue!) }) : '';
+    return [t(locale, 'ask_pay_amount', { order: order.orderNumber, customer: order.customerName, balance })];
+  }
+
+  private async onPaymentAmount(
+    text: string,
+    s: BotSession,
+    st: Extract<BotState, { step: 'PAYMENT_AMOUNT' }>,
+    _who: StaffIdentity,
+    locale: string
+  ): Promise<string[]> {
+    const paise = parseAmountPaise(text);
+    if (paise === null) return [t(locale, 'pay_amount_invalid')];
+    const bal = st.order.balanceDue;
+    if (bal !== null && bal !== undefined && Number.isFinite(Number(bal)) && paise > Math.round(Number(bal) * 100)) {
+      return [t(locale, 'pay_amount_too_high', { balance: fmtMoney(bal) })];
+    }
+    s.state = { step: 'PAYMENT_MODE', order: st.order, paise };
+    return [`${t(locale, 'ask_pay_mode')}\n${numbered(PAYMENT_MODES.map((m) => t(locale, m.label)))}`];
+  }
+
+  private async onPaymentMode(
+    text: string,
+    s: BotSession,
+    st: Extract<BotState, { step: 'PAYMENT_MODE' }>,
+    locale: string
+  ): Promise<string[]> {
+    const idx = parseIndex(text, PAYMENT_MODES.length);
+    if (idx === null) return [t(locale, 'choose_number')];
+    const mode = PAYMENT_MODES[idx].code;
+    if (mode === 'UPI' || mode === 'BANK_TRANSFER') {
+      s.state = { step: 'PAYMENT_REF', order: st.order, paise: st.paise, mode };
+      return [t(locale, 'ask_pay_ref')];
+    }
+    return this.askPaymentConfirm(s, st.order, st.paise, mode, null, locale);
+  }
+
+  private async onPaymentRef(
+    text: string,
+    s: BotSession,
+    st: Extract<BotState, { step: 'PAYMENT_REF' }>,
+    locale: string
+  ): Promise<string[]> {
+    const raw = text.trim();
+    if (!raw) return [t(locale, 'ask_pay_ref')];
+    const reference = raw === '0' ? null : raw.slice(0, 60);
+    return this.askPaymentConfirm(s, st.order, st.paise, st.mode, reference, locale);
+  }
+
+  private askPaymentConfirm(
+    s: BotSession,
+    order: OrderSummary,
+    paise: number,
+    mode: PaymentModeCode,
+    reference: string | null,
+    locale: string
+  ): string[] {
+    s.state = { step: 'PAYMENT_CONFIRM', order, paise, mode, reference, idempotencyKey: `wa-pay:${randomUUID()}` };
+    const modeLabel = t(locale, PAYMENT_MODES.find((m) => m.code === mode)!.label);
+    const ref = reference ? `\nRef: ${reference}` : '';
+    return [
+      `${t(locale, 'confirm_payment', { amount: fmtMoney(paise / 100), mode: modeLabel, order: order.orderNumber, ref })}\n${t(locale, 'confirm_record_cancel')}`,
+    ];
+  }
+
+  private async onPaymentConfirm(
+    text: string,
+    s: BotSession,
+    st: Extract<BotState, { step: 'PAYMENT_CONFIRM' }>,
+    who: StaffIdentity,
+    locale: string
+  ): Promise<string[]> {
+    const idx = parseIndex(text, 2);
+    if (idx === null) return [t(locale, 'choose_number')];
+    if (idx === 1) {
+      s.state = { step: 'IDLE' };
+      return [t(locale, 'cancelled'), ...this.showMenu(s, who, locale)];
+    }
+    // Leave the confirm step before the write; on a failure we come back with the SAME idempotency key,
+    // so retrying "1" can never record the payment twice even if the first attempt actually went through.
+    s.state = { step: 'IDLE' };
+    let done: RecordedPayment;
+    try {
+      done = await this.ports.recordPayment(who, st.order.id, {
+        amount: paiseToAmount(st.paise),
+        mode: st.mode,
+        referenceNo: st.reference,
+        idempotencyKey: st.idempotencyKey,
+      });
+    } catch {
+      s.state = st;
+      return [t(locale, 'payment_failed')];
+    }
+    const after =
+      done.balanceRemaining !== null && done.balanceRemaining !== undefined
+        ? t(locale, 'payment_balance_after', { balance: fmtMoney(done.balanceRemaining) })
+        : '';
+    return [
+      t(locale, 'payment_recorded', {
+        amount: fmtMoney(st.paise / 100),
+        order: st.order.orderNumber,
+        receipt: done.receiptNumber,
+        balance: after,
+      }),
+      ...this.showMenu(s, who, locale),
+    ];
   }
 
   private startStagePick(s: BotSession, order: OrderSummary, who: StaffIdentity, locale: string): string[] {

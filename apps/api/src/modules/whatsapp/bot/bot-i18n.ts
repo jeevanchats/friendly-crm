@@ -104,6 +104,43 @@ export const MESSAGES = {
     en: 'Move *{order}* to *{stage}*?',
     ta: '*{order}* ஐ *{stage}* நிலைக்கு மாற்றவா?',
   },
+  menu_record_payment: { en: 'Record a payment', ta: 'பணம் பதிவு செய்' },
+  ask_pay_amount: {
+    en: '*{order}* · {customer}\n{balance}How much was received? (e.g. 5000)',
+    ta: '*{order}* · {customer}\n{balance}எவ்வளவு பெறப்பட்டது? (எ.கா. 5000)',
+  },
+  pay_balance_line: { en: 'Balance: {balance}\n', ta: 'பாக்கி: {balance}\n' },
+  pay_amount_invalid: {
+    en: 'Please send the amount as a number, e.g. *5000* or *2500.50*.',
+    ta: 'தொகையை எண்ணாக அனுப்பவும், எ.கா. *5000* அல்லது *2500.50*.',
+  },
+  pay_amount_too_high: {
+    en: "That is more than the balance ({balance}). Send a smaller amount, or type *cancel*.",
+    ta: 'இது பாக்கியை ({balance}) விட அதிகம். குறைந்த தொகையை அனுப்பவும் அல்லது *cancel* என டைப் செய்யவும்.',
+  },
+  ask_pay_mode: { en: 'How was it paid?', ta: 'எப்படி செலுத்தப்பட்டது?' },
+  pay_mode_upi: { en: 'UPI', ta: 'UPI' },
+  pay_mode_cash: { en: 'Cash', ta: 'ரொக்கம்' },
+  pay_mode_bank: { en: 'Bank transfer', ta: 'வங்கி பரிமாற்றம்' },
+  pay_mode_cheque: { en: 'Cheque', ta: 'காசோலை' },
+  ask_pay_ref: {
+    en: 'Send the UPI / bank reference number (UTR), or *0* to skip.',
+    ta: 'UPI / வங்கி குறிப்பு எண்ணை (UTR) அனுப்பவும், அல்லது தவிர்க்க *0*.',
+  },
+  confirm_payment: {
+    en: 'Record *{amount}* ({mode}) against *{order}*?{ref}',
+    ta: '*{order}* க்கு *{amount}* ({mode}) பதிவு செய்யவா?{ref}',
+  },
+  confirm_record_cancel: { en: '1. Record\n2. Cancel', ta: '1. பதிவு செய்\n2. ரத்து செய்' },
+  payment_recorded: {
+    en: '✅ Recorded {amount} against *{order}*. Receipt *{receipt}*.{balance} The customer is sent a receipt on WhatsApp.',
+    ta: '✅ *{order}* க்கு {amount} பதிவு செய்யப்பட்டது. ரசீது *{receipt}*.{balance} வாடிக்கையாளருக்கு WhatsApp இல் ரசீது அனுப்பப்படும்.',
+  },
+  payment_balance_after: { en: ' Balance now {balance}.', ta: ' இப்போதைய பாக்கி {balance}.' },
+  payment_failed: {
+    en: "Couldn't record that payment. Nothing was saved. Reply *1* to try again or *2* to cancel.",
+    ta: 'அந்த பணத்தை பதிவு செய்ய முடியவில்லை. எதுவும் சேமிக்கப்படவில்லை. மீண்டும் முயல *1*, ரத்து செய்ய *2*.',
+  },
   confirm_update_cancel: { en: '1. Update\n2. Cancel', ta: '1. மாற்று\n2. ரத்து செய்' },
   stage_updated: { en: '✅ *{order}* is now at *{stage}*.', ta: '✅ *{order}* இப்போது *{stage}* நிலையில் உள்ளது.' },
   stage_failed: {
