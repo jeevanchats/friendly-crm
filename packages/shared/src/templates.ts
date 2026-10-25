@@ -34,9 +34,22 @@ export interface LeadStageConfig extends OrderStageConfig {
   outcome?: 'WON' | 'LOST';
 }
 
+/** Sample text shown as placeholders in forms, written in this industry's own words. */
+export interface IndustryExamples {
+  /** What an enquiry for this trade looks like, e.g. an item and quantity. */
+  enquiry: LocalizedString;
+  /** A typical customer / contact name. */
+  customer: LocalizedString;
+  /** A typical company or shop name. */
+  company: LocalizedString;
+  /** A typical catalogue item for the product list (plain text, not translated). */
+  product: { name: string; description: string; hsnCode: string; unit: string; unitPrice: string; taxPercent: string };
+}
+
 export interface IndustryTemplate {
   key: IndustryKey;
   name: LocalizedString;
+  examples?: IndustryExamples;
   /** Optional per-industry lead pipeline. Falls back to DEFAULT_LEAD_STAGES. */
   leadStages?: LeadStageConfig[];
   orderStages: OrderStageConfig[];
@@ -68,6 +81,19 @@ export function getIndustryTemplate(key: string): IndustryTemplate {
     return INDUSTRY_TEMPLATES['printing'];
   }
   return template;
+}
+
+/** Placeholder examples for forms. Falls back to neutral wording that names no particular trade. */
+export function getIndustryExamples(industryKey: string): IndustryExamples {
+  const found = INDUSTRY_TEMPLATES[industryKey?.toLowerCase?.() ?? '']?.examples;
+  return (
+    found ?? {
+      enquiry: { en: 'e.g., what the customer wants and how many', ta: 'எ.கா. வாடிக்கையாளர் கேட்கும் பொருள் மற்றும் எண்ணிக்கை' },
+      customer: { en: 'e.g., customer or contact name', ta: 'எ.கா. வாடிக்கையாளர் பெயர்' },
+      company: { en: 'e.g., shop or company name', ta: 'எ.கா. கடை / நிறுவனம் பெயர்' },
+      product: { name: 'Item name', description: 'Size, grade or other details', hsnCode: '', unit: 'Nos', unitPrice: '100', taxPercent: '18' },
+    }
+  );
 }
 
 export function isIndustryKey(key: unknown): key is IndustryKey {

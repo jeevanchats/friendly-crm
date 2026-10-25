@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
-import { IndustryKey } from '@friendly-crm/shared';
+import { IndustryKey, getIndustryExamples } from '@friendly-crm/shared';
 import { X } from 'lucide-react';
 import { apiFetch } from '../../lib/session';
 
@@ -41,6 +41,9 @@ export function QuickAddLeadDrawer({
   }, [locale]);
 
   if (!isOpen) return null;
+
+  // Sample text in this business's own trade, so a furniture shop is not shown calendars and a printer is not shown cots.
+  const examples = getIndustryExamples(industry);
 
   const computeFollowUpDate = (preset: typeof followUpPreset) => {
     const now = new Date();
@@ -185,7 +188,7 @@ export function QuickAddLeadDrawer({
               <input
                 type="text"
                 required
-                placeholder={lang === 'ta' ? 'எ.கா. ஸ்ரீ விநாயகா ஸ்டோர்ஸ்' : 'e.g., Sri Vinayaga Stores'}
+                placeholder={examples.customer[lang]}
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
@@ -198,7 +201,7 @@ export function QuickAddLeadDrawer({
               </label>
               <input
                 type="text"
-                placeholder={lang === 'ta' ? 'எ.கா. முருகன் டெக்ஸ்டைல்ஸ்' : 'e.g., Murugan Textiles'}
+                placeholder={examples.company[lang]}
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
@@ -212,11 +215,7 @@ export function QuickAddLeadDrawer({
               <input
                 type="text"
                 required
-                placeholder={
-                  lang === 'ta'
-                    ? 'எ.கா. 1000 தினசரி காலண்டர் / தேக்கு கட்டில்'
-                    : 'e.g., 1000 Daily Calendars / Teak Cot'
-                }
+                placeholder={examples.enquiry[lang]}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
