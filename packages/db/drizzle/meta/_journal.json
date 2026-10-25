@@ -78,6 +78,13 @@
       "when": 1792708000000,
       "tag": "0010_products",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792709000000,
+      "tag": "0011_user_memberships_lookup",
+      "breakpoints": true
     }
   ]
 }

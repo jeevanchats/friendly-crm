@@ -66,49 +66,58 @@ export class TenantService {
     const template = getIndustryTemplate(normalizedIndustry);
     const normalizedPhone = this.authService.normalizePhone(dto.ownerPhone);
 
+    // The business, its owner and the owner's membership are saved together or not at all. `memberships` is
+    // row-level-secured by business, so the new business id is set for the transaction first; without that a
+    // restricted database role would refuse the membership and leave a business that nobody can sign in to.
+    let effectiveOwnerId = ownerUserId;
     try {
-      if (db && typeof db.insert === 'function') {
-        // 1. Insert Tenant
-        await db.insert(tenants).values({
-          id: tenantId,
-          name: dto.name,
-          slug: dto.slug.toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
-          industryKey: normalizedIndustry,
-          defaultLanguage: 'en',
-          gstNumber: dto.gstNumber || null,
-          phone: normalizedPhone,
-          isActive: true,
-        });
+      if (db && typeof db.transaction === 'function') {
+        effectiveOwnerId = await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-        // 2. Insert or find Owner User
-        let effectiveOwnerId = ownerUserId;
-        const [existingUser] = await db
-          .select()
-          .from(users)
-          .where(eq(users.phone, normalizedPhone))
-          .limit(1);
-
-        if (existingUser) {
-          effectiveOwnerId = existingUser.id;
-        } else {
-          await db.insert(users).values({
-            id: ownerUserId,
-            fullName: dto.ownerName || 'Business Owner',
+          await tx.insert(tenants).values({
+            id: tenantId,
+            name: dto.name,
+            slug: dto.slug.toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
+            industryKey: normalizedIndustry,
+            defaultLanguage: 'en',
+            gstNumber: dto.gstNumber || null,
             phone: normalizedPhone,
-            preferredLanguage: 'en',
+            isActive: true,
           });
-        }
 
-        // 3. Insert OWNER Membership
-        await db.insert(memberships).values({
-          id: membershipId,
-          tenantId,
-          userId: effectiveOwnerId,
-          role: 'OWNER',
-          isActive: true,
+          let ownerId = ownerUserId;
+          const [existingUser] = await tx.select().from(users).where(eq(users.phone, normalizedPhone)).limit(1);
+          if (existingUser) {
+            ownerId = existingUser.id;
+          } else {
+            await tx.insert(users).values({
+              id: ownerUserId,
+              fullName: dto.ownerName || 'Business Owner',
+              phone: normalizedPhone,
+              preferredLanguage: 'en',
+            });
+          }
+
+          await tx.insert(memberships).values({
+            id: membershipId,
+            tenantId,
+            userId: ownerId,
+            role: 'OWNER',
+            isActive: true,
+          });
+          return ownerId;
         });
       }
     } catch (err: any) {
+      // A real database answer (for example a web address that is already taken) is reported, not hidden.
+      if (err?.code === '23505') {
+        throw new ConflictException('A business with this web address (slug) already exists. Choose another.');
+      }
+      if (typeof err?.code === 'string' && /^[0-9A-Z]{5}$/.test(err.code)) {
+        this.logger.error(`Onboarding failed in Postgres (${err.code}): ${err.message}`);
+        throw new BadRequestException('The business could not be created. Check the details and try again.');
+      }
       this.logger.warn(`Postgres offline; persisting onboarding to memory store: ${err.message}`);
     }
 
@@ -120,19 +129,19 @@ export class TenantService {
     });
 
     this.authService.registerUser({
-      id: ownerUserId,
+      id: effectiveOwnerId,
       fullName: dto.ownerName || 'Business Owner',
       phone: normalizedPhone,
     });
 
-    this.authService.registerMembership(tenantId, ownerUserId, 'OWNER', true);
+    this.authService.registerMembership(tenantId, effectiveOwnerId, 'OWNER', true);
 
     return {
       tenantId,
       name: dto.name,
       slug: dto.slug,
       industry: normalizedIndustry,
-      ownerId: ownerUserId,
+      ownerId: effectiveOwnerId,
       status: 'ACTIVE',
       seededPipelineStages: {
         orders: template.orderStages,

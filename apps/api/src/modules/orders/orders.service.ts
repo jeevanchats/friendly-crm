@@ -264,13 +264,17 @@ export class OrdersService {
           });
 
           if (this.notificationOutboxService) {
-            tx.select({ phone: customers.phone, name: customers.name })
-              .from(customers)
-              .where(eq(customers.id, order.customerId))
-              .limit(1)
-              .then(([cust]: any[]) => {
-                if (cust?.phone) {
-                  this.notificationOutboxService?.enqueueNotification({
+            // Read the customer inside this transaction (awaited, so the connection is still open) and queue the
+            // WhatsApp update; a failure here must never undo the stage change itself.
+            try {
+              const [cust] = await tx
+                .select({ phone: customers.phone, name: customers.name })
+                .from(customers)
+                .where(and(eq(customers.id, existing.customerId), eq(customers.tenantId, tenantId)))
+                .limit(1);
+              if (cust?.phone) {
+                this.notificationOutboxService
+                  .enqueueNotification({
                     tenantId,
                     recipient: cust.phone,
                     templateKey: 'STAGE_UPDATED',
@@ -280,10 +284,12 @@ export class OrdersService {
                       stageName: cleanStageId,
                       balanceText: updated.balanceDue != null ? `\nBalance Due: ₹${updated.balanceDue}` : '',
                     },
-                  }).catch((e: any) => this.logger.warn(`Stage update outbox enqueue failed: ${e.message}`));
-                }
-              })
-              .catch((e: any) => this.logger.warn(`Failed to resolve customer phone for notification: ${e.message}`));
+                  })
+                  .catch((e: any) => this.logger.warn(`Stage update outbox enqueue failed: ${e.message}`));
+              }
+            } catch (e: any) {
+              this.logger.warn(`Failed to resolve customer phone for notification: ${e.message}`);
+            }
           }
 
           return updated;

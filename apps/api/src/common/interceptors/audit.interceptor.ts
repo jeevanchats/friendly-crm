@@ -8,7 +8,7 @@ import {
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Request } from 'express';
-import { db, auditLogs } from '@friendly-crm/db';
+import { db, sql, auditLogs } from '@friendly-crm/db';
 import { randomUUID } from 'crypto';
 import { globalMemoryAuditLogs } from '../../modules/crm/memory-store';
 
@@ -117,17 +117,27 @@ export class AuditInterceptor implements NestInterceptor {
               createdAt: new Date(),
             };
 
-            // 1. Try DB persistent audit log insertion
+            // 1. Persist to the database. `audit_logs` is row-level-secured by business, so the business is set for
+            //    this insert; without it a restricted database role is refused and the audit trail would be lost.
+            let persisted = false;
             try {
-              if (db && typeof db.insert === 'function') {
-                await db.insert(auditLogs).values(auditRecord);
+              if (db && typeof db.transaction === 'function') {
+                await db.transaction(async (tx: any) => {
+                  await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenant.id}, true)`);
+                  await tx.insert(auditLogs).values(auditRecord);
+                });
+                persisted = true;
               }
             } catch (err: any) {
-              this.logger.warn(`Postgres offline; persisting audit to memory store: ${err.message}`);
+              this.logger.error(`AUDIT NOT SAVED to the database (kept in memory only): ${err.message}`);
             }
 
-            // 2. Mirror to unified in-memory store
-            globalMemoryAuditLogs.unshift(auditRecord);
+            // 2. Keep an in-memory copy only when the database did not take it (local development without Postgres,
+            //    or a failure above), and never let that copy grow without limit.
+            if (!persisted) {
+              globalMemoryAuditLogs.unshift(auditRecord);
+              if (globalMemoryAuditLogs.length > 5000) globalMemoryAuditLogs.length = 5000;
+            }
 
             this.logger.log(
               `[AUDIT] Tenant: ${tenant.id} | User: ${user?.id ?? 'ANON'} | ${action} ${entityType} | Duration: ${Date.now() - startTime}ms`

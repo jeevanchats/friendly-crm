@@ -520,22 +520,27 @@ export class AuthService {
     tenantId: string
   ): Promise<UserTenantMembership | null> {
     try {
-      if (db && typeof db.select === 'function') {
-        const records = await db
-          .select({
-            membership: memberships,
-            tenant: tenants,
-          })
-          .from(memberships)
-          .innerJoin(tenants, eq(memberships.tenantId, tenants.id))
-          .where(
-            and(
-              eq(memberships.userId, userId),
-              eq(memberships.tenantId, tenantId),
-              eq(memberships.isActive, true)
+      if (db && typeof db.transaction === 'function') {
+        // `memberships` is row-level-secured by business. The business being asked about is known here, so set it
+        // for this one query; without it the restricted database role sees no rows and every request is refused.
+        const records = await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          return tx
+            .select({
+              membership: memberships,
+              tenant: tenants,
+            })
+            .from(memberships)
+            .innerJoin(tenants, eq(memberships.tenantId, tenants.id))
+            .where(
+              and(
+                eq(memberships.userId, userId),
+                eq(memberships.tenantId, tenantId),
+                eq(memberships.isActive, true)
+              )
             )
-          )
-          .limit(1);
+            .limit(1);
+        });
 
         if (records.length > 0) {
           const { membership, tenant } = records[0];
@@ -575,23 +580,18 @@ export class AuthService {
    */
   async getUserMemberships(userId: string): Promise<UserTenantMembership[]> {
     try {
-      if (db && typeof db.select === 'function') {
-        const records = await db
-          .select({
-            membership: memberships,
-            tenant: tenants,
-          })
-          .from(memberships)
-          .innerJoin(tenants, eq(memberships.tenantId, tenants.id))
-          .where(eq(memberships.userId, userId));
-
-        return records.map(({ membership, tenant }) => ({
-          tenantId: membership.tenantId,
-          userId: membership.userId,
-          role: membership.role as TenantRole,
-          isActive: membership.isActive,
-          tenantName: tenant.name,
-          industryKey: tenant.industryKey,
+      if (db && typeof db.execute === 'function') {
+        // Across businesses by nature, so it goes through a narrow SECURITY DEFINER function (migration 0011)
+        // that returns only this user's own rows; the restricted database role cannot list `memberships` itself.
+        const result: any = await db.execute(sql`SELECT * FROM list_user_memberships(${userId})`);
+        const rows: any[] = Array.isArray(result) ? result : result?.rows ?? [];
+        return rows.map((r) => ({
+          tenantId: r.tenant_id,
+          userId: r.user_id,
+          role: r.role as TenantRole,
+          isActive: r.is_active,
+          tenantName: r.tenant_name,
+          industryKey: r.industry_key,
         }));
       }
     } catch {
