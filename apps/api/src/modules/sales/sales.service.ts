@@ -644,19 +644,13 @@ export class SalesService {
             });
           }
 
-          // Update Customer Receivable
+          // A customer's receivable is computed from opening balance + order balances when read; there is no
+          // stored total to update (the database has no such column).
           const [customer] = await tx
             .select()
             .from(customers)
             .where(and(eq(customers.id, quote.customerId), eq(customers.tenantId, tenantId)))
             .limit(1);
-          if (customer) {
-            const currentRec = parseFloat(customer.totalReceivable || '0.00');
-            await tx
-              .update(customers)
-              .set({ totalReceivable: this.roundMoney(currentRec + balance) })
-              .where(eq(customers.id, customer.id));
-          }
 
           await tx.insert(activities).values({
             tenantId,
