@@ -12,6 +12,9 @@ import { HttpWhatsAppAdapter } from './adapters/http-whatsapp.adapter';
 import { globalMemoryOutbox } from '../crm/memory-store';
 import { randomUUID } from 'crypto';
 
+/** A job left SENDING longer than this was abandoned (its worker died) and may be claimed again. */
+export const SENDING_LEASE_MS = 5 * 60 * 1000;
+
 export interface EnqueueNotificationOptions {
   tenantId: string;
   recipient: string;
@@ -121,50 +124,94 @@ export class NotificationOutboxService {
   }
 
   /**
-   * Dispatches a single outbox job via the active adapter and tracks retry / dead-letter status.
+   * Atomically takes a job for sending: PENDING, FAILED with attempts left, or SENDING past its lease.
+   * Only one caller (in this process or another API instance) can win, so a message is never sent twice
+   * at the same time. Returns the current row either way; `claimed` says whether this caller owns it.
    */
-  async dispatchJob(jobId: string, tenantId?: string) {
-    let job: any;
+  private async claimJob(jobId: string, tenantId?: string): Promise<{ job: any; claimed: boolean } | null> {
+    const leaseCutoff = new Date(Date.now() - SENDING_LEASE_MS);
 
     try {
       const activeDb = this.getDb();
-      if (typeof activeDb?.select === 'function') {
-        const conditions = [eq(notificationOutbox.id, jobId)];
-        if (tenantId) conditions.push(eq(notificationOutbox.tenantId, tenantId));
+      if (typeof activeDb?.update === 'function') {
+        const scope = [eq(notificationOutbox.id, jobId)];
+        if (tenantId) scope.push(eq(notificationOutbox.tenantId, tenantId));
 
-        const [dbJob] = await activeDb
+        const [won] = await activeDb
+          .update(notificationOutbox)
+          .set({ status: 'SENDING', updatedAt: new Date() })
+          .where(
+            and(
+              ...scope,
+              or(
+                eq(notificationOutbox.status, 'PENDING'),
+                and(eq(notificationOutbox.status, 'FAILED'), lt(notificationOutbox.attempts, notificationOutbox.maxAttempts)),
+                and(eq(notificationOutbox.status, 'SENDING'), lt(notificationOutbox.updatedAt, leaseCutoff))
+              )
+            )
+          )
+          .returning();
+        if (won) return { job: won, claimed: true };
+
+        const [current] = await activeDb
           .select()
           .from(notificationOutbox)
-          .where(and(...conditions))
+          .where(and(...scope))
           .limit(1);
-
-        job = dbJob;
+        if (current) return { job: current, claimed: false };
       }
     } catch {
       // Fallback to memory
     }
 
-    if (!job) {
-      job = globalMemoryOutbox.find(
-        (j) => j.id === jobId && (!tenantId || j.tenantId === tenantId)
-      );
-    }
+    const mem = globalMemoryOutbox.find((j) => j.id === jobId && (!tenantId || j.tenantId === tenantId));
+    if (!mem) return null;
+    const claimable =
+      mem.status === 'PENDING' ||
+      (mem.status === 'FAILED' && (mem.attempts || 0) < (mem.maxAttempts || 3)) ||
+      (mem.status === 'SENDING' && new Date(mem.updatedAt) < leaseCutoff);
+    if (!claimable) return { job: mem, claimed: false };
+    // No await between the check and the write, so two callers in one process cannot both win.
+    mem.status = 'SENDING';
+    mem.updatedAt = new Date();
+    return { job: mem, claimed: true };
+  }
 
-    if (!job) {
+  /**
+   * Dispatches a single outbox job via the active adapter and tracks retry / dead-letter status.
+   * The job is claimed first: if another worker already has it, or it is already SENT or dead-lettered,
+   * nothing is sent and the current row is returned.
+   */
+  async dispatchJob(jobId: string, tenantId?: string) {
+    return (await this.dispatchClaimed(jobId, tenantId)).job;
+  }
+
+  /** Like dispatchJob, but also says whether this call did the sending (false: someone else had it). */
+  private async dispatchClaimed(jobId: string, tenantId?: string): Promise<{ job: any; claimed: boolean }> {
+    const claim = await this.claimJob(jobId, tenantId);
+    if (!claim) {
       throw new NotFoundException(`Outbox job ${jobId} not found`);
     }
+    if (!claim.claimed) return claim;
+    const job = claim.job;
 
     const adapter = this.getAdapter();
-    const result = await adapter.sendMessage({
-      tenantId: job.tenantId,
-      recipient: job.recipient,
-      message: job.renderedMessage,
-      mediaUrl: job.mediaUrl,
-      channel: job.channel as NotificationChannel,
-    });
+    let result: { success: boolean; error?: string };
+    try {
+      result = await adapter.sendMessage({
+        tenantId: job.tenantId,
+        recipient: job.recipient,
+        message: job.renderedMessage,
+        mediaUrl: job.mediaUrl,
+        channel: job.channel as NotificationChannel,
+      });
+    } catch (err: any) {
+      // An adapter that throws must not leave the job SENDING until the lease runs out.
+      result = { success: false, error: err?.message || 'Dispatch failed' };
+    }
 
     const newAttempts = (job.attempts || 0) + 1;
-    let newStatus = job.status;
+    let newStatus: string = job.status;
     let sentAt = job.sentAt;
     let lastError = job.lastError;
 
@@ -197,7 +244,7 @@ export class NotificationOutboxService {
           .where(eq(notificationOutbox.id, jobId))
           .returning();
 
-        return updated;
+        return { job: updated, claimed: true };
       }
     } catch {
       // Memory fallback update
@@ -209,7 +256,7 @@ export class NotificationOutboxService {
     job.lastError = lastError;
     job.updatedAt = new Date();
 
-    return job;
+    return { job, claimed: true };
   }
 
   /**
@@ -219,6 +266,7 @@ export class NotificationOutboxService {
   async processOutbox(tenantId?: string, limit = 20, retryDelayMs = 0) {
     let pendingJobs: any[] = [];
     const retryCutoff = new Date(Date.now() - retryDelayMs);
+    const leaseCutoff = new Date(Date.now() - SENDING_LEASE_MS);
 
     try {
       const activeDb = this.getDb();
@@ -230,7 +278,8 @@ export class NotificationOutboxService {
               eq(notificationOutbox.status, 'FAILED'),
               lt(notificationOutbox.attempts, notificationOutbox.maxAttempts),
               lt(notificationOutbox.updatedAt, retryCutoff)
-            )
+            ),
+            and(eq(notificationOutbox.status, 'SENDING'), lt(notificationOutbox.updatedAt, leaseCutoff))
           ),
         ];
         if (tenantId) whereConds.push(eq(notificationOutbox.tenantId, tenantId));
@@ -251,7 +300,8 @@ export class NotificationOutboxService {
           (j) =>
             (!tenantId || j.tenantId === tenantId) &&
             (j.status === 'PENDING' ||
-              (j.status === 'FAILED' && j.attempts < j.maxAttempts && new Date(j.updatedAt) < retryCutoff))
+              (j.status === 'FAILED' && j.attempts < j.maxAttempts && new Date(j.updatedAt) < retryCutoff) ||
+              (j.status === 'SENDING' && new Date(j.updatedAt) < leaseCutoff))
         )
         .slice(0, limit);
     }
@@ -264,8 +314,9 @@ export class NotificationOutboxService {
     };
 
     for (const job of pendingJobs) {
+      const { job: res, claimed } = await this.dispatchClaimed(job.id, job.tenantId);
+      if (!claimed) continue; // another worker took it between our query and our claim
       summary.processed++;
-      const res = await this.dispatchJob(job.id, job.tenantId);
       if (res.status === 'SENT') summary.sent++;
       else if (res.status === 'DEAD_LETTER') summary.deadLetter++;
       else summary.failed++;
