@@ -4,54 +4,41 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Customer360View } from '../../../components/crm/Customer360View';
-import { PILOT_TENANTS } from '../../../components/layout/AppShell';
-import { TenantRole } from '@friendly-crm/shared';
+import { useAuth } from '../../../components/auth/AuthProvider';
+import { apiFetch } from '../../../lib/session';
 import { ArrowLeft, UserCheck, RefreshCw, AlertCircle } from 'lucide-react';
 
 export default function CustomerDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const customerId = (params?.id as string) || '';
+
+  // The role is the one the server derived from the signed-in user's membership; it cannot be chosen here.
+  const { active } = useAuth();
+  const tenantId = active!.tenantId;
+  const activeRole = active!.role;
+  const activeTenant = { name: active!.tenantName };
+
   const searchParams = useSearchParams();
-  const customerId = (params?.id as string) || 'c-pilot-printing-1';
-
-  const roleParam = (searchParams?.get('role') as TenantRole) || 'OWNER';
   const langParam = (searchParams?.get('lang') as 'en' | 'ta') || 'en';
-
-  const [activeRole, setActiveRole] = useState<TenantRole>(roleParam);
   const [locale, setLocale] = useState<'en' | 'ta'>(langParam);
-  const [tenantId, setTenantId] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('friendly_tenant_id') || 't-demo-printing';
-    }
-    return 't-demo-printing';
-  });
 
   const [customerData, setCustomerData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const activeTenant = PILOT_TENANTS.find((t) => t.id === tenantId) || PILOT_TENANTS[0];
-
-  const fetchCustomer360 = useCallback(async (currentTenantId: string, role: TenantRole) => {
+  const fetchCustomer360 = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/crm/customers/${customerId}`, {
-        headers: {
-          'x-tenant-id': currentTenantId,
-          'x-user-role': role,
-        },
-      });
+      const res = await apiFetch(`/api/crm/customers/${customerId}`);
 
       if (res.ok) {
         const data = await res.json();
         setCustomerData(data);
       } else {
         const errJson = await res.json().catch(() => ({}));
-        setError(
-          errJson.message ||
-            'Customer not accessible under active business tenant (Tenant RLS Isolation Enforced)'
-        );
+        setError(errJson.message || 'This customer is not available in the active business.');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to fetch customer 360 profile');
@@ -60,23 +47,10 @@ export default function CustomerDetailPage() {
     }
   }, [customerId]);
 
+  // Load, and reload when the business is switched.
   useEffect(() => {
-    fetchCustomer360(tenantId, activeRole);
-  }, [tenantId, activeRole, fetchCustomer360]);
-
-  // Listen to tenant switcher changes from AppShell
-  useEffect(() => {
-    const handleTenantChanged = (e: any) => {
-      const newTenant = e.detail;
-      if (newTenant?.id) {
-        setTenantId(newTenant.id);
-        fetchCustomer360(newTenant.id, activeRole);
-      }
-    };
-
-    window.addEventListener('tenant-changed', handleTenantChanged);
-    return () => window.removeEventListener('tenant-changed', handleTenantChanged);
-  }, [activeRole, fetchCustomer360]);
+    fetchCustomer360();
+  }, [tenantId, fetchCustomer360]);
 
   return (
     <div className="space-y-5 pb-20">
@@ -99,25 +73,17 @@ export default function CustomerDetailPage() {
           </div>
         </div>
 
-        {/* RBAC Role Selector Banner */}
+        {/* Signed-in role (decided by the server) */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 bg-[#F6F8F7] px-2.5 py-1 rounded-xl border border-slate-200 text-xs font-semibold">
             <UserCheck className="w-3.5 h-3.5 text-[#167D79]" />
-            <span className="text-slate-500 text-[11px]">View As Role:</span>
-            <select
-              value={activeRole}
-              onChange={(e) => setActiveRole(e.target.value as TenantRole)}
-              className="bg-transparent font-bold text-[#167D79] focus:outline-none cursor-pointer"
-            >
-              <option value="OWNER">OWNER (Full Ledger)</option>
-              <option value="PRODUCTION">PRODUCTION (Masked Ledger)</option>
-              <option value="ACCOUNTS">ACCOUNTS (Receipts & Due)</option>
-            </select>
+            <span className="text-slate-500 text-[11px]">Your role:</span>
+            <span className="font-bold text-[#167D79]">{activeRole}</span>
           </div>
 
           <button
             type="button"
-            onClick={() => fetchCustomer360(tenantId, activeRole)}
+            onClick={() => fetchCustomer360()}
             className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
             title="Refresh"
           >

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { INDUSTRY_TEMPLATES } from '@friendly-crm/shared';
+import { apiFetch } from '../../../../lib/session';
 
 interface QuotationItem {
   id: string;
@@ -74,19 +75,7 @@ export default function QuotationPrintPage() {
   useEffect(() => {
     async function fetchQuote() {
       try {
-        const tenantId =
-          (typeof window !== 'undefined' ? localStorage.getItem('friendly_tenant_id') : null) ||
-          't-demo-printing';
-        const userRole =
-          (typeof window !== 'undefined' ? localStorage.getItem('friendly_user_role') : null) ||
-          'OWNER';
-
-        const res = await fetch(`/api/sales/quotations/${quoteId}`, {
-          headers: {
-            'x-tenant-id': tenantId,
-            'x-user-role': userRole,
-          },
-        });
+        const res = await apiFetch(`/api/sales/quotations/${quoteId}`);
         if (res.ok) {
           const json = await res.json();
           setData(json);

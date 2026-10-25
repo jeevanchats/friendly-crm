@@ -9,6 +9,7 @@ import {
   hasPermission,
   TenantRole,
 } from '@friendly-crm/shared';
+import { apiFetch } from '../../lib/session';
 
 interface OrderDetailProps {
   initialOrder: any;
@@ -46,12 +47,10 @@ export function OrderDetailView({
   const handleStageSelect = async (nextStageId: string) => {
     if (!canUpdateStage) return;
     try {
-      const res = await fetch(`/api/orders/${order.id}/stage`, {
+      const res = await apiFetch(`/api/orders/${order.id}/stage`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-tenant-id': `t-demo-${industry}`,
-          'x-user-role': userRole,
         },
         body: JSON.stringify({ nextStageId, customDataUpdates: customData }),
       });
@@ -67,12 +66,10 @@ export function OrderDetailView({
   const handleSaveJobSpecs = async () => {
     setSavingSpecs(true);
     try {
-      const res = await fetch(`/api/orders/${order.id}/stage`, {
+      const res = await apiFetch(`/api/orders/${order.id}/stage`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-tenant-id': `t-demo-${industry}`,
-          'x-user-role': userRole,
         },
         body: JSON.stringify({
           nextStageId: order.productionStage,
@@ -93,7 +90,7 @@ export function OrderDetailView({
   // Schedule Repeat-Order Follow-Up (Section 5 Final Step)
   const handleScheduleRepeatFollowUp = async (daysFromNow: number) => {
     const dueAt = new Date(Date.now() + daysFromNow * 86400000).toISOString();
-    await fetch('/api/crm/tasks', {
+    await apiFetch('/api/crm/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

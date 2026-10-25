@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
 import { INDUSTRY_TEMPLATES, IndustryKey, getIndustryTemplate } from '@friendly-crm/shared';
+import { apiFetch } from '../../lib/session';
 
 interface OrderCardProps {
   order: {
@@ -44,11 +45,10 @@ export function OrderStageCard({
     if (!canUpdateStage) return;
     setCurrentStage(nextStageId);
     try {
-      await fetch(`/api/orders/${order.id}/stage`, {
+      await apiFetch(`/api/orders/${order.id}/stage`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-tenant-id': `t-demo-${industry}`,
         },
         body: JSON.stringify({ nextStageId }),
       });
@@ -61,11 +61,10 @@ export function OrderStageCard({
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch(`/api/orders/${order.id}/payments`, {
+      await apiFetch(`/api/orders/${order.id}/payments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-tenant-id': `t-demo-${industry}`,
         },
         body: JSON.stringify({
           orderId: order.id,

@@ -4,47 +4,10 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { QuickAddLeadDrawer } from '../crm/QuickAddLeadDrawer';
-import { ChevronDown, Check, Building2, Layers } from 'lucide-react';
-import { IndustryKey, INDUSTRY_TEMPLATES, TenantRole, hasPermission } from '@friendly-crm/shared';
-
-export interface PilotTenant {
-  id: string;
-  name: string;
-  nameTa: string;
-  slug: string;
-  industryKey: IndustryKey;
-}
-
-export const PILOT_TENANTS: PilotTenant[] = [
-  {
-    id: 't-demo-printing',
-    name: 'Senthaamarai Art Crafts & Calendars',
-    nameTa: 'செந்தாமரை ஆர்ட் கிராப்ட்ஸ் & காலண்டர்கள்',
-    slug: 'senthaamarai-press',
-    industryKey: 'printing',
-  },
-  {
-    id: 't-demo-furniture',
-    name: 'Sri Vinayaga Furniture (ஸ்ரீ விநாயக பர்னிச்சர்)',
-    nameTa: 'ஸ்ரீ விநாயக பர்னிச்சர்',
-    slug: 'sri-vinayaga-furniture',
-    industryKey: 'furniture',
-  },
-  {
-    id: 't-demo-textiles',
-    name: 'Kongu Tex & Garments',
-    nameTa: 'கொங்கு டெக்ஸ் & கார்மென்ட்ஸ்',
-    slug: 'kongu-tex',
-    industryKey: 'textiles',
-  },
-  {
-    id: 't-demo-trading',
-    name: 'Sun Steel & Industrial Traders',
-    nameTa: 'சன் ஸ்டீல் & இண்டஸ்ட்ரியல் டிரேடர்ஸ்',
-    slug: 'sun-steel-traders',
-    industryKey: 'trading',
-  },
-];
+import { ChevronDown, Check, Building2, Layers, LogOut } from 'lucide-react';
+import { IndustryKey, INDUSTRY_TEMPLATES, hasPermission } from '@friendly-crm/shared';
+import { useAuth } from '../auth/AuthProvider';
+import { apiFetch } from '../../lib/session';
 
 export interface AppShellProps {
   children: React.ReactNode;
@@ -64,59 +27,35 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
 
-  const [activeTenant, setActiveTenant] = useState<PilotTenant>(() => {
-    if (typeof window !== 'undefined') {
-      const savedTenantId = localStorage.getItem('friendly_tenant_id');
-      const found = PILOT_TENANTS.find((t) => t.id === savedTenantId);
-      if (found) return found;
-    }
-    return PILOT_TENANTS[0];
-  });
+  const { active, memberships, user, switchBusiness, logout } = useAuth();
+
+  // AuthProvider only renders the app once a business is active.
+  const activeTenant = {
+    id: active!.tenantId,
+    name: active!.tenantName,
+    nameTa: active!.tenantName,
+    industryKey: active!.industryKey,
+  };
+  const userRole = active!.role;
+  const switchOptions = memberships.map((m) => ({
+    id: m.tenantId,
+    name: m.tenantName,
+    nameTa: m.tenantName,
+    industryKey: m.industryKey,
+  }));
 
   const [internalLang, setInternalLang] = useState<'en' | 'ta'>('en');
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
-  const [userRole, setUserRole] = useState<TenantRole>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('friendly_user_role') as TenantRole;
-      if (saved) return saved;
-    }
-    return 'OWNER';
-  });
 
   const lang = controlledLang || internalLang;
   const onToggleLang =
     controlledOnToggleLang || (() => setInternalLang((l) => (l === 'en' ? 'ta' : 'en')));
 
-  useEffect(() => {
-    const handleRoleChange = (e: any) => {
-      if (e.detail) {
-        setUserRole(e.detail);
-      }
-    };
-    window.addEventListener('role-changed', handleRoleChange);
-    return () => window.removeEventListener('role-changed', handleRoleChange);
-  }, []);
-
-  const handleSelectTenant = (tenant: PilotTenant) => {
-    setActiveTenant(tenant);
+  const handleSelectTenant = (tenant: { id: string }) => {
     setIsSwitcherOpen(false);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('friendly_tenant_id', tenant.id);
-      localStorage.setItem('friendly_industry', tenant.industryKey);
-      document.cookie = `tenantId=${tenant.id}; path=/; max-age=31536000`;
-      window.dispatchEvent(new CustomEvent('tenant-changed', { detail: tenant }));
-    }
+    switchBusiness(tenant.id);
   };
-
-  useEffect(() => {
-    // Synchronize initial cookie for SSR / API routes
-    if (typeof window !== 'undefined') {
-      document.cookie = `tenantId=${activeTenant.id}; path=/; max-age=31536000`;
-      localStorage.setItem('friendly_tenant_id', activeTenant.id);
-      localStorage.setItem('friendly_industry', activeTenant.industryKey);
-    }
-  }, [activeTenant]);
 
   // Don't render shell chrome for print PDF routes
   if (pathname?.includes('/pdf') || pathname?.startsWith('/q/')) {
@@ -143,7 +82,7 @@ export function AppShell({
         <div className="border-b border-slate-700/80 pb-4">
           <div className="flex items-center justify-between mb-3">
             <span className="text-[11px] font-bold uppercase tracking-wider text-[#F4B860]">
-              Friendly CRM • 4 Pilot MSMEs
+              Friendly CRM
             </span>
           </div>
 
@@ -170,10 +109,10 @@ export function AppShell({
                 <div className="fixed inset-0 z-40" onClick={() => setIsSwitcherOpen(false)} />
                 <div className="absolute left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 py-1 text-[#243B40] animate-slide-up">
                   <div className="px-3.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 flex items-center justify-between">
-                    <span>{lang === 'ta' ? 'நிறுவனம் தேர்வு செய்க' : 'Switch Pilot Business'}</span>
+                    <span>{lang === 'ta' ? 'நிறுவனம் தேர்வு செய்க' : 'Switch business'}</span>
                     <Layers className="w-3.5 h-3.5 text-[#167D79]" />
                   </div>
-                  {PILOT_TENANTS.map((t) => {
+                  {switchOptions.map((t) => {
                     const isSelected = t.id === activeTenant.id;
                     const tmpl = INDUSTRY_TEMPLATES[t.industryKey];
                     return (
@@ -230,6 +169,21 @@ export function AppShell({
         >
           + {lang === 'ta' ? 'புதிய விசாரணை (Add)' : 'Quick Add Enquiry'}
         </button>
+
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-700/80 pt-3 text-xs text-slate-300">
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-white">{user?.name || user?.phone}</div>
+            <div className="truncate text-[11px] text-[#F4B860]">{userRole}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => logout()}
+            className="flex min-h-[40px] items-center gap-1.5 rounded-lg px-2.5 font-semibold hover:bg-slate-800 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            {lang === 'ta' ? 'வெளியேறு' : 'Sign out'}
+          </button>
+        </div>
       </aside>
 
       {/* MAIN CONTENT AREA */}
@@ -260,10 +214,10 @@ export function AppShell({
                 <div className="fixed inset-0 z-40" onClick={() => setIsSwitcherOpen(false)} />
                 <div className="absolute left-0 mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 py-1.5 text-[#243B40] animate-slide-up">
                   <div className="px-3.5 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 flex items-center justify-between">
-                    <span>{lang === 'ta' ? 'தொழில் துறை & நிறுவனம்' : 'Switch Active Business Profile'}</span>
+                    <span>{lang === 'ta' ? 'தொழில் துறை & நிறுவனம்' : 'Switch business'}</span>
                     <Building2 className="w-3.5 h-3.5 text-[#167D79]" />
                   </div>
-                  {PILOT_TENANTS.map((t) => {
+                  {switchOptions.map((t) => {
                     const isSelected = t.id === activeTenant.id;
                     const tmpl = INDUSTRY_TEMPLATES[t.industryKey];
                     return (
@@ -300,6 +254,14 @@ export function AppShell({
             className="min-h-[36px] rounded-lg bg-[#F4B860]/25 px-3 text-xs font-bold text-[#243B40] hover:bg-[#F4B860]/40 transition-colors"
           >
             {lang === 'en' ? 'தமிழ்' : 'English'}
+          </button>
+          <button
+            type="button"
+            onClick={() => logout()}
+            aria-label={lang === 'ta' ? 'வெளியேறு' : 'Sign out'}
+            className="md:hidden ml-2 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+          >
+            <LogOut className="h-4 w-4" />
           </button>
         </header>
 
@@ -342,12 +304,10 @@ export function AppShell({
           locale={lang}
           onSubmit={async (lead) => {
             try {
-              await fetch('/api/crm/intake-lead', {
+              await apiFetch('/api/crm/intake-lead', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'x-tenant-id': activeTenant.id,
-                  'x-industry-key': activeTenant.industryKey,
                 },
                 body: JSON.stringify(lead),
               });

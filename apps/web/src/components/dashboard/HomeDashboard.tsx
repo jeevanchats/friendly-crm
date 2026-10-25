@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { apiFetch } from '../../lib/session';
 
 interface HomeDashboardProps {
   userName: string;
@@ -32,11 +33,10 @@ export function HomeDashboard({ userName, lang, data, onRefresh }: HomeDashboard
 
   const handleCompleteTask = async (taskId: string) => {
     try {
-      await fetch(`/api/crm/tasks/${taskId}/complete`, {
+      await apiFetch(`/api/crm/tasks/${taskId}/complete`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'x-tenant-id': 't-demo-printing',
         },
         body: JSON.stringify({ outcomeNote: outcomeNote || 'Spoke with customer' }),
       });

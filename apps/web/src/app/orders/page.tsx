@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { BusinessSwitcher } from '../../components/layout/BusinessSwitcher';
-import { MobileBottomNav } from '../../components/layout/MobileBottomNav';
+import { useAuth } from '../../components/auth/AuthProvider';
+import { apiFetch } from '../../lib/session';
 import { OrderStageCard } from '../../components/orders/OrderStageCard';
 import {
   IndustryKey,
   INDUSTRY_TEMPLATES,
   getIndustryTemplate,
+  hasPermission,
   TenantRole,
 } from '@friendly-crm/shared';
 import {
@@ -42,11 +43,15 @@ interface OrderItem {
 export default function OrdersPage() {
   const router = useRouter();
   const [locale, setLocale] = useState<'en' | 'ta'>('en');
-  const [activeIndustry, setActiveIndustry] = useState<IndustryKey>('printing');
-  const [activeRole, setActiveRole] = useState<TenantRole>('OWNER');
+  // Industry and role are the signed-in user's own (the server derives the role from their membership).
+  const { active } = useAuth();
+  const activeIndustry: IndustryKey = active!.industryKey;
+  const activeRole: TenantRole = active!.role;
+  const tenantId = active!.tenantId;
   const [selectedStage, setSelectedStage] = useState<string>('ALL');
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
   const messages = locale === 'en' ? enMessages : taMessages;
@@ -57,142 +62,39 @@ export default function OrdersPage() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const getFallbackOrders = useCallback((): OrderItem[] => {
-    if (activeIndustry === 'furniture') {
-      return [
-        {
-          id: 'ord-furn-1',
-          orderNumber: 'ORD-2026-4915',
-          productionStage: 'MEASUREMENT_CONFIRMED',
-          totalAmount: '97800.00',
-          advanceReceived: '30000.00',
-          balanceDue: '67800.00',
-          customData: {
-            wood_type: 'TEAK_WOOD',
-            finish: 'WALNUT_MATTE',
-            dimensions: '72x36x30 inches',
-          },
-          customer: {
-            name: 'Grand Royal Residency',
-            phone: '+919444123890',
-            companyName: 'Royal Hospitality',
-          },
-        },
-        {
-          id: 'ord-furn-2',
-          orderNumber: 'ORD-2026-4890',
-          productionStage: 'WOOD_CUTTING',
-          totalAmount: '145000.00',
-          advanceReceived: '80000.00',
-          balanceDue: '65000.00',
-          customData: {
-            wood_type: 'ROSEWOOD',
-            finish: 'GLOSS_NATURAL',
-            dimensions: 'King Size Bed Set',
-          },
-          customer: {
-            name: 'Kavitha S.',
-            phone: '+919840987654',
-            companyName: 'Elite Residences',
-          },
-        },
-      ];
-    }
-
-    return [
-      {
-        id: 'ord-print-1',
-        orderNumber: 'ORD-2026-8956',
-        productionStage: 'ARTWORK_PENDING',
-        totalAmount: '147680.00',
-        advanceReceived: '50000.00',
-        balanceDue: '97680.00',
-        customData: {
-          job_type: 'PACKAGING_BOX',
-          paper_gsm: 400,
-          dimensions: '12x9x4 inches',
-        },
-        customer: {
-          name: 'Sri Murugan Textiles & Sweets',
-          phone: '+919840123456',
-          companyName: 'Murugan Retailers Pvt Ltd',
-        },
-      },
-      {
-        id: 'ord-print-2',
-        orderNumber: 'ORD-2026-8940',
-        productionStage: 'PRINTING',
-        totalAmount: '72000.00',
-        advanceReceived: '50000.00',
-        balanceDue: '22000.00',
-        customData: {
-          job_type: 'CALENDAR',
-          paper_gsm: 170,
-          dimensions: '15x20 inches',
-        },
-        customer: {
-          name: 'Karthik Precision Engineering',
-          phone: '+919876543210',
-          companyName: 'Karthik Works',
-        },
-      },
-      {
-        id: 'ord-print-3',
-        orderNumber: 'ORD-2026-8912',
-        productionStage: 'POST_PRESS_FINISHING',
-        totalAmount: '34500.00',
-        advanceReceived: '34500.00',
-        balanceDue: '0.00',
-        customData: {
-          job_type: 'BROCHURE',
-          paper_gsm: 300,
-          dimensions: 'A4 Tri-fold',
-        },
-        customer: {
-          name: 'Anand Bio-Tech Solutions',
-          phone: '+919444123890',
-          companyName: 'Anand Pharma',
-        },
-      },
-    ];
-  }, [activeIndustry]);
-
   const fetchOrders = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const url =
         selectedStage && selectedStage !== 'ALL'
-          ? `/api/orders?stage=${selectedStage}`
+          ? `/api/orders?stage=${encodeURIComponent(selectedStage)}`
           : '/api/orders';
 
-      const res = await fetch(url, {
-        headers: {
-          'x-tenant-id': `t-demo-${activeIndustry}`,
-          'x-user-role': activeRole,
-        },
-      });
+      const res = await apiFetch(url);
 
       if (res.ok) {
         const json = await res.json();
-        const data = Array.isArray(json) ? json : json.data || [];
-        setOrders(data.length > 0 ? data : getFallbackOrders());
+        setOrders(Array.isArray(json) ? json : json.data || []);
       } else {
-        setOrders(getFallbackOrders());
+        setOrders([]);
+        setError(res.status === 403 ? 'Your role cannot view orders.' : `Could not load orders (${res.status}).`);
       }
     } catch {
-      setOrders(getFallbackOrders());
+      setOrders([]);
+      setError('Could not reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
-  }, [activeIndustry, activeRole, selectedStage, getFallbackOrders]);
+  }, [tenantId, selectedStage]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
   // Permissions based on active role
-  const canUpdateStage = activeRole === 'OWNER' || activeRole === 'MANAGER' || activeRole === 'PRODUCTION';
-  const canRecordPayment = activeRole === 'OWNER' || activeRole === 'ACCOUNTS';
+  const canUpdateStage = hasPermission(activeRole, 'order:update_stage');
+  const canRecordPayment = hasPermission(activeRole, 'payment:create');
 
   // Financial statistics
   const totalBalanceDue = orders.reduce(
@@ -225,15 +127,7 @@ export default function OrdersPage() {
       {/* Top Header Bar */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-3.5 py-2.5 shadow-2xs">
         <div className="max-w-lg mx-auto flex items-center justify-between">
-          <BusinessSwitcher
-            activeIndustry={activeIndustry}
-            onSelectIndustry={(ind) => {
-              setActiveIndustry(ind);
-              setSelectedStage('ALL');
-              triggerToast(`${messages.industries.selectActive}: ${INDUSTRY_TEMPLATES[ind].name[locale]}`);
-            }}
-            locale={locale}
-          />
+          <span className="text-xs font-bold uppercase tracking-wider text-[#167D79]">{active!.tenantName}</span>
 
           <div className="flex items-center space-x-2">
             <button
@@ -249,7 +143,7 @@ export default function OrdersPage() {
 
       {/* Main Content Container */}
       <main className="max-w-lg mx-auto w-full px-4 pt-3.5 space-y-4">
-        {/* Banner with Role Simulator for Live Testing */}
+        {/* Banner */}
         <div className="bg-gradient-to-r from-[#243B40] to-[#126360] rounded-2xl p-4 text-white shadow-md relative overflow-hidden">
           <div className="flex items-start justify-between">
             <div>
@@ -277,38 +171,6 @@ export default function OrdersPage() {
             </button>
           </div>
 
-          {/* Interactive Role Switcher Pill Bar (Demonstrating RBAC Matrix) */}
-          <div className="mt-3.5 pt-3 border-t border-white/15">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1 mb-1.5">
-              <UserCheck className="w-3.5 h-3.5 text-[#F4B860]" />
-              <span>{locale === 'ta' ? 'பயனர் பொறுப்பு (RBAC Matrix):' : 'Active Role (RBAC Matrix):'}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-1.5 text-center">
-              {[
-                { role: 'OWNER', label: locale === 'ta' ? 'உரிமையாளர்' : 'Owner' },
-                { role: 'PRODUCTION', label: locale === 'ta' ? 'ஆபரேட்டர்' : 'Floor Operator' },
-                { role: 'ACCOUNTS', label: locale === 'ta' ? 'கணக்காளர்' : 'Accounts' },
-              ].map((r) => {
-                const isSelected = activeRole === r.role;
-                return (
-                  <button
-                    key={r.role}
-                    onClick={() => {
-                      setActiveRole(r.role as TenantRole);
-                      triggerToast(`Switched to ${r.label}`);
-                    }}
-                    className={`py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all ${
-                      isSelected
-                        ? 'bg-[#F4B860] text-[#243B40] shadow-sm'
-                        : 'bg-white/10 text-slate-200 hover:bg-white/20'
-                    }`}
-                  >
-                    {r.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
         {/* Financial Metrics Row */}
@@ -406,7 +268,13 @@ export default function OrdersPage() {
 
         {/* Order Cards List */}
         <section className="space-y-3.5">
-          {displayedOrders.length === 0 ? (
+          {error ? (
+            <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm font-semibold text-red-700">
+              {error}
+            </div>
+          ) : loading && orders.length === 0 ? (
+            <div className="py-10 text-center text-xs text-slate-400">Loading orders…</div>
+          ) : displayedOrders.length === 0 ? (
             <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-400 space-y-1">
               <p className="font-semibold text-slate-600">
                 {locale === 'ta' ? 'இந்த நிலையில் ஆர்டர்கள் எதுவும் இல்லை' : 'No orders in this stage'}
@@ -414,7 +282,7 @@ export default function OrdersPage() {
               <p>
                 {locale === 'ta'
                   ? 'மேலே உள்ள பிற நிலைகளைத் தேர்ந்தெடுக்கவும்'
-                  : 'Select another stage or switch active industry above.'}
+                  : 'Select another stage above.'}
               </p>
             </div>
           ) : (
@@ -433,18 +301,6 @@ export default function OrdersPage() {
         </section>
       </main>
 
-      {/* Fixed Mobile Bottom Nav */}
-      <MobileBottomNav
-        currentTab="orders"
-        onTabChange={(tab) => {
-          if (tab === 'orders') return;
-          router.push(`/?tab=${tab}`);
-        }}
-        onQuickAction={() => router.push('/')}
-        pendingTasksCount={2}
-        locale={locale}
-        messages={messages}
-      />
     </div>
   );
 }

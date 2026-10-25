@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { AuthProvider } from '../components/auth/AuthProvider';
+import { AppFrame } from '../components/layout/AppFrame';
 
 export const metadata: Metadata = {
   title: 'Friendly CRM',
@@ -31,7 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body>
-        {children}
+        <AuthProvider>
+          <AppFrame>{children}</AppFrame>
+        </AuthProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `

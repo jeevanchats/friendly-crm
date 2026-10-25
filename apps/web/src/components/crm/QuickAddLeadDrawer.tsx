@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
 import { IndustryKey } from '@friendly-crm/shared';
 import { X } from 'lucide-react';
+import { apiFetch } from '../../lib/session';
 
 export interface QuickAddProps {
   isOpen?: boolean;
@@ -75,12 +76,10 @@ export function QuickAddLeadDrawer({
       if (onSubmit) {
         await onSubmit(payload);
       } else {
-        const res = await fetch('/api/crm/intake-lead', {
+        const res = await apiFetch('/api/crm/intake-lead', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-tenant-id': 't-demo-printing',
-            'x-industry-key': industry,
           },
           body: JSON.stringify(payload),
         });

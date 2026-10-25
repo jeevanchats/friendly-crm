@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Search, Phone, MessageSquare, ArrowRight, Building, Plus, Users, IndianRupee } from 'lucide-react';
-import { PILOT_TENANTS, PilotTenant } from '../../components/layout/AppShell';
+import { useAuth } from '../../components/auth/AuthProvider';
+import { apiFetch } from '../../lib/session';
 
 interface CustomerSummary {
   id: string;
@@ -18,61 +19,45 @@ interface CustomerSummary {
 }
 
 export default function CustomersDirectoryPage() {
-  const [tenantId, setTenantId] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('friendly_tenant_id') || 't-demo-printing';
-    }
-    return 't-demo-printing';
-  });
+  const { active } = useAuth();
+  // AuthProvider only renders this page once a business is active.
+  const tenantId = active!.tenantId;
+  const activeTenant = { name: active!.tenantName };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const activeTenant = PILOT_TENANTS.find((t) => t.id === tenantId) || PILOT_TENANTS[0];
-
-  const fetchCustomers = useCallback(async (currentTenantId: string, q = '') => {
+  const fetchCustomers = useCallback(async (q = '') => {
     setLoading(true);
+    setError(null);
     try {
       const url = q
         ? `/api/crm/customers?search=${encodeURIComponent(q)}`
         : `/api/crm/customers`;
 
-      const res = await fetch(url, {
-        headers: {
-          'x-tenant-id': currentTenantId,
-        },
-      });
+      const res = await apiFetch(url);
 
       if (res.ok) {
         const data = await res.json();
         setCustomers(data);
+      } else {
+        setCustomers([]);
+        setError(res.status === 403 ? 'Your role cannot view customers.' : `Could not load customers (${res.status}).`);
       }
-    } catch (err) {
-      console.warn('Failed to fetch customers, using fallback', err);
+    } catch {
+      setCustomers([]);
+      setError('Could not reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Initial load and query filter
+  // Load on first render, when the search changes, and when the business is switched.
   useEffect(() => {
-    fetchCustomers(tenantId, searchQuery);
+    fetchCustomers(searchQuery);
   }, [tenantId, searchQuery, fetchCustomers]);
-
-  // Listen to tenant switcher changes from AppShell
-  useEffect(() => {
-    const handleTenantChanged = (e: any) => {
-      const newTenant = e.detail as PilotTenant;
-      if (newTenant?.id) {
-        setTenantId(newTenant.id);
-        fetchCustomers(newTenant.id, searchQuery);
-      }
-    };
-
-    window.addEventListener('tenant-changed', handleTenantChanged);
-    return () => window.removeEventListener('tenant-changed', handleTenantChanged);
-  }, [searchQuery, fetchCustomers]);
 
   return (
     <div className="space-y-5 pb-20">
@@ -113,6 +98,10 @@ export default function CustomersDirectoryPage() {
       <div className="space-y-3">
         {loading ? (
           <div className="py-12 text-center text-xs text-slate-400">Loading customers...</div>
+        ) : error ? (
+          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm font-semibold text-red-700">
+            {error}
+          </div>
         ) : customers.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center space-y-2">
             <p className="text-sm font-semibold text-slate-600">No customers found for this business.</p>

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
+import { apiFetch } from '../../lib/session';
 
 interface FastQuotationProps {
   customer: { id: string; name: string; phone: string };
@@ -40,11 +41,10 @@ export function FastQuotationBuilder({
   const handleSaveQuote = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/sales/quotations', {
+      const res = await apiFetch('/api/sales/quotations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-tenant-id': `t-demo-${industry}`,
         },
         body: JSON.stringify({
           customerId: customer.id,
@@ -230,11 +230,10 @@ export function FastQuotationBuilder({
             <button
               type="button"
               onClick={async () => {
-                const convRes = await fetch(`/api/sales/quotations/${savedQuote.id}/convert`, {
+                const convRes = await apiFetch(`/api/sales/quotations/${savedQuote.id}/convert`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    'x-tenant-id': `t-demo-${industry}`,
                   },
                   body: JSON.stringify({ industryKey: industry }),
                 });
