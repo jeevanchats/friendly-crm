@@ -112,6 +112,12 @@ export interface RecordedPayment {
 /** Everything the engine needs from the outside world. Keeps the engine pure and testable. */
 export interface BotPorts {
   findCustomerByPhone(phone: string): Promise<CustomerIdentity[]>;
+  /**
+   * The customer's own STOP / START for automatic payment reminders. Scoped to the verified customer record.
+   * Returns what the setting was before, so a repeat can be told from a change. Optional so a deployment without it
+   * simply treats those words as ordinary messages.
+   */
+  setRemindersOptOut?(who: CustomerIdentity, optedOut: boolean): Promise<{ previous: boolean }>;
   /** Orders belonging to THIS customer only, newest first. */
   listCustomerOrders(who: CustomerIdentity): Promise<CustomerOrderView[]>;
   /**
@@ -193,6 +199,17 @@ export interface BotSession {
    */
   verified?: string[];
   verifyFailures?: number;
+}
+
+/** What a customer types to stop (or resume) the automatic payment reminders, in the forms people actually use. */
+const STOP_REMINDERS = new Set(['stop', 'stop reminders', 'stop reminder', 'stop all', 'unsubscribe', 'opt out', 'optout', 'நிறுத்து', 'நிறுத்துங்கள்']);
+const START_REMINDERS = new Set(['start', 'start reminders', 'start reminder', 'resume', 'subscribe', 'opt in', 'optin', 'தொடங்கு']);
+
+function reminderKeyword(text: string | undefined): 'STOP' | 'START' | null {
+  const k = (text ?? '').normalize('NFC').trim().toLowerCase().replace(/[.!\s]+$/u, '').replace(/\s+/g, ' ');
+  if (STOP_REMINDERS.has(k)) return 'STOP';
+  if (START_REMINDERS.has(k)) return 'START';
+  return null;
 }
 
 const GREETINGS = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'start', 'வணக்கம்', 'மெனு']);
@@ -665,7 +682,45 @@ export class ConversationEngine {
   }
 
   // ---------------------------------------------------------------- customer self-service
+  /**
+   * STOP / START for automatic payment reminders. Honoured at once, before any identity question and even when the
+   * business has switched customer self-service off: the number is the customer's own, and it changes nothing but
+   * whether they are nudged. Applies to the business the chat is about, or to every business this number buys from.
+   * Returns null for START when nothing was switched off, so "start" still opens the menu as before.
+   */
+  private async customerReminderKeyword(msg: InboundMessage, keyword: 'STOP' | 'START', all: CustomerIdentity[]): Promise<BotResult | null> {
+    const session = await this.sessions.get(msg.from);
+    const scoped = session?.kind === 'CUSTOMER' && session.tenantId ? all.filter((c) => c.tenantId === session.tenantId) : [];
+    const targets = scoped.length > 0 ? scoped : all;
+    const locale = normalizeLocale(session?.locale ?? (/[\u0B80-\u0BFF]/.test(msg.text ?? '') ? 'ta' : targets[0].defaultLanguage));
+    const optOut = keyword === 'STOP';
+
+    let wasOptedOut = false;
+    try {
+      for (const c of targets) {
+        const { previous } = await this.ports.setRemindersOptOut!(c, optOut);
+        if (previous) wasOptedOut = true;
+      }
+    } catch {
+      return { replies: [t(locale, 'c_reminders_failed')], tenantId: targets[0].tenantId };
+    }
+    if (!optOut && !wasOptedOut) return null;
+
+    const names = targets.map((c) => c.tenantName);
+    const reply = optOut
+      ? targets.length === 1
+        ? t(locale, 'c_reminders_off', { business: names[0] })
+        : t(locale, 'c_reminders_off_many', { businesses: names.join(', ') })
+      : t(locale, 'c_reminders_on', { business: names.join(', ') });
+    return { replies: [reply], tenantId: targets[0].tenantId };
+  }
+
   private async processCustomer(msg: InboundMessage, allMatches: CustomerIdentity[]): Promise<BotResult> {
+    const keyword = this.ports.setRemindersOptOut ? reminderKeyword(msg.type === 'text' ? msg.text : undefined) : null;
+    if (keyword) {
+      const handled = await this.customerReminderKeyword(msg, keyword, allMatches);
+      if (handled) return handled;
+    }
     const customers = allMatches.filter((c) => c.selfServiceEnabled);
     if (customers.length === 0) {
       // Every business this number buys from has switched the feature off: say so politely, keep no session.

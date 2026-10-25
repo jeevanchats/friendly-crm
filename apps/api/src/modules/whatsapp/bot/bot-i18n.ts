@@ -274,6 +274,22 @@ export const MESSAGES = {
     en: "Sorry, I couldn't change that setting. Please try again or use the app.",
     ta: 'மன்னிக்கவும், அமைப்பை மாற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும் அல்லது ஆப்பைப் பயன்படுத்தவும்.',
   },
+  c_reminders_off: {
+    en: "✅ Done. You will no longer get automatic payment reminders from *{business}*.\nReply *START* to turn them back on.",
+    ta: '✅ சரி. *{business}* இடமிருந்து இனி தானியங்கி பணம் செலுத்தும் நினைவூட்டல்கள் வராது.\nமீண்டும் பெற *START* என்று அனுப்பவும்.',
+  },
+  c_reminders_off_many: {
+    en: "✅ Done. You will no longer get automatic payment reminders from these businesses: {businesses}.\nReply *START* to turn them back on.",
+    ta: '✅ சரி. இந்த நிறுவனங்களிடமிருந்து இனி தானியங்கி நினைவூட்டல்கள் வராது: {businesses}.\nமீண்டும் பெற *START* என்று அனுப்பவும்.',
+  },
+  c_reminders_on: {
+    en: "✅ Automatic payment reminders from *{business}* are back on.\nReply *STOP* any time to turn them off.",
+    ta: '✅ *{business}* இடமிருந்து தானியங்கி நினைவூட்டல்கள் மீண்டும் இயங்கும்.\nநிறுத்த எப்போது வேண்டுமானாலும் *STOP* என்று அனுப்பவும்.',
+  },
+  c_reminders_failed: {
+    en: "Sorry, we couldn't change that just now. Please try again, or call the business.",
+    ta: 'மன்னிக்கவும், இப்போது மாற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும் அல்லது நிறுவனத்தை அழைக்கவும்.',
+  },
   c_disabled: {
     en: "Order updates on WhatsApp aren't available for *{business}*.",
     ta: '*{business}* க்கு WhatsApp மூலம் ஆர்டர் தகவல் தற்போது கிடைக்காது.',

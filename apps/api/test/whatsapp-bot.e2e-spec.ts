@@ -55,6 +55,8 @@ function setup(
     quotes?: CustomerQuoteView[];
     approve?: () => Promise<QuoteApproveResult>;
     openingBalances?: Record<string, string>;
+    /** customerIds that have already stopped the automatic reminders */
+    optedOut?: string[];
   } = {}
 ) {
   const calls = {
@@ -68,13 +70,22 @@ function setup(
     quoteList: 0,
     approve: [] as any[],
     change: [] as any[],
+    optOut: [] as Array<{ customerId: string; optedOut: boolean }>,
   };
+  const optedOut = new Set<string>(opts.optedOut ?? []);
   const openingBalances: Record<string, string> = opts.openingBalances ?? {};
   const state = { selfService: true, failSet: false };
-  const failures = { createLead: false, recordPayment: false };
+  const failures = { createLead: false, recordPayment: false, optOut: false };
   const ports: BotPorts = {
     findStaffByPhone: async (p) => (p === PHONE ? identities : []),
     findCustomerByPhone: async (p) => (p === CUSTOMER_PHONE ? customers : []),
+    setRemindersOptOut: async (who, value) => {
+      if (failures.optOut) throw new Error('db down');
+      const previous = optedOut.has(who.customerId);
+      value ? optedOut.add(who.customerId) : optedOut.delete(who.customerId);
+      calls.optOut.push({ customerId: who.customerId, optedOut: value });
+      return { previous };
+    },
     listCustomerOrders: async (who) => {
       calls.customerOrderCalls.push(who.customerId);
       return customerOrders[who.customerId] ?? [];
@@ -128,7 +139,7 @@ function setup(
   let n = 0;
   const say = async (text: string, from = PHONE) =>
     (await engine.handle({ id: `m${++n}`, from, type: 'text', text })).replies.join('\n---\n');
-  return { engine, say, calls, failures, state };
+  return { engine, say, calls, failures, state, optedOut };
 }
 
 describe('WhatsApp inbound parser', () => {
@@ -990,6 +1001,115 @@ describe('WhatsApp conversation engine', () => {
       const { say } = setup([], [], [customer({ selfServiceEnabled: false })]);
       expect(await say('வணக்கம்', CUSTOMER_PHONE)).toContain('கிடைக்காது');
     });
+  });
+});
+
+describe('customer STOP / START for automatic payment reminders', () => {
+  it('honours STOP at once, before any identity question, and says how to turn it back on', async () => {
+    const { say, optedOut, calls } = setup([], [], [customer()]);
+    const out = await say('STOP', CUSTOMER_PHONE);
+    expect(out).toContain('no longer get automatic payment reminders from *Senthaamarai Calendars*');
+    expect(out).toContain('START');
+    expect(optedOut.has('c1')).toBe(true);
+    expect(calls.customerOrderCalls).toHaveLength(0); // nothing about the customer was looked up or shown
+    expect(out).not.toContain('Sri Krishna'); // not even their name, because they have not been verified
+  });
+
+  it('understands the usual ways of saying it, with punctuation and capitals', async () => {
+    for (const word of ['stop', 'Stop.', '  STOP!  ', 'stop reminders', 'Unsubscribe', 'opt out', 'நிறுத்து']) {
+      const { say, optedOut } = setup([], [], [customer()]);
+      expect(await say(word, CUSTOMER_PHONE)).toMatch(/no longer|இனி/);
+      expect(optedOut.has('c1')).toBe(true);
+    }
+  });
+
+  it('does not mistake a sentence for STOP', async () => {
+    const { say, optedOut } = setup([], [], [customer()]);
+    await say("please don't stop the printing", CUSTOMER_PHONE);
+    await say('stop by tomorrow', CUSTOMER_PHONE);
+    expect(optedOut.size).toBe(0);
+  });
+
+  it('START turns reminders back on, but on its own "start" is still the menu for someone who never stopped', async () => {
+    const stopped = setup([], [], [customer()], {}, { optedOut: ['c1'] });
+    const on = await stopped.say('START', CUSTOMER_PHONE);
+    expect(on).toContain('back on');
+    expect(on).toContain('STOP');
+    expect(stopped.optedOut.has('c1')).toBe(false);
+
+    const never = setup([], [], [customer()]);
+    const menu = await never.say('start', CUSTOMER_PHONE);
+    expect(menu).not.toContain('back on');
+    expect(menu).toContain('please reply with your name'); // the normal first step for an unverified customer
+    expect(never.optedOut.size).toBe(0);
+  });
+
+  it('works in Tamil, and answers in Tamil when the message is in Tamil', async () => {
+    const { say, optedOut } = setup([], [], [customer()]);
+    const out = await say('நிறுத்து', CUSTOMER_PHONE);
+    expect(out).toContain('தானியங்கி');
+    expect(optedOut.has('c1')).toBe(true);
+    const back = await say('தொடங்கு', CUSTOMER_PHONE);
+    expect(back).toContain('மீண்டும்');
+    expect(optedOut.has('c1')).toBe(false);
+  });
+
+  it('works even when the business has switched customer self-service off', async () => {
+    const { say, optedOut } = setup([], [], [customer({ selfServiceEnabled: false })]);
+    expect(await say('STOP', CUSTOMER_PHONE)).toContain('no longer get automatic payment reminders');
+    expect(optedOut.has('c1')).toBe(true);
+  });
+
+  it('works for a number that has been locked out of the verification questions', async () => {
+    const { say, optedOut } = setup([], [], [customer()]);
+    await say('hi', CUSTOMER_PHONE);
+    for (let i = 0; i < 4; i++) await say('wrong answer', CUSTOMER_PHONE);
+    expect(await say('hello', CUSTOMER_PHONE)).toMatch(/locked|call/i);
+    expect(await say('STOP', CUSTOMER_PHONE)).toContain('no longer');
+    expect(optedOut.has('c1')).toBe(true);
+  });
+
+  it('applies to every business the number buys from when no business has been picked', async () => {
+    const two = [customer(), customer({ customerId: 'c2', tenantId: 't2', tenantName: 'Vidhyasri Offset' })];
+    const { say, optedOut, calls } = setup([], [], two);
+    const out = await say('stop', CUSTOMER_PHONE);
+    expect(out).toContain('Senthaamarai Calendars, Vidhyasri Offset');
+    expect([...optedOut].sort()).toEqual(['c1', 'c2']);
+    expect(calls.optOut).toHaveLength(2);
+  });
+
+  it('applies only to the business being talked about once one is picked', async () => {
+    const two = [customer(), customer({ customerId: 'c2', tenantId: 't2', tenantName: 'Vidhyasri Offset' })];
+    const { say, optedOut } = setup([], [], two);
+    await say('hi', CUSTOMER_PHONE); // which business?
+    await say('2', CUSTOMER_PHONE);
+    const out = await say('stop', CUSTOMER_PHONE);
+    expect(out).toContain('*Vidhyasri Offset*');
+    expect([...optedOut]).toEqual(['c2']);
+  });
+
+  it('repeating STOP is harmless and still confirms', async () => {
+    const { say, optedOut } = setup([], [], [customer()], {}, { optedOut: ['c1'] });
+    expect(await say('stop', CUSTOMER_PHONE)).toContain('no longer');
+    expect(optedOut.has('c1')).toBe(true);
+  });
+
+  it('tells the customer when it could not be saved, and does not claim success', async () => {
+    const { say, failures, optedOut } = setup([], [], [customer()]);
+    failures.optOut = true;
+    const out = await say('STOP', CUSTOMER_PHONE);
+    expect(out).toContain("couldn't change that");
+    expect(out).not.toContain('Done');
+    expect(optedOut.size).toBe(0);
+  });
+
+  it('is only for customers: for staff "stop" still cancels a flow', async () => {
+    const { say, optedOut } = setup([staff()]);
+    await say('hi');
+    await say('1');
+    const out = await say('stop');
+    expect(out).not.toContain('reminders');
+    expect(optedOut.size).toBe(0);
   });
 });
 

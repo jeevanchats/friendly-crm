@@ -15,6 +15,12 @@ import {
 describe('reminder message', () => {
   const base = { lang: 'en' as const, customerName: 'Ravi', tenantName: 'Apex Press', tenantPhone: '+919840000000' };
 
+  it('tells the customer how to stop the automatic reminders, in both languages', () => {
+    const orders = [{ orderNumber: 'ORD-1', duePaise: 5000 }];
+    expect(buildReminderMessage({ ...base, orders }).trim().endsWith('Reply STOP to stop these automatic reminders.')).toBe(true);
+    expect(buildReminderMessage({ ...base, lang: 'ta', orders })).toContain('STOP');
+  });
+
   it('shows the total, a UPI link with an unescaped ampersand, and the UPI id', () => {
     const msg = buildReminderMessage({ ...base, upiId: 'apex@okhdfc', orders: [{ orderNumber: 'ORD-1', duePaise: 123450 }] });
     expect(msg).toContain('₹1,234.5');

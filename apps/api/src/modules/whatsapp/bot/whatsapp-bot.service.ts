@@ -80,6 +80,9 @@ export class WhatsAppBotService {
 
       findCustomerByPhone: (phone) => this.customerIdentity.findByPhone(phone),
 
+      // The customer's own STOP / START: tenantId and customerId come from the verified phone lookup, never from text.
+      setRemindersOptOut: (who, optedOut) => this.customersService.setRemindersOptOutByCustomer(who.tenantId, who.customerId, optedOut),
+
       // Scoped by tenantId AND customerId taken from the verified phone lookup, never from message text.
       listCustomerOrders: async (who) => {
         const rows = await this.orders.getOrdersForCustomer(who.tenantId, who.customerId, 50);

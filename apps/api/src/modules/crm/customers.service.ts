@@ -427,6 +427,47 @@ export class CustomersService {
   }
 
   /**
+   * The customer's own "STOP" / "START" on WhatsApp. Scoped by the tenant and customer taken from the verified phone
+   * lookup, never from message text. Returns what the setting was before, so the caller can tell a change from a repeat.
+   */
+  async setRemindersOptOutByCustomer(tenantId: string, customerId: string, optedOut: boolean): Promise<{ previous: boolean }> {
+    try {
+      if (typeof db?.transaction === 'function') {
+        const result = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const [row] = await tx.select({ id: customers.id, optOut: customers.remindersOptOut }).from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId))).limit(1);
+          if (!row) return null;
+          if (row.optOut !== optedOut) {
+            await tx.update(customers).set({ remindersOptOut: optedOut }).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
+            await tx.insert(activities).values({
+              tenantId,
+              actorId: null,
+              entityType: 'CUSTOMER',
+              entityId: customerId,
+              action: optedOut ? 'REMINDERS_OPTED_OUT' : 'REMINDERS_OPTED_IN',
+              metadata: { source: 'WHATSAPP' },
+            });
+          }
+          return { previous: row.optOut };
+        });
+        if (!result) throw new NotFoundException('Customer not found');
+        return result;
+      }
+    } catch (err: any) {
+      if (err instanceof NotFoundException) {
+        // Not in Postgres: a development-only customer may still live in memory
+      } else {
+        this.logger.warn(`Postgres offline; changing the reminder setting in memory: ${err.message}`);
+      }
+    }
+    const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
+    if (!mem) throw new NotFoundException('Customer not found');
+    const previous = mem.remindersOptOut === true;
+    mem.remindersOptOut = optedOut;
+    return { previous };
+  }
+
+  /**
    * List all customers for a tenant with computed outstanding balance
    * Enforces Row-Level Security: returns ONLY customers belonging to the tenant.
    */

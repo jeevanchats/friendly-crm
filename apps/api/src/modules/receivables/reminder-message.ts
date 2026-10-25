@@ -29,6 +29,7 @@ const COPY = {
     upiId: (id: string) => `Or pay to UPI ID: ${id}`,
     already: 'If you have already paid, please ignore this message and send us the reference. Thank you!',
     call: (p: string) => `Questions? Call us on ${p}.`,
+    stop: 'Reply STOP to stop these automatic reminders.',
   },
   ta: {
     hello: (n: string) => `வணக்கம் ${n},`,
@@ -39,6 +40,7 @@ const COPY = {
     upiId: (id: string) => `அல்லது UPI ID-க்கு செலுத்தவும்: ${id}`,
     already: 'ஏற்கனவே செலுத்தியிருந்தால் இந்தச் செய்தியைப் புறக்கணிக்கவும்; பரிவர்த்தனை எண்ணை அனுப்பவும். நன்றி!',
     call: (p: string) => `கேள்விகளுக்கு அழைக்கவும்: ${p}.`,
+    stop: 'இந்த தானியங்கி நினைவூட்டல்களை நிறுத்த STOP என்று அனுப்பவும்.',
   },
 } as const;
 
@@ -70,5 +72,6 @@ export function buildReminderMessage(input: ReminderInput): string {
   }
   blocks.push(c.already);
   if (input.tenantPhone) blocks.push(c.call(input.tenantPhone));
+  blocks.push(c.stop);
   return blocks.join('\n\n');
 }
