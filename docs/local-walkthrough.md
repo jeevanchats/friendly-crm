@@ -11,6 +11,7 @@ In PowerShell, from the project folder (`friendly-crm`):
 $env:ENABLE_DEV_SMS_GATEWAY = 'true'      # OTP codes are printed in this console instead of sent by SMS
 $env:WHATSAPP_WEBHOOK_SECRET = 'dev-secret'  # lets the WhatsApp simulator talk to the bot
 $env:DEV_LOG_MESSAGE_BODIES = 'true'      # prints what the bot / reminders would send on WhatsApp
+# $env:ANTHROPIC_API_KEY = 'paste-your-key-here'  # optional: also reads handwriting and scanned PDFs (remove the # to switch on)
 npm run dev -- --env-mode=loose
 ```
 
@@ -138,7 +139,7 @@ WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows t
 - **Quote links only reach other phones once the server has a public address.** Locally the link in the quote message points at `http://localhost:4000` (works on this computer only). For real use set `PUBLIC_API_URL` (the address customers can reach) and `QUOTE_LINK_SECRET` (16+ random characters); without them in production no link is sent.
 - **Customers in credit (advances)** cannot be imported yet; a negative balance is rejected.
 - **WhatsApp is a sandbox.** Replies print in the console; nothing reaches a phone. No interactive buttons yet.
-- **Reading the enquiry needs `ANTHROPIC_API_KEY`** on the server (see `.env.example`); without it the button says reading is switched off. Photos and PDFs are sent to Anthropic only when staff press the button. Word and Excel attachments are not read.
+- **Reading the enquiry works three ways.** With no setup it reads the typed and spoken words, the text inside PDFs and printed text in photos (OCR, English) on this server, and says which photos look handwritten and need a person. Add `ANTHROPIC_API_KEY` (cloud) or `OLLAMA_URL` + `OLLAMA_MODEL` (a vision model on your own machine) in `.env` to read handwriting and scanned PDFs too; see `.env.example`. With a key, photos and scanned PDFs are sent to Anthropic only when staff press the button. Word and Excel attachments are never read. If two places give different quantities for an item, the first is used and the clash is listed for you to check.
 - **Voice notes are written down by the browser** while recording (Chrome / Edge / Safari; Tamil and Indian English) and the text is editable. If the browser cannot, type what was said, or the voice note is skipped by the reader. Audio itself is never sent to the reader. The browser asks for microphone permission; recording works on `localhost` and on https sites only. Safari records `.m4a`, Chrome and Edge `.webm`.
 - **Attachments live in the database** (simple, but not for hundreds of large files per business); moving them to cloud file storage is a later step. WhatsApp voice notes or photos sent by customers are not attached to enquiries yet.
 - **Invoice PDF** prints "Rs." and cannot show Tamil names (font limitation).

@@ -120,7 +120,7 @@ export function EnquiryAttachments({
   const [draft, setDraft] = useState<PickerValue>({ voice: null, files: [] });
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
-  const [readNote, setReadNote] = useState<{ summary: string; skipped: string[]; count: number; message?: string } | null>(null);
+  const [readNote, setReadNote] = useState<{ summary: string; skipped: string[]; count: number; mode: string } | null>(null);
 
   const allowed = !!active && hasPermission(active.role, 'lead:view');
   const canAdd = !!active && hasPermission(active.role, 'lead:create');
@@ -185,7 +185,7 @@ export function EnquiryAttachments({
         setError((Array.isArray(body.message) ? body.message.join(' ') : body.message) || `Could not read the enquiry (${res.status}).`);
         return;
       }
-      setReadNote({ summary: body.summary ?? '', skipped: body.skipped ?? [], count: body.lines?.length ?? 0, message: body.enabled === false ? body.message : undefined });
+      setReadNote({ summary: body.summary ?? '', skipped: body.skipped ?? [], count: body.lines?.length ?? 0, mode: body.mode ?? 'basic' });
       if (body.lines?.length) onSuggest?.(body.lines as SuggestedLine[]);
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
@@ -220,13 +220,14 @@ export function EnquiryAttachments({
       )}
       {readNote && (
         <div className="rounded-lg bg-white p-3 text-xs text-[#243B40]">
-          {readNote.message ? (
-            <p className="font-semibold text-amber-800">{readNote.message}</p>
-          ) : (
-            <p className="font-semibold">
-              {readNote.count > 0
-                ? `${readNote.count} line${readNote.count === 1 ? '' : 's'} added to the quote below. Check each one and fill what is marked missing.`
-                : 'Nothing could be filled in automatically. Add the lines by hand.'}
+          <p className="font-semibold">
+            {readNote.count > 0
+              ? `${readNote.count} line${readNote.count === 1 ? '' : 's'} added to the quote below. Check each one and fill what is marked missing.`
+              : 'Nothing could be filled in automatically. Add the lines by hand.'}
+          </p>
+          {readNote.mode === 'basic' && (
+            <p className="mt-1 text-slate-500">
+              Read without an AI service: typed and spoken words, text inside PDFs and printed text in photos. Handwriting is not read.
             </p>
           )}
           {readNote.summary && <p className="mt-1 text-slate-600">{readNote.summary}</p>}

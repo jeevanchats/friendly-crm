@@ -101,6 +101,11 @@ const UNIT_ALIASES: Record<string, string> = {
   ton: 'Ton', tons: 'Ton', tonne: 'Ton', tonnes: 'Ton', mt: 'Ton', hrs: 'Hours', hr: 'Hours', hour: 'Hours', hours: 'Hours',
 };
 
+/** The standard unit for a word like "boxes" or "pcs"; null when the word is not a unit. */
+export function lookupUnit(word: string): string | null {
+  return UNIT_ALIASES[word.trim().toLowerCase()] ?? null;
+}
+
 export function normalizeUnit(raw: string): string {
   const t = raw.trim();
   if (!t) return 'Nos';
