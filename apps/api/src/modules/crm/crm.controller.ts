@@ -237,6 +237,16 @@ export class CrmController {
   }
 
   /**
+   * GET /api/crm/customers/lookup?phone=
+   * Is this mobile number already a customer? Used by Quick Add to fill the name from the master record.
+   */
+  @Get('customers/lookup')
+  @RequirePermission('lead:create')
+  async lookupCustomer(@CurrentTenant() tenant: { id: string }, @Query('phone') phone?: string) {
+    return this.crmService.lookupCustomerByPhone(tenant.id, String(phone ?? ''));
+  }
+
+  /**
    * 9. GET /api/crm/customers/:id
    * Complete Customer 360 profile view: details, orders, quotations, ledger & timeline
    */

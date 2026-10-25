@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
-import { IndustryKey, getIndustryExamples } from '@friendly-crm/shared';
+import { IndustryKey, getIndustryExamples, normalizeContactPhone } from '@friendly-crm/shared';
 import { X } from 'lucide-react';
 import { apiFetch } from '../../lib/session';
 import { AttachmentPicker, PickerValue, voiceFileName } from './AttachmentPicker';
@@ -41,6 +41,59 @@ export function QuickAddLeadDrawer({
   const [attach, setAttach] = useState<PickerValue>({ voice: null, files: [] });
   // Once the enquiry is saved, pressing the button again only retries the attachments (never saves a second enquiry)
   const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
+
+  // The phone number is the customer's identity: once a full number is typed, look it up in the customer master.
+  const [lookup, setLookup] = useState<
+    | { state: 'idle' | 'checking' | 'invalid' | 'error' }
+    | { state: 'new'; phone: string }
+    | { state: 'found'; phone: string; matchedOn: string; customer: { id: string; name: string; companyName: string | null; phone: string; openEnquiries: number } }
+  >({ state: 'idle' });
+  const filledFromMaster = useRef(false); // name/company currently come from the master record
+  const lookupSeq = useRef(0);
+
+  useEffect(() => {
+    const mine = ++lookupSeq.current;
+    const clearMasterFill = () => {
+      if (filledFromMaster.current) {
+        filledFromMaster.current = false;
+        setCustomerName('');
+        setCompanyName('');
+      }
+    };
+    const normalized = normalizeContactPhone(phone);
+    if (!normalized) {
+      clearMasterFill();
+      // Still typing (fewer than 10 digits) is not an error; a full-length number that is not a mobile number is
+      setLookup({ state: phone.replace(/\D/g, '').length >= 10 ? 'invalid' : 'idle' });
+      return;
+    }
+    setLookup({ state: 'checking' });
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiFetch(`/api/crm/customers/lookup?phone=${encodeURIComponent(normalized)}`);
+        if (mine !== lookupSeq.current) return;
+        if (!res.ok) {
+          clearMasterFill();
+          setLookup({ state: 'error' });
+          return;
+        }
+        const r = await res.json();
+        if (mine !== lookupSeq.current) return;
+        if (r.status === 'FOUND') {
+          filledFromMaster.current = true;
+          setCustomerName(r.customer.name);
+          setCompanyName(r.customer.companyName ?? '');
+          setLookup({ state: 'found', phone: r.phone, matchedOn: r.matchedOn, customer: r.customer });
+        } else {
+          clearMasterFill();
+          setLookup(r.status === 'NOT_FOUND' ? { state: 'new', phone: r.phone } : { state: 'invalid' });
+        }
+      } catch {
+        if (mine === lookupSeq.current) setLookup({ state: 'error' });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [phone]);
 
   // Sync lang when locale prop changes
   React.useEffect(() => {
@@ -146,6 +199,8 @@ export function QuickAddLeadDrawer({
       setCustomData({});
       setAttach({ voice: null, files: [] });
       setSavedLeadId(null);
+      filledFromMaster.current = false;
+      setLookup({ state: 'idle' });
     } catch (err: any) {
       setError(err?.message || (lang === 'ta' ? 'சேமிக்க முடியவில்லை.' : 'Could not save the enquiry.'));
     } finally {
@@ -230,6 +285,43 @@ export function QuickAddLeadDrawer({
                 onChange={(e) => setPhone(e.target.value)}
                 className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-base font-medium text-[#243B40] focus:border-[#167D79] focus:outline-none"
               />
+              {lookup.state === 'checking' && (
+                <p className="mt-1 text-[11px] text-slate-400">{lang === 'ta' ? 'வாடிக்கையாளர் பட்டியலில் தேடுகிறது…' : 'Checking your customer list…'}</p>
+              )}
+              {lookup.state === 'invalid' && (
+                <p role="alert" className="mt-1 text-[11px] font-semibold text-red-700">
+                  {lang === 'ta' ? 'சரியான 10 இலக்க மொபைல் எண்ணை உள்ளிடவும்.' : 'Enter a valid 10-digit mobile number.'}
+                </p>
+              )}
+              {lookup.state === 'error' && (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  {lang === 'ta'
+                    ? 'பட்டியலைச் சரிபார்க்க முடியவில்லை. சேமிக்கும்போது எண் தானாகப் பொருத்தப்படும்.'
+                    : 'Could not check the list just now. The number is matched again when you save, so no duplicate is made.'}
+                </p>
+              )}
+              {lookup.state === 'found' && (
+                <div className="mt-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900">
+                  <p className="font-bold">
+                    {lang === 'ta' ? 'ஏற்கனவே உள்ள வாடிக்கையாளர்' : 'Existing customer'}: {lookup.customer.name}
+                    {lookup.matchedOn === 'WHATSAPP' && (
+                      <span className="font-normal"> · {lang === 'ta' ? 'இது அவர்களின் WhatsApp எண்' : 'this is their WhatsApp number'} ({lookup.customer.phone})</span>
+                    )}
+                  </p>
+                  <p>
+                    {lang === 'ta'
+                      ? 'பெயர் வாடிக்கையாளர் பட்டியலிலிருந்து எடுக்கப்பட்டது; புதிய பதிவு உருவாகாது.'
+                      : 'Name filled from your customer list. No new customer will be added.'}
+                    {lookup.customer.openEnquiries > 0 &&
+                      ` ${lang === 'ta' ? `இவருக்கு ஏற்கனவே ${lookup.customer.openEnquiries} கொட்டேஷன் நிலுவை விசாரணை உள்ளது.` : `They already have ${lookup.customer.openEnquiries} enquiry waiting for a quote.`}`}
+                  </p>
+                </div>
+              )}
+              {lookup.state === 'new' && (
+                <p className="mt-1.5 rounded-lg bg-sky-50 px-3 py-2 text-[11px] font-semibold text-sky-900">
+                  {lang === 'ta' ? 'புதிய வாடிக்கையாளர் - சேமிக்கும்போது பட்டியலில் சேர்க்கப்படுவார். பெயரை உள்ளிடவும்.' : 'New customer - they will be added to your customer list when you save. Enter their name.'}
+                </p>
+              )}
             </div>
 
             <div>
@@ -242,7 +334,8 @@ export function QuickAddLeadDrawer({
                 placeholder={examples.customer[lang]}
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
+                readOnly={lookup.state === 'found'}
+                className={`min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none ${lookup.state === 'found' ? 'bg-slate-100' : ''}`}
               />
             </div>
 
@@ -255,7 +348,8 @@ export function QuickAddLeadDrawer({
                 placeholder={examples.company[lang]}
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
+                readOnly={lookup.state === 'found'}
+                className={`min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none ${lookup.state === 'found' ? 'bg-slate-100' : ''}`}
               />
             </div>
 
@@ -330,7 +424,7 @@ export function QuickAddLeadDrawer({
             )}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || lookup.state === 'checking' || lookup.state === 'invalid'}
               className="flex-1 min-h-[48px] rounded-xl bg-[#167D79] font-semibold text-white shadow-md hover:bg-[#126461] disabled:opacity-50 transition-colors"
             >
               {loading

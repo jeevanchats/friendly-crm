@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, HttpException, Logger } from '@nestjs/common';
 import { sql, eq, and, or, ilike, desc } from 'drizzle-orm';
 import { db, customers, leads, tasks, activities, tenants } from '@friendly-crm/db';
 import {
@@ -10,6 +10,7 @@ import {
   validateCustomData,
   isIndustryKey,
   IndustryKey,
+  normalizeContactPhone,
 } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
 import { randomUUID } from 'crypto';
@@ -35,15 +36,14 @@ export class CrmService {
   private memoryTasks = globalMemoryTasks;
 
   /**
-   * Normalizes Indian mobile numbers to E.164 (+91XXXXXXXXXX)
+   * The customer's phone number is their identity, so every place that reads one uses this single rule
+   * (the same one customer import uses): 9876543210, 09876543210, +91 98765 43210 and 91-9876543210 all become
+   * +919876543210. Other countries need an explicit + and 8-15 digits.
    */
   public normalizePhone(rawPhone: string): string {
-    const digits = rawPhone.replace(/\D/g, '');
-    if (digits.length === 10) return `+91${digits}`;
-    if (digits.length === 12 && digits.startsWith('91')) return `+${digits}`;
-    if (digits.length > 10 && rawPhone.startsWith('+')) return `+${digits}`;
-    if (digits.length >= 10) return `+${digits}`;
-    throw new BadRequestException('Invalid phone number format. Enter a valid 10-digit mobile number.');
+    const phone = normalizeContactPhone(rawPhone);
+    if (!phone) throw new BadRequestException('Invalid phone number format. Enter a valid 10-digit mobile number.');
+    return phone;
   }
 
   /**
@@ -79,6 +79,87 @@ export class CrmService {
 
     const memTenant = this.memoryTenants.get(tenantId);
     return memTenant?.industryKey || 'printing';
+  }
+
+  /**
+   * GET /api/crm/customers/lookup?phone=
+   * Is this number already a customer? The number is the customer's identity (one per business), so Quick Add asks
+   * this as soon as a full number is typed and fills the name from the master record instead of adding a duplicate.
+   * A customer whose WhatsApp number is the one typed counts too. Nothing about money is returned.
+   */
+  async lookupCustomerByPhone(
+    tenantId: string,
+    rawPhone: string
+  ): Promise<{
+    status: 'FOUND' | 'NOT_FOUND' | 'INVALID';
+    phone: string | null;
+    matchedOn?: 'PHONE' | 'WHATSAPP';
+    customer?: { id: string; name: string; companyName: string | null; phone: string; openEnquiries: number };
+  }> {
+    const phone = normalizeContactPhone(rawPhone);
+    if (!phone) return { status: 'INVALID', phone: null };
+
+    try {
+      const activeDb = this.getDb();
+      if (typeof activeDb?.transaction === 'function') {
+        const found = await activeDb.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const match = await this.findCustomerByPhone(tx, tenantId, phone);
+          if (!match) return null;
+          const [open] = await tx
+            .select({ n: sql<number>`count(*)::int` })
+            .from(leads)
+            .where(and(eq(leads.tenantId, tenantId), eq(leads.customerId, match.customer.id), sql`${leads.stage} IN ('NEW','QUALIFIED')`));
+          return { ...match, openEnquiries: open?.n ?? 0 };
+        });
+        if (found) {
+          return {
+            status: 'FOUND',
+            phone,
+            matchedOn: found.matchedOn,
+            customer: {
+              id: found.customer.id,
+              name: found.customer.name,
+              companyName: found.customer.companyName ?? null,
+              phone: found.customer.phone,
+              openEnquiries: found.openEnquiries,
+            },
+          };
+        }
+        // Not in Postgres: a development-only customer may still live in memory, so fall through to that check
+      }
+    } catch (dbErr: any) {
+      if (dbErr instanceof HttpException) throw dbErr;
+      this.logger.warn(`Postgres offline; looking the customer up in memory: ${dbErr.message}`);
+    }
+
+    const mem =
+      this.memoryCustomers.find((c) => c.tenantId === tenantId && c.phone === phone) ??
+      this.memoryCustomers.find((c) => c.tenantId === tenantId && c.whatsappNumber === phone);
+    if (!mem) return { status: 'NOT_FOUND', phone };
+    const open = this.memoryLeads.filter((l: any) => l.tenantId === tenantId && l.customerId === mem.id && needsQuote(l.stage)).length;
+    return {
+      status: 'FOUND',
+      phone,
+      matchedOn: mem.phone === phone ? 'PHONE' : 'WHATSAPP',
+      customer: { id: mem.id, name: mem.name, companyName: mem.companyName ?? null, phone: mem.phone, openEnquiries: open },
+    };
+  }
+
+  /** The customer with this phone number, or failing that the one whose WhatsApp number it is. */
+  private async findCustomerByPhone(tx: any, tenantId: string, phone: string): Promise<{ customer: any; matchedOn: 'PHONE' | 'WHATSAPP' } | null> {
+    const [byPhone] = await tx
+      .select()
+      .from(customers)
+      .where(and(eq(customers.tenantId, tenantId), eq(customers.phone, phone)))
+      .limit(1);
+    if (byPhone) return { customer: byPhone, matchedOn: 'PHONE' };
+    const [byWhatsapp] = await tx
+      .select()
+      .from(customers)
+      .where(and(eq(customers.tenantId, tenantId), eq(customers.whatsappNumber, phone)))
+      .limit(1);
+    return byWhatsapp ? { customer: byWhatsapp, matchedOn: 'WHATSAPP' } : null;
   }
 
   /**
@@ -144,17 +225,14 @@ export class CrmService {
           // Enforce Row-Level Security for this transaction
           await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
 
-          // Match existing customer or create a new profile
-          let [customer] = await tx
-            .select()
-            .from(customers)
-            .where(and(eq(customers.tenantId, tenantId), eq(customers.phone, normalizedPhone)))
-            .limit(1);
+          // The phone number is the customer's identity: reuse the master record (its name wins over what was typed)
+          // and only create a customer when the number is not known.
+          const known = await this.findCustomerByPhone(tx, tenantId, normalizedPhone);
+          let customer = known?.customer;
 
           let isNewCustomer = false;
           if (!customer) {
-            isNewCustomer = true;
-            [customer] = await tx
+            const [created] = await tx
               .insert(customers)
               .values({
                 tenantId,
@@ -165,7 +243,16 @@ export class CrmService {
                 email: dto.email || null,
                 createdById: effectiveActorId,
               })
+              // Two people adding the same new number at once: the second gets the first one's record, not an error
+              .onConflictDoNothing({ target: [customers.tenantId, customers.phone] })
               .returning();
+            if (created) {
+              customer = created;
+              isNewCustomer = true;
+            } else {
+              customer = (await this.findCustomerByPhone(tx, tenantId, normalizedPhone))?.customer;
+              if (!customer) throw new BadRequestException('Could not add or find this customer. Please try again.');
+            }
           }
 
           // Create the Lead
@@ -245,9 +332,9 @@ export class CrmService {
     }
 
       // Memory Fallback
-      let customer = this.memoryCustomers.find(
-        (c) => c.tenantId === tenantId && c.phone === normalizedPhone
-      );
+      let customer =
+        this.memoryCustomers.find((c) => c.tenantId === tenantId && c.phone === normalizedPhone) ??
+        this.memoryCustomers.find((c) => c.tenantId === tenantId && c.whatsappNumber === normalizedPhone);
       let isNewCustomer = false;
 
       if (!customer) {
