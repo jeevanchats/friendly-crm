@@ -413,7 +413,8 @@ export const invoices = pgTable(
   (table) => ({
     tenantInvoiceIdx: index('invoices_tenant_idx').on(table.tenantId),
     tenantNumberIdx: uniqueIndex('invoices_tenant_number_idx').on(table.tenantId, table.invoiceNumber),
-    tenantOrderIdx: uniqueIndex('invoices_tenant_order_idx').on(table.tenantId, table.orderId),
+    // Not unique: an invoice that a credit note cancelled in full can be replaced by a new one for the same order.
+    tenantOrderIdx: index('invoices_tenant_order_idx').on(table.tenantId, table.orderId),
   })
 );
 

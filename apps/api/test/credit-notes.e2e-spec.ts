@@ -355,6 +355,106 @@ describe('Credit notes', () => {
     expect((await asStranger(`/credit-notes/prepare/${inv.id}`)).status).toBe(404);
   });
 
+  describe('replacing a cancelled invoice', () => {
+    const prepare = async (orderId: string) => (await http(owner, `/invoices/prepare/${orderId}`)).json();
+    const issueNew = (orderId: string, body: Record<string, unknown> = {}) =>
+      http(owner, '/invoices', { method: 'POST', body: { orderId, ...body } });
+    const cancel = async (invoiceId: string) => expect((await credit({ invoiceId, full: true, note: 'Wrong GSTIN on the invoice' })).status).toBe(201);
+
+    it('lets an order be invoiced again once its invoice is cancelled in full, restoring the order total', async () => {
+      const { orderId, inv } = await issueInvoice();
+      await cancel(inv.id);
+      expect(Number(orderOf(orderId).totalAmount)).toBe(0);
+
+      const prep = await prepare(orderId);
+      expect(prep.existingInvoice).toBeNull();
+      expect(prep.replaces).toMatchObject({ id: inv.id, invoiceNumber: inv.invoiceNumber });
+      expect(prep.problems).toEqual([]);
+      expect(prep.preview.grandTotal).toBe('2300.00');
+
+      const res = await issueNew(orderId);
+      expect(res.status).toBe(201);
+      const fresh = await res.json();
+      expect(fresh.invoiceNumber).not.toBe(inv.invoiceNumber);
+      expect(Number(fresh.invoiceNumber.slice(-4))).toBeGreaterThan(Number(inv.invoiceNumber.slice(-4)));
+      expect(fresh.totals.grandTotal).toBe('2300.00');
+      expect(fresh.payment).toMatchObject({ status: 'UNPAID', balanceDue: '2300.00' });
+      expect(Number(orderOf(orderId).totalAmount)).toBe(2300);
+      expect(balanceOf(orderId)).toBe(2300);
+
+      // the old one stays on record as cancelled; the order now points at the new one
+      expect((await (await http(owner, `/invoices/${inv.id}`)).json()).payment.status).toBe('CREDITED');
+      expect((await (await http(owner, `/invoices/by-order/${orderId}`)).json()).id).toBe(fresh.id);
+      const listed = (await (await http(owner, '/invoices')).json()).data.filter((i: any) => [inv.id, fresh.id].includes(i.id));
+      expect(listed.map((i: any) => i.status).sort()).toEqual(['CREDITED', 'UNPAID']);
+    });
+
+    it('shows the cancelled invoice for the order until a replacement exists', async () => {
+      const { orderId, inv } = await issueInvoice();
+      await cancel(inv.id);
+      const shown = await (await http(owner, `/invoices/by-order/${orderId}`)).json();
+      expect(shown.id).toBe(inv.id);
+      expect(shown.payment.status).toBe('CREDITED');
+    });
+
+    it('refuses a second invoice while one is still in force, including after only a part credit', async () => {
+      const { orderId, inv } = await issueInvoice();
+      const again = await issueNew(orderId);
+      expect(again.status).toBe(409);
+      expect((await again.json()).error).toBe('InvoiceExists');
+      expect((await credit({ invoiceId: inv.id, reason: 'SALES_RETURN', lines: [{ lineNo: 1, quantity: 10 }] })).status).toBe(201);
+      expect((await issueNew(orderId)).status).toBe(409);
+      expect((await prepare(orderId)).existingInvoice).toMatchObject({ id: inv.id });
+    });
+
+    it('only one of two simultaneous replacements is issued', async () => {
+      const { orderId, inv } = await issueInvoice();
+      await cancel(inv.id);
+      const [a, b] = await Promise.all([issueNew(orderId), issueNew(orderId)]);
+      expect([a.status, b.status].sort()).toEqual([201, 409]);
+      expect(Number(orderOf(orderId).totalAmount)).toBe(2300);
+    });
+
+    it('uses the corrected customer details: a new GSTIN state turns the sale inter-state', async () => {
+      const { orderId, customerId, inv } = await issueInvoice();
+      expect(inv.supplyType).toBe('INTRA');
+      await cancel(inv.id);
+      const cust = globalMemoryCustomers.find((c: any) => c.id === customerId) as any;
+      cust.stateCode = '27';
+      const fresh = await (await issueNew(orderId)).json();
+      expect(fresh.supplyType).toBe('INTER');
+      expect(fresh.totals).toMatchObject({ cgst: '0.00', sgst: '0.00', grandTotal: '2300.00' });
+      expect(Number(fresh.totals.igst)).toBeGreaterThan(0);
+    });
+
+    it('takes a payment already made against the cancelled invoice onto the new one', async () => {
+      const { orderId, inv } = await issueInvoice({ paid: '2300.00' });
+      await cancel(inv.id);
+      expect(balanceOf(orderId)).toBe(-2300); // the customer is in credit while nothing is invoiced
+      const fresh = await (await issueNew(orderId)).json();
+      expect(balanceOf(orderId)).toBe(0);
+      expect(fresh.payment).toMatchObject({ status: 'PAID', balanceDue: '0.00', paid: '2300.00' });
+    });
+
+    it('can be cancelled and replaced again, and always takes the next number', async () => {
+      const { orderId, inv } = await issueInvoice();
+      await cancel(inv.id);
+      const second = await (await issueNew(orderId)).json();
+      await cancel(second.id);
+      expect(Number(orderOf(orderId).totalAmount)).toBe(0);
+      const third = await (await issueNew(orderId)).json();
+      expect(Number(third.invoiceNumber.slice(-4))).toBe(Number(second.invoiceNumber.slice(-4)) + 1);
+      expect(Number(orderOf(orderId).totalAmount)).toBe(2300);
+      expect((await prepare(orderId)).existingInvoice).toMatchObject({ id: third.id });
+    });
+
+    it('needs the same permission as the first invoice', async () => {
+      const { orderId, inv } = await issueInvoice();
+      await cancel(inv.id);
+      expect((await http(prod, '/invoices', { method: 'POST', body: { orderId } })).status).toBe(403);
+    });
+  });
+
   it('prints a credit note PDF that names the invoice it reduces', async () => {
     const { inv } = await issueInvoice();
     const cn = await (await credit({ invoiceId: inv.id, reason: 'SALES_RETURN', lines: [{ lineNo: 1, quantity: 10 }] })).json();

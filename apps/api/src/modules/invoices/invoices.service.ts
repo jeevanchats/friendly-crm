@@ -43,6 +43,7 @@ import {
   globalMemoryInvoiceItems,
   globalMemoryInvoiceCounters,
   globalMemoryProducts,
+  globalMemoryCreditNotes,
 } from '../crm/memory-store';
 import { CreditNotesService } from './credit-notes.service';
 
@@ -74,6 +75,11 @@ export interface InvoicePreparation {
   /** Reasons the invoice cannot be issued yet. Empty means it can. */
   problems: string[];
   existingInvoice: { id: string; invoiceNumber: string } | null;
+  /**
+   * Set when the order's earlier invoice was cancelled in full by a credit note: this new invoice replaces it, and the
+   * order's total (which the credit note lowered) is restored when it is issued.
+   */
+  replaces: { id: string; invoiceNumber: string } | null;
   supplier: InvoiceParty | null;
   buyer: InvoiceParty;
   placeOfSupply: { stateCode: string; stateName: string; source: PlaceOfSupplySource } | null;
@@ -149,7 +155,10 @@ interface Ctx {
   items: any[];
   customer: any;
   tenant: any;
+  /** The invoice that is currently in force for this order (not fully credited), if any. */
   existing: any | null;
+  /** When there is none: the latest invoice, which credit notes have taken back in full. */
+  reissueOf: any | null;
 }
 
 const toPaise = (v: unknown) => Math.round(Number(v) * 100);
@@ -187,6 +196,7 @@ export class InvoicesService {
       orderNumber: a.ctx.order.orderNumber,
       problems: a.problems,
       existingInvoice: a.ctx.existing ? { id: a.ctx.existing.id, invoiceNumber: a.ctx.existing.invoiceNumber } : null,
+      replaces: a.ctx.reissueOf ? { id: a.ctx.reissueOf.id, invoiceNumber: a.ctx.reissueOf.invoiceNumber } : null,
       supplier: a.supplier,
       buyer: a.buyer,
       placeOfSupply: a.placeOfSupply
@@ -199,6 +209,9 @@ export class InvoicesService {
 
   async issue(tenantId: string, actorId: string | null, orderId: string, dto: IssueInvoiceDto = {}, now = new Date()): Promise<InvoiceView> {
     const run = async (tx: any | null) => {
+      // There is no longer a database rule of one invoice per order (a cancelled one can be replaced), so two people
+      // issuing the same order at once are made to take turns here instead.
+      if (tx) await tx.execute(dsql`SELECT id FROM orders WHERE id = ${orderId} AND tenant_id = ${tenantId} FOR UPDATE`);
       const ctx = tx ? await this.loadCtxDb(tx, tenantId, orderId) : this.loadCtxMemory(tenantId, orderId);
       if (ctx.existing) {
         throw new ConflictException({
@@ -282,6 +295,28 @@ export class InvoicesService {
         for (const it of ctx.items) {
           const h = hsnByItem.get(it.id);
           if (h) it.hsnCode = h;
+        }
+      }
+      if (ctx.reissueOf) {
+        // The credit note that cancelled the earlier invoice lowered the order total; this invoice is worth it again.
+        if (tx) {
+          const [updated] = await tx
+            .update(orders)
+            .set({
+              totalAmount: dsql`${orders.totalAmount} + ${row.amount}::numeric`,
+              balanceDue: dsql`${orders.totalAmount} + ${row.amount}::numeric - ${orders.advanceReceived}`,
+              updatedAt: now,
+            })
+            .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+            .returning();
+          ctx.order = updated;
+        } else {
+          const o = globalMemoryOrders.find((x) => x.id === orderId && x.tenantId === tenantId);
+          if (o) {
+            o.totalAmount = money(toPaise(o.totalAmount) + toPaise(row.amount));
+            o.balanceDue = money(toPaise(o.totalAmount) - toPaise(o.advanceReceived ?? 0));
+            ctx.order = o;
+          }
         }
       }
       return this.toView(row, lineRows, ctx.order, 0);
@@ -432,7 +467,8 @@ export class InvoicesService {
             unitPrice: Number(l.unitPrice),
             taxPercent: Number(l.taxPercent),
           })),
-          agreedTotalPaise: toPaise(order.totalAmount),
+          // A replacement invoice is for what the cancelled one was for: the credit note took the order total down to nothing.
+          agreedTotalPaise: ctx.reissueOf ? toPaise(ctx.reissueOf.amount) : toPaise(order.totalAmount),
           supplierStateCode: supplierState,
           placeOfSupplyStateCode: placeOfSupply.code,
         });
@@ -538,9 +574,10 @@ export class InvoicesService {
     const items = await tx.select().from(orderItems).where(and(eq(orderItems.orderId, orderId), eq(orderItems.tenantId, tenantId)));
     const [customer] = await tx.select().from(customers).where(and(eq(customers.id, order.customerId), eq(customers.tenantId, tenantId))).limit(1);
     const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-    const [existing] = await tx.select().from(invoices).where(and(eq(invoices.orderId, orderId), eq(invoices.tenantId, tenantId))).limit(1);
+    const all = await tx.select().from(invoices).where(and(eq(invoices.orderId, orderId), eq(invoices.tenantId, tenantId))).orderBy(desc(invoices.issuedAt));
     if (!customer || !tenant) throw new NotFoundException('Order not found');
-    return { order, items, customer, tenant, existing: existing ?? null };
+    const { active, latest } = await this.pickInForce(tx, tenantId, all);
+    return { order, items, customer, tenant, existing: active, reissueOf: active ? null : latest };
   }
 
   private loadCtxMemory(tenantId: string, orderId: string): Ctx {
@@ -549,12 +586,14 @@ export class InvoicesService {
     const customer = globalMemoryCustomers.find((c) => c.id === order.customerId && c.tenantId === tenantId);
     const tenant = globalMemoryTenants.get(tenantId) as any;
     if (!customer || !tenant) throw new NotFoundException('Order not found');
+    const forced = this.pickInForceMemory(tenantId, globalMemoryInvoices.filter((i) => i.orderId === orderId && i.tenantId === tenantId));
     return {
       order,
       items: globalMemoryOrderItems.filter((i) => i.orderId === orderId && i.tenantId === tenantId),
       customer,
       tenant,
-      existing: globalMemoryInvoices.find((i) => i.orderId === orderId && i.tenantId === tenantId) ?? null,
+      existing: forced.existing,
+      reissueOf: forced.reissueOf,
     };
   }
 
@@ -611,9 +650,35 @@ export class InvoicesService {
     return globalMemoryOrderItems.find((i) => i.tenantId === tenantId && i.hsnCode && String(i.itemName).toLowerCase() === n)?.hsnCode ?? null;
   }
 
+  /**
+   * Of an order's invoices (newest first), the one in force: the newest that credit notes have not taken back in full.
+   * When there is none, `latest` is the newest cancelled one (what a replacement invoice replaces).
+   */
+  private async pickInForce(tx: any, tenantId: string, newestFirst: any[]): Promise<{ active: any | null; latest: any | null }> {
+    if (newestFirst.length === 0) return { active: null, latest: null };
+    const credited = await this.creditNotes.creditedTotals(tx, tenantId, newestFirst.map((i) => i.id));
+    const active = newestFirst.find((i) => toPaise(i.amount) - (credited.get(i.id) ?? 0) > 0) ?? null;
+    return { active, latest: newestFirst[0] };
+  }
+
+  private pickInForceMemory(tenantId: string, invs: any[]): { existing: any | null; reissueOf: any | null } {
+    const newestFirst = [...invs].sort((a, b) => +new Date(b.issuedAt) - +new Date(a.issuedAt));
+    if (newestFirst.length === 0) return { existing: null, reissueOf: null };
+    const creditedOf = (id: string) => globalMemoryCreditNotes.filter((c) => c.tenantId === tenantId && c.invoiceId === id).reduce((t, c) => t + toPaise(c.amount), 0);
+    const active = newestFirst.find((i) => toPaise(i.amount) - creditedOf(i.id) > 0) ?? null;
+    return { existing: active, reissueOf: active ? null : newestFirst[0] };
+  }
+
   private async readDb(tx: any, tenantId: string, by: { id?: string; orderId?: string }): Promise<InvoiceView | null> {
-    const cond = by.id ? eq(invoices.id, by.id) : eq(invoices.orderId, by.orderId as string);
-    const [inv] = await tx.select().from(invoices).where(and(cond, eq(invoices.tenantId, tenantId))).limit(1);
+    let inv: any;
+    if (by.id) {
+      [inv] = await tx.select().from(invoices).where(and(eq(invoices.id, by.id), eq(invoices.tenantId, tenantId))).limit(1);
+    } else {
+      // By order: the invoice in force, or failing that the latest cancelled one (so the screen can offer a replacement)
+      const all = await tx.select().from(invoices).where(and(eq(invoices.orderId, by.orderId as string), eq(invoices.tenantId, tenantId))).orderBy(desc(invoices.issuedAt));
+      const { active, latest } = await this.pickInForce(tx, tenantId, all);
+      inv = active ?? latest;
+    }
     if (!inv) return null;
     const lines = await tx.select().from(invoiceItems).where(and(eq(invoiceItems.invoiceId, inv.id), eq(invoiceItems.tenantId, tenantId)));
     const [order] = await tx.select().from(orders).where(and(eq(orders.id, inv.orderId), eq(orders.tenantId, tenantId))).limit(1);
@@ -622,7 +687,12 @@ export class InvoicesService {
   }
 
   private async readMemory(tenantId: string, by: { id?: string; orderId?: string }): Promise<InvoiceView | null> {
-    const inv = globalMemoryInvoices.find((i) => i.tenantId === tenantId && (by.id ? i.id === by.id : i.orderId === by.orderId));
+    let inv: any;
+    if (by.id) inv = globalMemoryInvoices.find((i) => i.tenantId === tenantId && i.id === by.id);
+    else {
+      const f = this.pickInForceMemory(tenantId, globalMemoryInvoices.filter((i) => i.tenantId === tenantId && i.orderId === by.orderId));
+      inv = f.existing ?? f.reissueOf;
+    }
     if (!inv) return null;
     const lines = globalMemoryInvoiceItems.filter((l) => l.invoiceId === inv.id && l.tenantId === tenantId);
     const order = globalMemoryOrders.find((o) => o.id === inv.orderId && o.tenantId === tenantId);
