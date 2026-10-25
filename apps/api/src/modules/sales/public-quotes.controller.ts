@@ -6,17 +6,28 @@ import { QuoteLinkService } from './quote-link.service';
 /**
  * The customer-facing quote link. No login: the signed token in the address is the key (see QuoteLinkService).
  * Anything wrong with the token (forged, expired, unknown quote) gets the same plain 404, so the link reveals nothing.
+ *
+ * The short form /api/q/:token is what customers are sent. /api/public/quotes/:token/pdf is the earlier address,
+ * kept so links already sent keep working.
  */
-@Controller('public/quotes')
+@Controller(['q', 'public/quotes'])
 export class PublicQuotesController {
   constructor(
     private readonly sales: SalesService,
     private readonly links: QuoteLinkService
   ) {}
 
-  /** GET /api/public/quotes/:token/pdf */
+  @Get(':token')
+  open(@Param('token') token: string, @Res() res: Response) {
+    return this.send(token, res);
+  }
+
   @Get(':token/pdf')
-  async pdf(@Param('token') token: string, @Res() res: Response) {
+  openPdf(@Param('token') token: string, @Res() res: Response) {
+    return this.send(token, res);
+  }
+
+  private async send(token: string, res: Response) {
     const claim = this.links.verify(token);
     if (!claim) throw new NotFoundException();
     // 'OWNER' so the customer sees the prices; the token only ever opens this one quote.
