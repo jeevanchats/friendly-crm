@@ -213,10 +213,12 @@ export class NotificationOutboxService {
   }
 
   /**
-   * Processes a batch of pending or retryable outbox jobs.
+   * Processes a batch of pending or retryable outbox jobs. `retryDelayMs` holds a FAILED job back until it
+   * has waited that long since its last attempt (0 = retry immediately, the manual-trigger behaviour).
    */
-  async processOutbox(tenantId?: string, limit = 20) {
+  async processOutbox(tenantId?: string, limit = 20, retryDelayMs = 0) {
     let pendingJobs: any[] = [];
+    const retryCutoff = new Date(Date.now() - retryDelayMs);
 
     try {
       const activeDb = this.getDb();
@@ -226,7 +228,8 @@ export class NotificationOutboxService {
             eq(notificationOutbox.status, 'PENDING'),
             and(
               eq(notificationOutbox.status, 'FAILED'),
-              lt(notificationOutbox.attempts, notificationOutbox.maxAttempts)
+              lt(notificationOutbox.attempts, notificationOutbox.maxAttempts),
+              lt(notificationOutbox.updatedAt, retryCutoff)
             )
           ),
         ];
@@ -247,7 +250,8 @@ export class NotificationOutboxService {
         .filter(
           (j) =>
             (!tenantId || j.tenantId === tenantId) &&
-            (j.status === 'PENDING' || (j.status === 'FAILED' && j.attempts < j.maxAttempts))
+            (j.status === 'PENDING' ||
+              (j.status === 'FAILED' && j.attempts < j.maxAttempts && new Date(j.updatedAt) < retryCutoff))
         )
         .slice(0, limit);
     }
