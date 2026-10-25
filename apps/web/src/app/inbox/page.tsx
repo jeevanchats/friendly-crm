@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { MessageSquare, Phone, RefreshCw, IndianRupee } from 'lucide-react';
+import { hasPermission } from '@friendly-crm/shared';
 import { useAuth } from '../../components/auth/AuthProvider';
 import { apiFetch } from '../../lib/session';
 
@@ -48,6 +49,7 @@ const waLink = (phone: string) => `https://wa.me/${phone.replace(/\D/g, '')}`;
 export default function InboxPage() {
   const { active } = useAuth();
   const tenantId = active!.tenantId;
+  const canRevise = hasPermission(active!.role, 'quote:update');
   const [lang, setLang] = useState<'en' | 'ta'>('en');
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [loading, setLoading] = useState(true);
@@ -149,6 +151,14 @@ export default function InboxPage() {
                     <Link href={`/q/${c.quotationId}/pdf`} className="text-[#167D79] hover:underline">
                       {ta ? 'விலைப்புள்ளி' : 'View quote'}
                     </Link>
+                    {canRevise && (
+                      <Link
+                        href={`/quotations/revise?quoteId=${c.quotationId}`}
+                        className="rounded-lg bg-[#167D79] px-2.5 py-1 text-white hover:bg-[#126360]"
+                      >
+                        {ta ? 'திருத்தி அனுப்பு' : 'Revise quote'}
+                      </Link>
+                    )}
                     {c.customerPhone && (
                       <a href={waLink(c.customerPhone)} target="_blank" rel="noopener noreferrer" className="text-[#167D79] hover:underline">
                         WhatsApp

@@ -5,12 +5,34 @@ import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
 import { apiFetch } from '../../lib/session';
 import { ProductPicker } from '../products/ProductPicker';
 
+type LineItem = {
+  itemName: string;
+  description: string;
+  hsnCode: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  taxPercent: number;
+};
+
+/** The quote being revised: its lines, discount and details become the starting point of the new version. */
+export interface ReviseSeed {
+  quoteId: string;
+  quoteNumber: string;
+  version: number;
+  items: LineItem[];
+  discount: number;
+  customData: Record<string, any>;
+}
+
 interface FastQuotationProps {
   customer: { id: string; name: string; phone: string };
   leadId?: string;
   industry: 'printing' | 'furniture' | 'textiles' | 'trading';
   defaultLang?: 'en' | 'ta';
   onQuoteCreated?: (quote: any) => void;
+  /** Present when this is a new version of an existing quote rather than a brand new one. */
+  revise?: ReviseSeed;
 }
 
 export function FastQuotationBuilder({
@@ -19,14 +41,18 @@ export function FastQuotationBuilder({
   industry,
   defaultLang = 'en',
   onQuoteCreated,
+  revise,
 }: FastQuotationProps) {
   const [lang, setLang] = useState<'en' | 'ta'>(defaultLang);
-  const [items, setItems] = useState([
-    { itemName: '', description: '', hsnCode: '', quantity: 100, unit: 'Nos', unitPrice: 0, taxPercent: 18 },
-  ]);
+  const [items, setItems] = useState<LineItem[]>(
+    revise?.items?.length
+      ? revise.items
+      : [{ itemName: '', description: '', hsnCode: '', quantity: 100, unit: 'Nos', unitPrice: 0, taxPercent: 18 }]
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [discount, setDiscount] = useState(0);
-  const [customData, setCustomData] = useState<Record<string, any>>({});
+  const [saving, setSaving] = useState(false);
+  const [discount, setDiscount] = useState(revise?.discount ?? 0);
+  const [customData, setCustomData] = useState<Record<string, any>>(revise?.customData ?? {});
   const [savedQuote, setSavedQuote] = useState<any>(null);
 
   const subTotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
@@ -46,16 +72,18 @@ export function FastQuotationBuilder({
 
   const handleSaveQuote = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving || savedQuote) return; // a second click must never create a second quote
     setSaveError(null);
+    setSaving(true);
     try {
-      const res = await apiFetch('/api/sales/quotations', {
+      const res = await apiFetch(revise ? `/api/sales/quotations/${revise.quoteId}/revise` : '/api/sales/quotations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           customerId: customer.id,
-          leadId,
+          leadId: revise ? undefined : leadId,
           discountAmount: discount,
           customData,
           items: items.map((i) => ({ ...i, hsnCode: i.hsnCode.trim() || undefined })),
@@ -78,13 +106,16 @@ export function FastQuotationBuilder({
     } catch (err) {
       console.error('Failed to save quotation', err);
       setSaveError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
   // Generates a zero-cost WhatsApp deep link for immediate P0 sharing
   const buildWhatsAppShareUrl = () => {
     const cleanPhone = customer.phone.replace(/\D/g, '');
-    const pdfUrl = `${window.location.origin}/q/${savedQuote?.id}/pdf`;
+    // The customer's own signed link, not the staff page (which needs a login they do not have)
+    const pdfUrl = savedQuote?.pdfUrl as string;
     const msg =
       lang === 'ta'
         ? `வணக்கம் ${customer.name},\nஉங்களுக்கான கொட்டேஷன் தயார்!\n*எண்:* ${savedQuote?.quoteNumber} (v${savedQuote?.version})\n*மொத்த தொகை:* ₹${grandTotal.toFixed(2)}\n\nமாதிரி PDF பதிவிறக்க: ${pdfUrl}`
@@ -98,7 +129,13 @@ export function FastQuotationBuilder({
       <div className="flex items-center justify-between border-b pb-3">
         <div>
           <h2 className="text-lg font-bold text-[#243B40]">
-            {lang === 'ta' ? 'புதிய கொட்டேஷன் (Quotation)' : 'Quick Quotation Builder'}
+            {revise
+              ? lang === 'ta'
+                ? `${revise.quoteNumber} திருத்தம் (v${revise.version + 1})`
+                : `Revise ${revise.quoteNumber} (new version v${revise.version + 1})`
+              : lang === 'ta'
+              ? 'புதிய கொட்டேஷன் (Quotation)'
+              : 'Quick Quotation Builder'}
           </h2>
           <p className="text-xs text-slate-500">
             {customer.name} ({customer.phone})
@@ -221,6 +258,23 @@ export function FastQuotationBuilder({
           onChange={(k, v) => setCustomData((prev) => ({ ...prev, [k]: v }))}
         />
 
+        {/* Discount (taken off the total including GST) */}
+        <div>
+          <label htmlFor="q-discount" className="text-[11px] font-semibold text-slate-500">
+            {lang === 'ta' ? 'தள்ளுபடி (₹)' : 'Discount (₹)'}
+          </label>
+          <input
+            id="q-discount"
+            type="number"
+            min={0}
+            step="0.01"
+            value={discount || ''}
+            placeholder="0"
+            onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
+            className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
+          />
+        </div>
+
         {/* Totals Box */}
         <div className="space-y-1.5 rounded-xl bg-[#243B40] p-4 text-white">
           <div className="flex justify-between text-xs text-slate-300">
@@ -231,6 +285,12 @@ export function FastQuotationBuilder({
             <span>GST</span>
             <span>₹{taxTotal.toFixed(2)}</span>
           </div>
+          {discount > 0 && (
+            <div className="flex justify-between text-xs text-slate-300">
+              <span>{lang === 'ta' ? 'தள்ளுபடி' : 'Discount'}</span>
+              <span>- ₹{discount.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between border-t border-slate-600 pt-2 text-base font-bold text-[#F4B860]">
             <span>{lang === 'ta' ? 'மொத்த தொகை (Grand Total)' : 'Grand Total'}</span>
             <span>₹{grandTotal.toFixed(2)}</span>
@@ -244,9 +304,16 @@ export function FastQuotationBuilder({
         )}
         <button
           type="submit"
-          className="min-h-[50px] w-full rounded-xl bg-[#167D79] font-semibold text-white shadow-md"
+          disabled={saving || !!savedQuote}
+          className="min-h-[50px] w-full rounded-xl bg-[#167D79] font-semibold text-white shadow-md disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {lang === 'ta' ? 'கொட்டேஷன் உருவாக்கு (Generate Quote)' : 'Save & Generate PDF Quote'}
+          {savedQuote
+            ? lang === 'ta' ? 'சேமிக்கப்பட்டது' : 'Saved'
+            : saving
+            ? lang === 'ta' ? 'சேமிக்கிறது…' : 'Saving…'
+            : revise
+            ? lang === 'ta' ? 'புதிய பதிப்பை வாடிக்கையாளருக்கு அனுப்பு' : `Save v${revise.version + 1} and send to customer`
+            : lang === 'ta' ? 'கொட்டேஷன் உருவாக்கு (Generate Quote)' : 'Save & Generate PDF Quote'}
         </button>
       </form>
 
@@ -256,13 +323,17 @@ export function FastQuotationBuilder({
           <div className="text-xs font-semibold text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 flex items-center justify-between">
             <span>
               {lang === 'ta'
-                ? `கொட்டேஷன் #${savedQuote.quoteNumber || 'QT-2026-0042'} வெற்றிகரமாக உருவாக்கப்பட்டது!`
-                : `Quotation #${savedQuote.quoteNumber || 'QT-2026-0042'} created successfully!`}
+                ? `கொட்டேஷன் #${savedQuote.quoteNumber} v${savedQuote.version || 1} சேமிக்கப்பட்டது.${savedQuote.customerNotified ? ' வாடிக்கையாளருக்கு WhatsApp-இல் அனுப்பப்பட்டது.' : ''}`
+                : `Quotation #${savedQuote.quoteNumber} v${savedQuote.version || 1} saved.${
+                    savedQuote.customerNotified
+                      ? ` ${customer.name} was sent ${revise ? 'the updated quote' : 'it'} on WhatsApp.`
+                      : ' The customer has no phone number on file, so nothing was sent.'
+                  }`}
             </span>
             <span className="font-bold text-[#167D79]">v{savedQuote.version || 1}</span>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${savedQuote.pdfUrl ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <a
               href={`/q/${savedQuote.id}/pdf`}
               target="_blank"
@@ -271,14 +342,16 @@ export function FastQuotationBuilder({
             >
               {lang === 'ta' ? 'PDF அச்சு' : 'View PDF'}
             </a>
-            <a
-              href={buildWhatsAppShareUrl()}
-              target="_blank"
-              rel="noreferrer"
-              className="flex min-h-[44px] items-center justify-center rounded-xl bg-[#25D366] px-2 text-center text-xs font-bold text-white shadow-sm hover:bg-[#20ba5a] transition-colors"
-            >
-              {lang === 'ta' ? 'வாட்ஸ்அப்' : 'WhatsApp'}
-            </a>
+            {savedQuote.pdfUrl && (
+              <a
+                href={buildWhatsAppShareUrl()}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-h-[44px] items-center justify-center rounded-xl bg-[#25D366] px-2 text-center text-xs font-bold text-white shadow-sm hover:bg-[#20ba5a] transition-colors"
+              >
+                {lang === 'ta' ? 'வாட்ஸ்அப்' : 'WhatsApp'}
+              </a>
+            )}
             <button
               type="button"
               onClick={async () => {

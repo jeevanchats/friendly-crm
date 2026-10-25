@@ -17,6 +17,11 @@ export const BUILTIN_TEMPLATES: Record<string, NotificationTemplate> = {
     en: 'Hello {{customerName || "Customer"}},\nHere is your quotation from our team:\n*Quote No:* {{quoteNumber}} (v{{version || 1}})\n*Total Amount:* ₹{{grandTotal || "—"}}{{pdfLine || ""}}\n\nTo approve this quote or ask for a change, reply *quotes* on this chat.',
     ta: 'வணக்கம் {{customerName || "வாடிக்கையாளர்"}},\nஎங்கள் குழுவின் கொட்டேஷன் இதோ:\n*எண்:* {{quoteNumber}} (v{{version || 1}})\n*மொத்த மதிப்பு:* ₹{{grandTotal || "—"}}{{pdfLine || ""}}\n\nஇந்த கொட்டேஷனை ஒப்புக்கொள்ள அல்லது மாற்றம் கேட்க, இந்த சாட்டில் *quotes* என பதிலளிக்கவும்.',
   },
+  QUOTATION_REVISED: {
+    key: 'QUOTATION_REVISED',
+    en: 'Hello {{customerName || "Customer"}},\nWe have updated your quotation *{{quoteNumber}}* (now v{{version || 2}}).\n*New Total:* ₹{{grandTotal || "—"}}{{previousLine || ""}}{{pdfLine || ""}}\n\nThis replaces the earlier version. To approve it or ask for another change, reply *quotes* on this chat.',
+    ta: 'வணக்கம் {{customerName || "வாடிக்கையாளர்"}},\nஉங்கள் கொட்டேஷன் *{{quoteNumber}}* புதுப்பிக்கப்பட்டுள்ளது (இப்போது v{{version || 2}}).\n*புதிய மொத்தம்:* ₹{{grandTotal || "—"}}{{previousLine || ""}}{{pdfLine || ""}}\n\nஇது முந்தைய பதிப்பிற்குப் பதிலாக வருகிறது. ஒப்புக்கொள்ள அல்லது மேலும் மாற்றம் கேட்க, இந்த சாட்டில் *quotes* என பதிலளிக்கவும்.',
+  },
   ORDER_CONFIRMED: {
     key: 'ORDER_CONFIRMED',
     en: 'Hello {{customerName || "Customer"}},\nYour Order *{{orderNumber}}* has been confirmed!\n*Stage:* {{stageName || "Order Confirmed"}}\n*Expected Delivery:* {{expectedDelivery || "To be scheduled"}}',

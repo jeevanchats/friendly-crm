@@ -2,7 +2,9 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
+  HttpException,
   Logger,
   Optional,
 } from '@nestjs/common';
@@ -266,7 +268,12 @@ export class SalesService {
             metadata: { quoteNumber, grandTotal: quote.grandTotal },
           });
 
-          const result = { ...quote, items: insertedItems };
+          const result = {
+            ...quote,
+            items: insertedItems,
+            pdfUrl: this.quoteLinks?.buildUrl(tenantId, quote.id) ?? null,
+            customerNotified: !!(this.notificationOutboxService && customer?.phone),
+          };
           if (key) {
             setIdempotentResult(tenantId, 'create-quotation', key, result);
           }
@@ -290,7 +297,7 @@ export class SalesService {
         });
       }
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for createQuotation: ${err.message}`);
@@ -353,7 +360,12 @@ export class SalesService {
       createdAt: new Date(),
     });
 
-    const result = { ...quote, items };
+    const result = {
+      ...quote,
+      items,
+      pdfUrl: this.quoteLinks?.buildUrl(tenantId, quote.id) ?? null,
+      customerNotified: !!(this.notificationOutboxService && customer?.phone),
+    };
     if (key) {
       setIdempotentResult(tenantId, 'create-quotation', key, result);
     }
@@ -403,6 +415,7 @@ export class SalesService {
             .limit(1);
 
           if (!prevQuote) throw new NotFoundException('Original quotation not found in this tenant');
+          this.assertRevisable(prevQuote);
 
           // Mark previous version as superseded
           await tx
@@ -426,6 +439,8 @@ export class SalesService {
               taxTotal: this.roundMoney(taxTotal),
               discountTotal: this.roundMoney(discount),
               grandTotal: this.roundMoney(grandTotal),
+              // The customer has a fresh validity window from the day the new version is sent
+              validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
               termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
               customData: dto.customData || prevQuote.customData,
             })
@@ -445,11 +460,18 @@ export class SalesService {
             metadata: { previousQuoteId: prevQuote.id, grandTotal: revisedQuote.grandTotal },
           });
 
-          return { ...revisedQuote, items: insertedItems };
+          const [customer] = await tx
+            .select()
+            .from(customers)
+            .where(and(eq(customers.id, prevQuote.customerId), eq(customers.tenantId, tenantId)))
+            .limit(1);
+          const customerNotified = this.notifyRevision(tenantId, customer, revisedQuote, prevQuote);
+
+          return { ...revisedQuote, items: insertedItems, customerNotified, pdfUrl: this.quoteLinks?.buildUrl(tenantId, revisedQuote.id) ?? null };
         });
       }
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for createRevision: ${err.message}`);
@@ -460,6 +482,7 @@ export class SalesService {
       (q) => q.id === existingQuoteId && q.tenantId === tenantId
     );
     if (!prevQuote) throw new NotFoundException('Original quotation not found in this tenant');
+    this.assertRevisable(prevQuote);
 
     prevQuote.status = 'REJECTED';
     const nextVersion = prevQuote.version + 1;
@@ -478,6 +501,7 @@ export class SalesService {
       taxTotal: this.roundMoney(taxTotal),
       discountTotal: this.roundMoney(discount),
       grandTotal: this.roundMoney(grandTotal),
+      validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
       termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
       customData: dto.customData || prevQuote.customData,
       createdAt: new Date(),
@@ -503,7 +527,81 @@ export class SalesService {
       createdAt: new Date(),
     });
 
-    return { ...revisedQuote, items };
+    const memCustomer = globalMemoryCustomers.find((c) => c.id === prevQuote.customerId && c.tenantId === tenantId);
+    const customerNotified = this.notifyRevision(tenantId, memCustomer, revisedQuote, prevQuote);
+
+    return { ...revisedQuote, items, customerNotified, pdfUrl: this.quoteLinks?.buildUrl(tenantId, revisedQuote.id) ?? null };
+  }
+
+  /** Only a quote still waiting on the customer can be revised: not one already approved, nor one already replaced. */
+  private assertRevisable(prev: any) {
+    if (prev.status === 'CONVERTED') {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'QuoteAlreadyApproved',
+        message: `${prev.quoteNumber} was already approved and became an order, so it can no longer be revised.`,
+      });
+    }
+    if (prev.status !== 'SENT' && prev.status !== 'DRAFT') {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'QuoteSuperseded',
+        message: `This version of ${prev.quoteNumber} has already been replaced by a newer one. Revise the latest version instead.`,
+      });
+    }
+  }
+
+  /**
+   * Tells the customer on WhatsApp that their quote changed, with the new total, the old one for comparison and a
+   * link to the current PDF. Returns whether a message was queued (false when the customer has no phone number).
+   */
+  private notifyRevision(tenantId: string, customer: any, revised: any, previous: any): boolean {
+    if (!this.notificationOutboxService || !customer?.phone) return false;
+    const changed = Number(previous.grandTotal) !== Number(revised.grandTotal);
+    this.notificationOutboxService
+      .enqueueNotification({
+        tenantId,
+        recipient: customer.phone,
+        templateKey: 'QUOTATION_REVISED',
+        params: {
+          customerName: customer.name,
+          quoteNumber: revised.quoteNumber,
+          version: revised.version,
+          grandTotal: revised.grandTotal,
+          previousLine: changed ? `\n*Earlier Total:* ₹${previous.grandTotal}` : '',
+          ...this.pdfParams(tenantId, revised.id),
+        },
+      })
+      .catch((e: any) => this.logger.warn(`Failed to enqueue revised quotation notification: ${e.message}`));
+    return true;
+  }
+
+  /**
+   * The newest version of the quote a link was made for. Customers are always shown the current version, even
+   * from a link that was sent before the quote was revised.
+   */
+  async getLatestQuoteId(tenantId: string, quoteId: string): Promise<string> {
+    try {
+      const activeDb = this.getDb();
+      const [q] = await activeDb
+        .select()
+        .from(quotations)
+        .where(and(eq(quotations.id, quoteId), eq(quotations.tenantId, tenantId)))
+        .limit(1);
+      if (!q) return quoteId;
+      const [latest] = await activeDb
+        .select({ id: quotations.id })
+        .from(quotations)
+        .where(and(eq(quotations.tenantId, tenantId), eq(quotations.quoteNumber, q.quoteNumber)))
+        .orderBy(desc(quotations.version))
+        .limit(1);
+      return latest?.id ?? quoteId;
+    } catch {
+      const q = globalMemoryQuotations.find((x) => x.id === quoteId && x.tenantId === tenantId);
+      if (!q) return quoteId;
+      const versions = globalMemoryQuotations.filter((x) => x.tenantId === tenantId && x.quoteNumber === q.quoteNumber);
+      return versions.reduce((best, x) => ((x.version ?? 1) > (best.version ?? 1) ? x : best), q).id;
+    }
   }
 
   /**
@@ -702,7 +800,7 @@ export class SalesService {
         });
       }
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for convertQuoteToOrder: ${err.message}`);
@@ -936,7 +1034,7 @@ export class SalesService {
         industryTemplate: template,
       };
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for getQuotationById: ${err.message}`);

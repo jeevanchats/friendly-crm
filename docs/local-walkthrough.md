@@ -102,7 +102,10 @@ Do this in **Senthaamarai**. Use a second PowerShell window for the WhatsApp com
    and confirm to approve. The reply includes the new order number and a UPI pay link.
    Menu words: **orders**, **quotes**, **dues**, **language**.
 4. **Inbox** (`/inbox`): the new order appears under "Approved, awaiting payment". Ask for a change on a second
-   quote ("quotes" → pick → change) to see it under "Quotes with change requests".
+   quote ("quotes" → pick → change) to see it under "Quotes with change requests". Press **Revise quote** on that
+   card, adjust the items or discount, and press **Save v2 and send to customer**. The customer is sent the updated
+   quote (new total, the earlier total, a fresh link) and from then on sees only v2: `quotes` lists v2 and the link in
+   the old message opens v2. A quote that was already approved or already replaced cannot be revised.
 5. **Staff records a payment on WhatsApp.** Pretend to be the owner:
    ```powershell
    node scripts/dev-chat.mjs +919876543210 "hi"        # the staff menu; choose the record payment option
