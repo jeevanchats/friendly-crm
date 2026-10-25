@@ -18,6 +18,7 @@ import {
 import { useParams, useRouter } from 'next/navigation';
 import { INDUSTRY_TEMPLATES } from '@friendly-crm/shared';
 import { apiFetch } from '../../../../lib/session';
+import { downloadQuotationPdf } from '../../../../lib/invoice-pdf';
 
 interface QuotationItem {
   id: string;
@@ -157,16 +158,17 @@ export default function QuotationPrintPage() {
         </button>
 
         <div className="flex items-center space-x-2">
-          <a
-            href={`/api/sales/quotations/${quoteId}/pdf`}
-            target="_blank"
-            rel="noreferrer"
-            download={`Quotation-${quote.quoteNumber}.pdf`}
+          <button
+            type="button"
+            onClick={async () => {
+              const msg = await downloadQuotationPdf(quoteId, quote.quoteNumber);
+              if (msg) alert(msg);
+            }}
             className="flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold text-[#167D79] bg-[#167D79]/10 hover:bg-[#167D79]/20 border border-[#167D79]/30 rounded-xl transition-colors"
           >
             <FileDown className="w-3.5 h-3.5" />
             <span>Download PDF (பதிவிறக்கு)</span>
-          </a>
+          </button>
 
           <a
             href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(shareText)}`}

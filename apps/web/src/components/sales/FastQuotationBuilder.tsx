@@ -21,8 +21,9 @@ export function FastQuotationBuilder({
 }: FastQuotationProps) {
   const [lang, setLang] = useState<'en' | 'ta'>(defaultLang);
   const [items, setItems] = useState([
-    { itemName: '', description: '', quantity: 100, unit: 'Nos', unitPrice: 0, taxPercent: 18 },
+    { itemName: '', description: '', hsnCode: '', quantity: 100, unit: 'Nos', unitPrice: 0, taxPercent: 18 },
   ]);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [discount, setDiscount] = useState(0);
   const [customData, setCustomData] = useState<Record<string, any>>({});
   const [savedQuote, setSavedQuote] = useState<any>(null);
@@ -40,6 +41,7 @@ export function FastQuotationBuilder({
 
   const handleSaveQuote = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaveError(null);
     try {
       const res = await apiFetch('/api/sales/quotations', {
         method: 'POST',
@@ -51,7 +53,7 @@ export function FastQuotationBuilder({
           leadId,
           discountAmount: discount,
           customData,
-          items,
+          items: items.map((i) => ({ ...i, hsnCode: i.hsnCode.trim() || undefined })),
         }),
       });
       if (res.ok) {
@@ -60,9 +62,17 @@ export function FastQuotationBuilder({
         if (onQuoteCreated) {
           onQuoteCreated(data);
         }
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setSaveError(
+          Array.isArray(body.message)
+            ? body.message.join(' ')
+            : body.message || `Could not save the quotation (${res.status}).`
+        );
       }
     } catch (err) {
       console.error('Failed to save quotation', err);
+      setSaveError('Could not reach the server. Check your connection and try again.');
     }
   };
 
@@ -149,6 +159,20 @@ export function FastQuotationBuilder({
                 </select>
               </div>
             </div>
+            <div>
+              <label className="text-[11px] font-semibold text-slate-500">
+                {lang === 'ta' ? 'HSN / SAC குறியீடு (விருப்பம்)' : 'HSN / SAC code (optional, needed for GST invoice)'}
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="e.g. 4910"
+                value={item.hsnCode}
+                onChange={(e) => updateItem(idx, 'hsnCode', e.target.value.replace(/\D/g, ''))}
+                className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
+              />
+            </div>
           </div>
         ))}
 
@@ -157,7 +181,7 @@ export function FastQuotationBuilder({
           onClick={() =>
             setItems([
               ...items,
-              { itemName: '', description: '', quantity: 1, unit: 'Nos', unitPrice: 0, taxPercent: 18 },
+              { itemName: '', description: '', hsnCode: '', quantity: 1, unit: 'Nos', unitPrice: 0, taxPercent: 18 },
             ])
           }
           className="w-full rounded-lg border border-dashed border-[#167D79] py-2.5 text-xs font-semibold text-[#167D79]"
@@ -190,6 +214,11 @@ export function FastQuotationBuilder({
           </div>
         </div>
 
+        {saveError && (
+          <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
+            {saveError}
+          </p>
+        )}
         <button
           type="submit"
           className="min-h-[50px] w-full rounded-xl bg-[#167D79] font-semibold text-white shadow-md"

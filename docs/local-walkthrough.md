@@ -1,0 +1,128 @@
+# Friendly CRM: local walkthrough
+
+Everything below runs on your machine against the local Postgres database. Nothing is sent to real customers:
+WhatsApp messages go to a developer sandbox that prints them in the API console.
+
+## 1. Start it
+
+In PowerShell, from the project folder (`friendly-crm`):
+
+```powershell
+$env:ENABLE_DEV_SMS_GATEWAY = 'true'      # OTP codes are printed in this console instead of sent by SMS
+$env:WHATSAPP_WEBHOOK_SECRET = 'dev-secret'  # lets the WhatsApp simulator talk to the bot
+$env:DEV_LOG_MESSAGE_BODIES = 'true'      # prints what the bot / reminders would send on WhatsApp
+npm run dev -- --env-mode=loose
+```
+
+- Web app: http://localhost:3000   API: http://localhost:4000/api
+- The first visit to each page compiles it and can take 20-40 seconds. Later visits are instant.
+- Tamil text can look garbled in the console. Run `chcp 65001` first, or ignore it; the web pages are fine.
+- Postgres must be running (database `friendly_crm`). Migrations 0001-0009 are already applied to it.
+
+## 2. Log in
+
+1. Open http://localhost:3000. You land on `/login`.
+2. Enter **9876543210** (the owner, Jeevan Prakash) and press send.
+3. Look at the console running `npm run dev` for `DEV OTP for +919876543210: 123456` and type that code.
+   A code can be requested once a minute.
+
+Other login: **9876543211** is Murugan (Floor Supervisor), role PRODUCTION, a good test of what a limited role sees.
+
+## 3. The data you start with
+
+Four businesses, all owned by 9876543210 (switch between them from the business name at the top left):
+
+| Business | Industry | Customer | Order | Total | Due |
+|---|---|---|---|---|---|
+| Senthaamarai Art Crafts & Calendars | Printing | Sri Krishna Sweets (+919443022222) | ORD-2026-4832 | 1,25,000 | 75,000 |
+| Kongu Tex & Garments | Textiles | Chennai Silks Mart (+919443066666) | ORD-2026-2888 | 2,10,000 | 1,10,000 |
+| Sri Vinayaga Furniture | Furniture | Karthik Residence (+919443044444) | ORD-2026-6245 | 85,000 | 50,000 |
+| Sun Steel & Industrial Traders | Trading | Apex Fabrication Works (+919443088888) | ORD-2026-2299 | 64,000 | 0 |
+
+No leads, quotes, GSTIN or UPI ID are set yet. Most of the walkthrough below uses **Senthaamarai**.
+
+## 4. Screen by screen
+
+| Screen | URL | What to check |
+|---|---|---|
+| Login | `/login` | OTP request, wrong code is rejected, resend countdown, English / Tamil toggle |
+| Home | `/` | Dashboard cards and tasks for the active business. **Quick Add** creates a lead |
+| Customers | `/customers` | List, search by name or phone, balance column |
+| Customer detail | `/customers/<id>` | Orders, quotes, ledger, timeline. **GST details** card at the bottom: edit GSTIN, state, address, and "Do not send automatic payment reminders" |
+| New quote | `/quotations/new?customerId=<id>` (the **New Quote** button on a customer) | Add items with rate, GST % and optional HSN; save; View PDF / WhatsApp share / Convert Order |
+| Quote PDF view | `/q/<id>/pdf` | Printable quote; **Download PDF** button |
+| Orders | `/orders` | List and stage filter |
+| Order detail | `/orders/<id>` | Stage card (move the order forward), payments, **Issue GST invoice** panel |
+| Inbox | `/inbox` | Customer change requests from WhatsApp, and approved orders still waiting for payment |
+| Dues ("Who owes me") | `/dues` | Total, ageing buckets (click to filter), per-customer **Send reminder**, WhatsApp / Call links |
+| Invoices | `/invoices` | Issued GST invoices with PDF download and paid / due status |
+| Reports | `/reports` | Funnel, pending collections, repeat opportunities. Owner / Manager / Accounts only |
+| Settings | `/settings` | Owner only: legal name, GSTIN, address, UPI ID, automatic reminder schedule |
+
+Also check on every screen: the business switcher, the language toggle, sign out, a narrow browser window
+(the bottom bar scrolls sideways), and what happens after you sign out and press Back.
+
+## 5. End-to-end money flow (about 10 minutes)
+
+Do this in **Senthaamarai**. Use a second PowerShell window for the WhatsApp commands.
+
+1. **Settings** (`/settings`): set GSTIN `33AABCS1234A1Z8` (a valid test number), an address, a UPI ID such as
+   `senthaamarai@okhdfc`, and save. The state (33 Tamil Nadu) fills in from the GSTIN.
+2. **Customer** (`/customers` → Sri Krishna Sweets → **New Quote**): add an item (for example 500 calendars,
+   rate 100, GST 18%, HSN `4910`), save. Note the quote number.
+3. **Customer approves on WhatsApp.** Pretend to be the customer:
+   ```powershell
+   node scripts/dev-chat.mjs +919443022222 "hi"        # the bot asks to verify (name or an order number)
+   node scripts/dev-chat.mjs +919443022222 "ORD-2026-4832"
+   node scripts/dev-chat.mjs +919443022222 "quotes"    # lists the open quote
+   ```
+   Read each reply in the `npm run dev` console under `[DEV MESSAGE to +919443022222]`. Pick the quote, review it,
+   and confirm to approve. The reply includes the new order number and a UPI pay link.
+   Menu words: **orders**, **quotes**, **dues**, **language**.
+4. **Inbox** (`/inbox`): the new order appears under "Approved, awaiting payment". Ask for a change on a second
+   quote ("quotes" → pick → change) to see it under "Quotes with change requests".
+5. **Staff records a payment on WhatsApp.** Pretend to be the owner:
+   ```powershell
+   node scripts/dev-chat.mjs +919876543210 "hi"        # the staff menu; choose the record payment option
+   ```
+   Follow the prompts (order, amount, mode, reference, confirm). The customer's receipt appears in the console.
+   You can also record a payment from the order page.
+6. **Order page** (`/orders/<id>`): move the stage forward; the customer gets a status message (console).
+7. **Issue GST invoice** (same page): fill the HSN if asked, check the place of supply (your own state is assumed
+   unless the customer has a GSTIN or state), read the preview (CGST + SGST for same state, IGST otherwise),
+   press **Issue invoice**, then **Download PDF**. Open `/invoices` to see it. Try issuing it a second time: it is refused.
+8. **Dues** (`/dues`): the customer's balance with age. Press **Send reminder**; the message with the UPI link
+   prints in the console. Pressing it again within 24 hours is refused.
+9. **Automatic reminders**: in Settings turn them on. Reminders only go out 9am-7pm IST, for debts at least
+   "first after" days old, and the scheduler wakes every 10 minutes. Your seeded orders are brand new, so
+   nothing is old enough to be sent today.
+
+## 6. Roles
+
+Log out and sign in as **9876543211** (PRODUCTION). Expected: no Dues, Inbox, Invoices, Reports or Settings in the
+navigation, no amounts on orders, and typing those URLs directly shows "Your role cannot..." rather than data.
+WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows the production menu.
+
+## 7. Things that are not finished (so you do not report them as bugs)
+
+- **No Razorpay / card payments** (no keys). Payments are UPI links plus staff recording the payment.
+- **No e-invoice or e-way bill** (needs government API access).
+- **One invoice per order**, and issued invoices cannot be cancelled or credit-noted yet.
+- **A customer cannot reply "stop"** to automatic reminders on WhatsApp; staff set it on the customer page.
+- **WhatsApp is a sandbox.** Replies print in the console; nothing reaches a phone. No interactive buttons yet.
+- **Invoice PDF** prints "Rs." and cannot show Tamil names (font limitation).
+- **Not yet reviewed in a browser by me:** page layout, Tamil text, mobile view. Report anything that looks wrong.
+- There is no separate leads list page; a lead made with Quick Add shows wherever the dashboard lists leads.
+
+## 8. Handy extras
+
+```powershell
+# Run the automated checks
+cd apps/api; npx jest --config ./jest.config.js
+```
+
+To undo what you create while testing (invoices cannot be deleted by the app on purpose), ask for a cleanup of the
+dev database.
+
+If a page shows "Could not reach the server", the API is not running or crashed; look at the console.
+If the API says `EADDRINUSE`, an old server still holds port 3000 or 4000; close the old terminal first.
