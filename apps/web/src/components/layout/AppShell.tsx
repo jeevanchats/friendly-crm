@@ -68,6 +68,9 @@ export function AppShell({
     { href: '/', labelEn: 'Home', labelTa: 'முகப்பு', icon: '🏠' },
     { href: '/customers', labelEn: 'Customers', labelTa: 'வாடிக்கையாளர்', icon: '👥' },
     { href: '/orders', labelEn: 'Orders', labelTa: 'ஆர்டர்கள்', icon: '📦' },
+    ...(hasPermission(userRole, 'payment:view')
+      ? [{ href: '/dues', labelEn: 'Dues', labelTa: 'நிலுவை', icon: '💰' }]
+      : []),
     ...(hasPermission(userRole, 'quote:view')
       ? [{ href: '/inbox', labelEn: 'Inbox', labelTa: 'செய்திகள்', icon: '💬' }]
       : []),
