@@ -168,7 +168,7 @@ export const tasks = pgTable(
     tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
     customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'cascade' }),
     leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'set null' }),
-    type: varchar('type', { length: 40 }).default('FOLLOW_UP_CALL').notNull(), // 'FOLLOW_UP_CALL' | 'WHATSAPP' | 'PAYMENT_REMINDER' | 'SITE_VISIT'
+    type: varchar('type', { length: 40 }).default('FOLLOW_UP_CALL').notNull(), // 'SEND_QUOTE' | 'FOLLOW_UP_CALL' | 'WHATSAPP' | 'PAYMENT_REMINDER' | 'SITE_VISIT'
     title: varchar('title', { length: 200 }).notNull(),
     dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
     status: varchar('status', { length: 30 }).default('PENDING').notNull(), // 'PENDING' | 'COMPLETED' | 'CANCELLED'

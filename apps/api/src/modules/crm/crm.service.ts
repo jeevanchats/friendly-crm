@@ -21,6 +21,9 @@ import {
   globalMemoryActivities,
 } from './memory-store';
 
+/** Does this enquiry still need a quote? Only enquiries at the start of the pipeline do. */
+const needsQuote = (stage?: string | null): boolean => !stage || stage === 'NEW' || stage === 'QUALIFIED';
+
 @Injectable()
 export class CrmService {
   private readonly logger = new Logger(CrmService.name);
@@ -182,7 +185,9 @@ export class CrmService {
             })
             .returning();
 
-          // Auto-schedule Follow-up Task (+24 hours default, or custom followUpDueAt if provided)
+          // The first job for a new enquiry is to send the customer a quote (due as set, or within 4 hours).
+          // An enquiry that arrives already past that stage just gets an ordinary follow-up.
+          const wantsQuote = needsQuote(lead.stage);
           let dueDate: Date;
           if (dto.followUpDueAt) {
             const parsed = new Date(dto.followUpDueAt);
@@ -191,7 +196,7 @@ export class CrmService {
             }
             dueDate = parsed;
           } else {
-            dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            dueDate = new Date(Date.now() + (wantsQuote ? 4 : 24) * 60 * 60 * 1000);
           }
           const [followUpTask] = await tx
             .insert(tasks)
@@ -199,8 +204,8 @@ export class CrmService {
               tenantId,
               customerId: customer.id,
               leadId: lead.id,
-              type: 'FOLLOW_UP_CALL',
-              title: `Follow up with ${customer.name} (${leadTitle})`,
+              type: wantsQuote ? 'SEND_QUOTE' : 'FOLLOW_UP_CALL',
+              title: (wantsQuote ? `Send quote to ${customer.name}: ${leadTitle}` : `Follow up with ${customer.name} (${leadTitle})`).slice(0, 200),
               dueAt: dueDate,
               assignedToId: effectiveActorId,
             })
@@ -282,6 +287,7 @@ export class CrmService {
       };
       this.memoryLeads.unshift(lead);
 
+      const wantsQuote = needsQuote(lead.stage);
       let dueDate: Date;
       if (dto.followUpDueAt) {
         const parsed = new Date(dto.followUpDueAt);
@@ -290,7 +296,7 @@ export class CrmService {
         }
         dueDate = parsed;
       } else {
-        dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        dueDate = new Date(Date.now() + (wantsQuote ? 4 : 24) * 60 * 60 * 1000);
       }
 
       const followUpTask = {
@@ -298,8 +304,8 @@ export class CrmService {
         tenantId,
         customerId: customer.id,
         leadId: lead.id,
-        type: 'FOLLOW_UP_CALL',
-        title: `Follow up with ${customer.name} (${leadTitle})`,
+        type: wantsQuote ? 'SEND_QUOTE' : 'FOLLOW_UP_CALL',
+        title: (wantsQuote ? `Send quote to ${customer.name}: ${leadTitle}` : `Follow up with ${customer.name} (${leadTitle})`).slice(0, 200),
         dueAt: dueDate,
         status: 'PENDING',
         assignedToId: effectiveActorId,
@@ -458,6 +464,14 @@ export class CrmService {
 
       const fromStage = existingLead.stage;
 
+      // Once the enquiry is lost or won, nobody should still be reminded to send it a quote
+      if (dto.stage === 'LOST' || dto.stage === 'WON') {
+        await activeDb
+          .update(tasks)
+          .set({ status: 'CANCELLED', updatedAt: new Date() })
+          .where(and(eq(tasks.tenantId, tenantId), eq(tasks.leadId, leadId), eq(tasks.type, 'SEND_QUOTE'), eq(tasks.status, 'PENDING')));
+      }
+
       const [updatedLead] = await activeDb
         .update(leads)
         .set({
@@ -499,6 +513,11 @@ export class CrmService {
 
       const fromStage = lead.stage;
       lead.stage = dto.stage;
+      if (dto.stage === 'LOST' || dto.stage === 'WON') {
+        for (const t of this.memoryTasks) {
+          if (t.tenantId === tenantId && t.leadId === leadId && t.type === 'SEND_QUOTE' && t.status === 'PENDING') t.status = 'CANCELLED';
+        }
+      }
       if (dto.notes) {
         lead.notes = `${lead.notes || ''}\n[Stage Update]: ${dto.notes}`.trim();
       }

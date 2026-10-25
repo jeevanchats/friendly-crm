@@ -318,19 +318,21 @@ export function AppShell({
           industry={activeTenant.industryKey}
           locale={lang}
           onSubmit={async (lead) => {
-            try {
-              await apiFetch('/api/crm/intake-lead', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(lead),
-              });
-              setShowQuickAdd(false);
-              window.location.reload();
-            } catch {
-              setShowQuickAdd(false);
+            // A failed save must stay visible in the form (and the form must stay open), never vanish silently.
+            const res = await apiFetch('/api/crm/intake-lead', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(lead),
+            });
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}));
+              throw new Error(Array.isArray(body.message) ? body.message.join(' ') : body.message || `Could not save the enquiry (${res.status}).`);
             }
+            setShowQuickAdd(false);
+            // The new enquiry now waits under "Quotes to send" on the Home screen: take the person straight there
+            window.location.assign('/');
           }}
         />
       )}

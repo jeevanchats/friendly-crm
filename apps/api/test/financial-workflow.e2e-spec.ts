@@ -852,7 +852,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
       expect(Math.abs(taskDue - expectedDue)).toBeLessThan(1000);
     });
 
-    it('defaults follow-up task to +24 hours when followUpDueAt is omitted', async () => {
+    it('defaults the send-quote task to +4 hours when followUpDueAt is omitted', async () => {
       const beforeCall = Date.now();
       const res = await fetch(`${baseUrl}/api/crm/intake-lead`, {
         method: 'POST',
@@ -878,8 +878,9 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
       expect(data.followUpTask).toBeDefined();
 
       const taskDue = new Date(data.followUpTask.dueAt).getTime();
-      const expectedDue = beforeCall + 24 * 60 * 60 * 1000;
-      // Should be approximately +24 hours from now (within 5 seconds)
+      const expectedDue = beforeCall + 4 * 60 * 60 * 1000;
+      expect(data.followUpTask.type).toBe('SEND_QUOTE');
+      // A new enquiry's first job is sending the quote, due within about 4 hours (within 5 seconds)
       expect(Math.abs(taskDue - expectedDue)).toBeLessThan(5000);
     });
   });

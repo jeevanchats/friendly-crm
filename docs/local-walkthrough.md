@@ -46,7 +46,7 @@ No leads, quotes, GSTIN or UPI ID are set yet. Most of the walkthrough below use
 | Screen | URL | What to check |
 |---|---|---|
 | Login | `/login` | OTP request, wrong code is rejected, resend countdown, English / Tamil toggle |
-| Home | `/` | Dashboard cards and tasks for the active business. **Quick Add** creates a lead |
+| Home | `/` | Dashboard cards, then **Quotes to Send** (every enquiry still waiting for its quote, oldest first, with **＋ Prepare quote**), then the follow-up queue. **Quick Add** saves an enquiry, sets "Send the quote by" (default today), and takes you here. Making the quote ticks it off and schedules "Follow up on quote" two days later; the customer accepting closes that follow-up; **Close** drops an enquiry that is not going ahead |
 | Customers | `/customers` | List, search by name or phone, balance column. **Add customer** adds one (no enquiry is created) |
 | Import customers | `/customers/import` | Upload a CSV (or paste rows from Excel), check the columns, preview what will be added, then import. Handles opening balances, GSTIN, state, address; skips phone numbers that already exist |
 | Customer detail | `/customers/<id>` | Orders, quotes, ledger, timeline. **GST details** card at the bottom: edit GSTIN, state, address, and "Do not send automatic payment reminders" |

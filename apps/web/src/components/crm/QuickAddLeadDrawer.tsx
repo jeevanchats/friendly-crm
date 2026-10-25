@@ -31,9 +31,10 @@ export function QuickAddLeadDrawer({
   const [companyName, setCompanyName] = useState('');
   const [title, setTitle] = useState('');
   const [source, setSource] = useState<'WHATSAPP' | 'PHONE' | 'WALK_IN'>('WHATSAPP');
-  const [followUpPreset, setFollowUpPreset] = useState<'TODAY_EVE' | 'TOMORROW' | 'THREE_DAYS'>('TOMORROW');
+  const [followUpPreset, setFollowUpPreset] = useState<'TODAY_EVE' | 'TOMORROW' | 'THREE_DAYS'>('TODAY_EVE');
   const [customData, setCustomData] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Sync lang when locale prop changes
   React.useEffect(() => {
@@ -48,7 +49,9 @@ export function QuickAddLeadDrawer({
   const computeFollowUpDate = (preset: typeof followUpPreset) => {
     const now = new Date();
     if (preset === 'TODAY_EVE') {
-      now.setHours(18, 0, 0, 0);
+      // Late in the day, 6 PM is nearly over: give two hours instead so the reminder is never already overdue
+      if (now.getHours() >= 16) now.setTime(Date.now() + 2 * 60 * 60 * 1000);
+      else now.setHours(18, 0, 0, 0);
       return now.toISOString();
     }
     if (preset === 'TOMORROW') {
@@ -64,6 +67,7 @@ export function QuickAddLeadDrawer({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
     try {
       const payload = {
         phone,
@@ -86,7 +90,10 @@ export function QuickAddLeadDrawer({
           },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error('Failed to save enquiry');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(Array.isArray(body.message) ? body.message.join(' ') : body.message || `Could not save the enquiry (${res.status}).`);
+        }
       }
 
       onSuccess?.();
@@ -97,6 +104,8 @@ export function QuickAddLeadDrawer({
       setCompanyName('');
       setTitle('');
       setCustomData({});
+    } catch (err: any) {
+      setError(err?.message || (lang === 'ta' ? 'சேமிக்க முடியவில்லை.' : 'Could not save the enquiry.'));
     } finally {
       setLoading(false);
     }
@@ -235,12 +244,12 @@ export function QuickAddLeadDrawer({
           {/* 1-Tap Follow-Up Reminder Chips */}
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase text-slate-500">
-              {lang === 'ta' ? 'அடுத்த பின்தொடர்தல் (Follow-up)' : 'Next Follow-Up Reminder'}
+              {lang === 'ta' ? 'கொட்டேஷன் அனுப்ப வேண்டிய நேரம்' : 'Send the quote by'}
             </label>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { id: 'TODAY_EVE', en: 'Today 6 PM', ta: 'இன்று மாலை' },
-                { id: 'TOMORROW', en: 'Tomorrow', ta: 'நாளை காலை' },
+                { id: 'TODAY_EVE', en: 'Today', ta: 'இன்று' },
+                { id: 'TOMORROW', en: 'Tomorrow', ta: 'நாளை' },
                 { id: 'THREE_DAYS', en: 'In 3 Days', ta: '3 நாட்களில்' },
               ].map((chip) => (
                 <button
@@ -258,6 +267,10 @@ export function QuickAddLeadDrawer({
               ))}
             </div>
           </div>
+
+          {error && (
+            <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</p>
+          )}
 
           {/* Primary Action Buttons */}
           <div className="pt-2 flex items-center space-x-3">

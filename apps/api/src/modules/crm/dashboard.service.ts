@@ -5,8 +5,8 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { sql, eq, and, lte, asc, desc } from 'drizzle-orm';
-import { db, tasks, quotations, orders, customers, activities, auditLogs } from '@friendly-crm/db';
+import { sql, eq, ne, and, lte, asc, desc, inArray } from 'drizzle-orm';
+import { db, tasks, leads, quotations, orders, customers, activities, auditLogs } from '@friendly-crm/db';
 import { TenantRole, hasPermission } from '@friendly-crm/shared';
 import { filterAndSanitizeActivities } from '../../common';
 import { randomUUID } from 'crypto';
@@ -17,6 +17,7 @@ import {
   globalMemoryQuotations,
   globalMemoryOrders,
   globalMemoryCustomers,
+  globalMemoryLeads,
 } from './memory-store';
 
 @Injectable()
@@ -47,6 +48,7 @@ export class DashboardService {
               and(
                 eq(tasks.tenantId, tenantId),
                 eq(tasks.status, 'PENDING'),
+                ne(tasks.type, 'SEND_QUOTE'),
                 lte(tasks.dueAt, endOfToday),
                 isScopedToUser ? eq(tasks.assignedToId, userId) : undefined
               )
@@ -87,6 +89,7 @@ export class DashboardService {
               and(
                 eq(tasks.tenantId, tenantId),
                 eq(tasks.status, 'PENDING'),
+                ne(tasks.type, 'SEND_QUOTE'),
                 lte(tasks.dueAt, endOfToday),
                 isScopedToUser ? eq(tasks.assignedToId, userId) : undefined
               )
@@ -94,16 +97,45 @@ export class DashboardService {
             .orderBy(asc(tasks.dueAt))
             .limit(20);
 
+          // 6. Enquiries still waiting for a quote: the most important list on the screen. An enquiry stays here,
+          //    whatever its due date, until a quote is made for it or the enquiry is closed.
+          const awaitingQuote = and(
+            eq(leads.tenantId, tenantId),
+            inArray(leads.stage, ['NEW', 'QUALIFIED']),
+            sql`not exists (select 1 from quotations q where q.lead_id = ${leads.id})`,
+            sql`not exists (select 1 from tasks t where t.lead_id = ${leads.id} and t.type = 'SEND_QUOTE' and t.status <> 'PENDING')`,
+            isScopedToUser ? eq(leads.assignedToId, userId) : undefined
+          );
+          const [quotesToSendStats] = await tx.select({ count: sql<number>`count(*)::int` }).from(leads).where(awaitingQuote);
+          const pendingQuotes = await tx
+            .select({
+              leadId: leads.id,
+              title: leads.title,
+              priority: leads.priority,
+              createdAt: leads.createdAt,
+              customerId: customers.id,
+              customerName: customers.name,
+              customerPhone: customers.phone,
+              dueAt: sql<string | null>`(select min(t.due_at) from tasks t where t.lead_id = ${leads.id} and t.type = 'SEND_QUOTE' and t.status = 'PENDING')`,
+            })
+            .from(leads)
+            .innerJoin(customers, eq(leads.customerId, customers.id))
+            .where(awaitingQuote)
+            .orderBy(asc(leads.createdAt))
+            .limit(20);
+
           const canSeeReceivables = hasPermission(userRole, 'payment:view');
 
           return {
             summaryCards: {
+              quotesToSend: quotesToSendStats?.count ?? 0,
               dueFollowUps: followUpStats?.count ?? 0,
               openQuotations: quoteStats?.count ?? 0,
               openQuotationsValue: canSeeReceivables ? (quoteStats?.totalValue ?? '0.00') : null,
               activeOrders: orderStats?.activeCount ?? 0,
               totalReceivables: canSeeReceivables ? (orderStats?.totalReceivables ?? '0.00') : null,
             },
+            pendingQuotes,
             priorityTasks,
           };
         });
@@ -120,8 +152,37 @@ export class DashboardService {
       (t) =>
         t.tenantId === tenantId &&
         t.status === 'PENDING' &&
+        t.type !== 'SEND_QUOTE' &&
         (!isScopedToUser || t.assignedToId === userId)
     );
+
+    const awaitingQuote = globalMemoryLeads
+      .filter(
+        (l) =>
+          l.tenantId === tenantId &&
+          ['NEW', 'QUALIFIED'].includes(l.stage) &&
+          (!isScopedToUser || l.assignedToId === userId) &&
+          !globalMemoryQuotations.some((q) => q.leadId === l.id) &&
+          !globalMemoryTasks.some((t) => t.leadId === l.id && t.type === 'SEND_QUOTE' && t.status !== 'PENDING')
+      )
+      .sort((a, b) => +new Date(a.createdAt ?? 0) - +new Date(b.createdAt ?? 0));
+    const pendingQuotes = awaitingQuote.slice(0, 20).map((l) => {
+      const cust = globalMemoryCustomers.find((c) => c.id === l.customerId);
+      const due = globalMemoryTasks
+        .filter((t) => t.leadId === l.id && t.type === 'SEND_QUOTE' && t.status === 'PENDING')
+        .map((t) => +new Date(t.dueAt))
+        .sort((a, b) => a - b)[0];
+      return {
+        leadId: l.id,
+        title: l.title,
+        priority: l.priority,
+        createdAt: l.createdAt,
+        customerId: l.customerId,
+        customerName: cust?.name || 'Customer',
+        customerPhone: cust?.phone || '',
+        dueAt: due ? new Date(due).toISOString() : null,
+      };
+    });
 
     const openQuotes = globalMemoryQuotations.filter(
       (q) => q.tenantId === tenantId && ['SENT', 'DRAFT'].includes(q.status)
@@ -144,12 +205,14 @@ export class DashboardService {
 
     return {
       summaryCards: {
+        quotesToSend: awaitingQuote.length,
         dueFollowUps: pendingTasks.length,
         openQuotations: openQuotes.length,
         openQuotationsValue: canSeeReceivables ? openQuotesVal.toFixed(2) : null,
         activeOrders: activeOrders.length,
         totalReceivables: canSeeReceivables ? totalReceivables.toFixed(2) : null,
       },
+      pendingQuotes,
       priorityTasks: pendingTasks.map((t) => {
         const cust = globalMemoryCustomers.find((c) => c.id === t.customerId);
         return {

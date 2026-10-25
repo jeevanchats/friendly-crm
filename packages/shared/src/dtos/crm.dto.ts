@@ -23,6 +23,7 @@ export const LeadPriorityEnum = z.enum(['LOW', 'MEDIUM', 'HIGH']);
 export type LeadPriority = z.infer<typeof LeadPriorityEnum>;
 
 export const TaskTypeEnum = z.enum([
+  'SEND_QUOTE',
   'FOLLOW_UP_CALL',
   'WHATSAPP',
   'PAYMENT_REMINDER',
