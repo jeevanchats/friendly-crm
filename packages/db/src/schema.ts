@@ -10,6 +10,7 @@ import {
   jsonb,
   uniqueIndex,
   index,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 // --- REUSABLE HELPERS ---
@@ -35,6 +36,10 @@ export const tenants = pgTable('tenants', {
   customerSelfServiceEnabled: boolean('customer_self_service_enabled').default(true).notNull(),
   // The business's UPI ID (VPA) that customers pay dues to. Set by the owner; null = no payment links.
   upiId: varchar('upi_id', { length: 100 }),
+  // Supplier block of GST invoices. gstNumber is above; stateCode is the two-digit GST state code.
+  legalName: varchar('legal_name', { length: 200 }),
+  address: text('address'),
+  stateCode: varchar('state_code', { length: 2 }),
   ...timestamps,
 });
 
@@ -113,6 +118,8 @@ export const customers = pgTable(
     gstin: varchar('gstin', { length: 20 }),
     billingAddress: text('billing_address'),
     shippingAddress: text('shipping_address'),
+    // GST state code, used as the place of supply when the customer has no GSTIN
+    stateCode: varchar('state_code', { length: 2 }),
     creditLimit: numeric('credit_limit', { precision: 12, scale: 2 }).default('0.00'),
     openingBalance: numeric('opening_balance', { precision: 12, scale: 2 }).default('0.00'),
     customData: jsonb('custom_data').$type<Record<string, any>>().default({}).notNull(),
@@ -251,6 +258,7 @@ export const quotationItems = pgTable('quotation_items', {
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
   unit: varchar('unit', { length: 30 }).default('Nos').notNull(), // 'Nos' | 'Sq.Ft' | 'Meters' | 'Bales' | 'Sets'
   unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+  hsnCode: varchar('hsn_code', { length: 8 }),
   taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).default('18.00').notNull(),
   lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
 });
@@ -286,6 +294,7 @@ export const orderItems = pgTable('order_items', {
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
   unit: varchar('unit', { length: 30 }).default('Nos').notNull(),
   unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+  hsnCode: varchar('hsn_code', { length: 8 }),
   taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).default('18.00').notNull(),
   lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
 });
@@ -294,22 +303,89 @@ export const orderItems = pgTable('order_items', {
 // 4. BILLING & PAYMENTS DOMAIN
 // ==========================================
 
+export interface InvoiceParty {
+  name: string;
+  gstin: string | null;
+  address: string | null;
+  stateCode: string | null;
+  phone?: string | null;
+}
+
+/**
+ * A GST tax invoice, issued once per order. The row and its items are a snapshot: later edits to the
+ * business, customer or order never change an issued invoice, and the app role cannot UPDATE or DELETE it.
+ * `amount` is the invoice total and always equals the order total. Whether it has been paid is derived from the
+ * order's balance, not stored here.
+ */
 export const invoices = pgTable(
   'invoices',
   {
     id: uuid('id').defaultRandom().primaryKey(),
     tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
-    invoiceNumber: varchar('invoice_number', { length: 50 }).notNull(), // e.g., 'INV-2026-0089'
+    invoiceNumber: varchar('invoice_number', { length: 50 }).notNull(), // 'INV/2026-27/0001' (16 chars max under GST)
+    financialYear: varchar('financial_year', { length: 7 }), // '2026-27'
     orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
     customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    supplyType: varchar('supply_type', { length: 5 }), // 'INTRA' (CGST+SGST) | 'INTER' (IGST)
+    placeOfSupply: varchar('place_of_supply', { length: 2 }), // GST state code
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }),
+    roundOff: numeric('round_off', { precision: 12, scale: 2 }),
     amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    // Legacy columns from before GST invoices existed; payment state is derived from the order instead.
     paidAmount: numeric('paid_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
-    status: varchar('status', { length: 30 }).default('UNPAID').notNull(), // 'UNPAID' | 'PARTIAL' | 'PAID'
+    status: varchar('status', { length: 30 }).default('UNPAID').notNull(),
+    supplier: jsonb('supplier').$type<InvoiceParty>(),
+    buyer: jsonb('buyer').$type<InvoiceParty>(),
     dueDate: timestamp('due_date', { withTimezone: true }),
+    issuedById: uuid('issued_by_id').references(() => users.id),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).defaultNow().notNull(),
     ...timestamps,
   },
   (table) => ({
     tenantInvoiceIdx: index('invoices_tenant_idx').on(table.tenantId),
+    tenantNumberIdx: uniqueIndex('invoices_tenant_number_idx').on(table.tenantId, table.invoiceNumber),
+    tenantOrderIdx: uniqueIndex('invoices_tenant_order_idx').on(table.tenantId, table.orderId),
+  })
+);
+
+export const invoiceItems = pgTable(
+  'invoice_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'cascade' }).notNull(),
+    lineNo: integer('line_no').notNull(),
+    itemName: varchar('item_name', { length: 200 }).notNull(),
+    description: text('description'),
+    hsnCode: varchar('hsn_code', { length: 8 }).notNull(),
+    quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
+    unit: varchar('unit', { length: 30 }).notNull(),
+    unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+    taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).notNull(),
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }).notNull(),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }).notNull(),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }).notNull(),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }).notNull(),
+    lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
+  },
+  (table) => ({
+    invoiceIdx: index('invoice_items_invoice_idx').on(table.tenantId, table.invoiceId),
+  })
+);
+
+/** Last used invoice serial per business per financial year; incremented inside the issuing transaction. */
+export const invoiceCounters = pgTable(
+  'invoice_counters',
+  {
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    financialYear: varchar('financial_year', { length: 7 }).notNull(),
+    lastNumber: integer('last_number').default(0).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.tenantId, table.financialYear] }),
   })
 );
 

@@ -50,6 +50,13 @@
       "when": 1792704000000,
       "tag": "0006_tenant_upi_id",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792705000000,
+      "tag": "0007_gst_invoices",
+      "breakpoints": true
     }
   ]
 }

@@ -310,6 +310,10 @@ export const globalMemoryTasks: Array<any> = [];
 export const globalMemoryActivities: Array<any> = [];
 export const globalMemoryAuditLogs: Array<any> = [];
 export const globalMemoryOutbox: Array<any> = [];
+export const globalMemoryInvoices: Array<any> = [];
+export const globalMemoryInvoiceItems: Array<any> = [];
+/** Last invoice serial per `${tenantId}:${financialYear}`. */
+export const globalMemoryInvoiceCounters = new Map<string, number>();
 export const globalMemoryPayments: Array<any> = [
   {
     id: 'pay-demo-1',

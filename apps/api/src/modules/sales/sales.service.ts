@@ -48,6 +48,7 @@ export interface QuoteLineItemInput {
   description?: string;
   quantity: number;
   unit?: string;
+  hsnCode?: string | null;
   unitPrice: number;
   taxPercent?: number;
 }
@@ -136,6 +137,7 @@ export class SalesService {
         description: item.description || null,
         quantity: this.roundMoney(qty),
         unit: item.unit || 'Nos',
+        hsnCode: item.hsnCode || null,
         unitPrice: this.roundMoney(rate),
         taxPercent: this.roundMoney(taxRate),
         lineTotal: this.roundMoney(lineTotal),
@@ -604,6 +606,7 @@ export class SalesService {
                 description: item.description,
                 quantity: item.quantity,
                 unit: item.unit,
+                hsnCode: item.hsnCode,
                 unitPrice: item.unitPrice,
                 taxPercent: item.taxPercent,
                 lineTotal: item.lineTotal,

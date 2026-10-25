@@ -6,6 +6,8 @@ export const QuoteLineItemSchema = z.object({
   description: z.string().optional(),
   quantity: z.coerce.number().gt(0, 'Quantity must be greater than 0'),
   unit: z.string().optional(),
+  /** HSN (goods) or SAC (services) code, 4, 6 or 8 digits. Needed to issue a GST invoice. */
+  hsnCode: z.string().regex(/^\d{4}(\d{2}(\d{2})?)?$/, 'HSN/SAC code must be 4, 6 or 8 digits').optional().nullable(),
   unitPrice: z.coerce.number().min(0, 'Unit price cannot be negative'),
   taxPercent: z.coerce.number().min(0, 'Tax percent cannot be negative').max(100, 'Tax percent cannot exceed 100').optional(),
   discountPercent: z.coerce.number().min(0).max(100).optional(),

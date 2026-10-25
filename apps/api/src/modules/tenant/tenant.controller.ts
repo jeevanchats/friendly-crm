@@ -39,12 +39,27 @@ export class TenantController {
   async updateSettings(
     @CurrentTenant() tenant: { id: string },
     @CurrentUser() user: { id: string } | undefined,
-    @Body() body: { customerSelfServiceEnabled?: boolean; upiId?: string | null }
+    @Body()
+    body: {
+      customerSelfServiceEnabled?: boolean;
+      upiId?: string | null;
+      gstNumber?: string | null;
+      legalName?: string | null;
+      address?: string | null;
+      stateCode?: string | null;
+    }
   ) {
     return this.tenantService.updateSettings(
       tenant.id,
       user?.id ?? null,
-      { customerSelfServiceEnabled: body?.customerSelfServiceEnabled, upiId: body?.upiId },
+      {
+        customerSelfServiceEnabled: body?.customerSelfServiceEnabled,
+        upiId: body?.upiId,
+        gstNumber: body?.gstNumber,
+        legalName: body?.legalName,
+        address: body?.address,
+        stateCode: body?.stateCode,
+      },
       'API'
     );
   }

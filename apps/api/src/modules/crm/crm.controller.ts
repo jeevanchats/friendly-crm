@@ -250,6 +250,25 @@ export class CrmController {
   }
 
   /**
+   * PATCH /api/crm/customers/:id/billing
+   * GSTIN, billing address, GST state and company name: what a GST invoice needs about the buyer.
+   */
+  @Patch('customers/:id/billing')
+  @RequirePermission('customer:update')
+  async updateCustomerBilling(
+    @CurrentTenant() tenant: { id: string },
+    @Param('id') customerId: string,
+    @Body() body: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null; companyName?: string | null }
+  ) {
+    return this.customersService.updateBillingDetails(tenant.id, customerId, {
+      gstin: body?.gstin,
+      billingAddress: body?.billingAddress,
+      stateCode: body?.stateCode,
+      companyName: body?.companyName,
+    });
+  }
+
+  /**
    * 10. GET /api/crm/reports
    * Executive Business Insights: Conversion Funnel, Pending Collections, Repeat Opportunities
    * Guarded by 'report:view' permission

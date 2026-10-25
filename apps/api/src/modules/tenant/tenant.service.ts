@@ -2,7 +2,14 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { db, sql, tenants, users, memberships, auditLogs } from '@friendly-crm/db';
-import { getIndustryTemplate, IndustryKey } from '@friendly-crm/shared';
+import {
+  getIndustryTemplate,
+  IndustryKey,
+  isValidGstin,
+  isValidStateCode,
+  normalizeGstin,
+  stateCodeFromGstin,
+} from '@friendly-crm/shared';
 import { globalMemoryTenants, globalMemoryAuditLogs } from '../crm/memory-store';
 import { AuthService } from '../auth/auth.service';
 import { isValidUpiId } from '../payments/upi';
@@ -11,6 +18,12 @@ export interface TenantSettings {
   customerSelfServiceEnabled: boolean;
   /** The business's UPI ID for customer payment links; null when not set. */
   upiId: string | null;
+  /** Supplier details printed on GST invoices. All null until the owner fills them in. */
+  gstNumber: string | null;
+  legalName: string | null;
+  address: string | null;
+  /** Two-digit GST state code; derived from the GSTIN when one is set. */
+  stateCode: string | null;
 }
 
 export interface CreateTenantDto {
@@ -171,18 +184,41 @@ export class TenantService {
     try {
       if (db && typeof db.select === 'function') {
         const [row] = await db
-          .select({ enabled: tenants.customerSelfServiceEnabled, upiId: tenants.upiId })
+          .select({
+            enabled: tenants.customerSelfServiceEnabled,
+            upiId: tenants.upiId,
+            gstNumber: tenants.gstNumber,
+            legalName: tenants.legalName,
+            address: tenants.address,
+            stateCode: tenants.stateCode,
+          })
           .from(tenants)
           .where(eq(tenants.id, tenantId))
           .limit(1);
-        if (row) return { customerSelfServiceEnabled: row.enabled, upiId: row.upiId ?? null };
+        if (row) {
+          return {
+            customerSelfServiceEnabled: row.enabled,
+            upiId: row.upiId ?? null,
+            gstNumber: row.gstNumber ?? null,
+            legalName: row.legalName ?? null,
+            address: row.address ?? null,
+            stateCode: row.stateCode ?? null,
+          };
+        }
       }
     } catch {
       // Postgres offline: memory fallback below
     }
     const mem = globalMemoryTenants.get(tenantId) as any;
     if (!mem) throw new NotFoundException(`Tenant ${tenantId} not found`);
-    return { customerSelfServiceEnabled: mem.customerSelfServiceEnabled !== false, upiId: mem.upiId ?? null };
+    return {
+      customerSelfServiceEnabled: mem.customerSelfServiceEnabled !== false,
+      upiId: mem.upiId ?? null,
+      gstNumber: mem.gstNumber ?? null,
+      legalName: mem.legalName ?? null,
+      address: mem.address ?? null,
+      stateCode: mem.stateCode ?? null,
+    };
   }
 
   /**
@@ -192,7 +228,14 @@ export class TenantService {
   async updateSettings(
     tenantId: string,
     actorId: string | null,
-    patch: { customerSelfServiceEnabled?: boolean; upiId?: string | null },
+    patch: {
+      customerSelfServiceEnabled?: boolean;
+      upiId?: string | null;
+      gstNumber?: string | null;
+      legalName?: string | null;
+      address?: string | null;
+      stateCode?: string | null;
+    },
     channel: 'API' | 'WHATSAPP'
   ): Promise<TenantSettings> {
     // Only the fields present in the patch change, and only those are audited.
@@ -210,8 +253,35 @@ export class TenantService {
       }
       next.upiId = raw === '' ? null : raw;
     }
+    const text = (v: unknown, max: number, field: string): string | null => {
+      const t = v === null ? '' : String(v).trim();
+      if (t.length > max) throw new BadRequestException(`${field} must be at most ${max} characters`);
+      return t === '' ? null : t;
+    };
+    if (patch.legalName !== undefined) next.legalName = text(patch.legalName, 200, 'legalName');
+    if (patch.address !== undefined) next.address = text(patch.address, 500, 'address');
+    if (patch.gstNumber !== undefined) {
+      const raw = patch.gstNumber === null ? '' : String(patch.gstNumber).trim();
+      if (raw !== '' && !isValidGstin(raw)) {
+        throw new BadRequestException('gstNumber is not a valid GSTIN (15 characters, valid state code and check character)');
+      }
+      next.gstNumber = raw === '' ? null : normalizeGstin(raw);
+      // The state is part of the GSTIN, so it follows it.
+      if (next.gstNumber) next.stateCode = stateCodeFromGstin(next.gstNumber);
+    }
+    if (patch.stateCode !== undefined && patch.stateCode !== null && patch.stateCode !== '') {
+      if (!isValidStateCode(patch.stateCode)) throw new BadRequestException('stateCode is not a valid GST state code');
+      if (next.gstNumber && next.stateCode !== patch.stateCode) {
+        throw new BadRequestException('stateCode does not match the first two digits of the GSTIN');
+      }
+      next.stateCode = patch.stateCode;
+    } else if (patch.stateCode === null || patch.stateCode === '') {
+      if (!next.gstNumber) next.stateCode = null;
+    }
     if (Object.keys(next).length === 0) {
-      throw new BadRequestException('Nothing to update: send customerSelfServiceEnabled and/or upiId');
+      throw new BadRequestException(
+        'Nothing to update: send customerSelfServiceEnabled, upiId, gstNumber, legalName, address and/or stateCode'
+      );
     }
     const current = await this.getSettings(tenantId);
     const keys = Object.keys(next) as Array<keyof TenantSettings>;

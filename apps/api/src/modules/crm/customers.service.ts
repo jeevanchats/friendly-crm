@@ -16,7 +16,14 @@ import {
   tasks,
   activities,
 } from '@friendly-crm/db';
-import { TenantRole, hasPermission } from '@friendly-crm/shared';
+import {
+  TenantRole,
+  hasPermission,
+  isValidGstin,
+  isValidStateCode,
+  normalizeGstin,
+  stateCodeFromGstin,
+} from '@friendly-crm/shared';
 import { filterAndSanitizeActivities } from '../../common';
 import {
   globalMemoryCustomers,
@@ -46,6 +53,68 @@ export interface PilotCustomerRecord {
 @Injectable()
 export class CustomersService {
   private readonly logger = new Logger(CustomersService.name);
+
+  /**
+   * Updates the details a GST invoice needs about a buyer: GSTIN, billing address, GST state and company name.
+   * Only the fields present in `patch` change; null or '' clears one. A GSTIN fixes the state, so the two
+   * cannot disagree.
+   */
+  async updateBillingDetails(
+    tenantId: string,
+    customerId: string,
+    patch: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null; companyName?: string | null }
+  ) {
+    const text = (v: unknown, max: number, field: string): string | null => {
+      const t = v === null ? '' : String(v).trim();
+      if (t.length > max) throw new BadRequestException(`${field} must be at most ${max} characters`);
+      return t === '' ? null : t;
+    };
+    const next: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null; companyName?: string | null } = {};
+    if (patch.companyName !== undefined) next.companyName = text(patch.companyName, 160, 'companyName');
+    if (patch.billingAddress !== undefined) next.billingAddress = text(patch.billingAddress, 500, 'billingAddress');
+    if (patch.gstin !== undefined) {
+      const raw = patch.gstin === null ? '' : String(patch.gstin).trim();
+      if (raw !== '' && !isValidGstin(raw)) {
+        throw new BadRequestException('gstin is not a valid GSTIN (15 characters, valid state code and check character)');
+      }
+      next.gstin = raw === '' ? null : normalizeGstin(raw);
+      if (next.gstin) next.stateCode = stateCodeFromGstin(next.gstin);
+    }
+    if (patch.stateCode !== undefined) {
+      const raw = patch.stateCode === null ? '' : String(patch.stateCode).trim();
+      if (raw !== '' && !isValidStateCode(raw)) throw new BadRequestException('stateCode is not a valid GST state code');
+      if (next.gstin && raw !== '' && raw !== next.stateCode) {
+        throw new BadRequestException('stateCode does not match the first two digits of the GSTIN');
+      }
+      if (!next.gstin) next.stateCode = raw === '' ? null : raw;
+    }
+    if (Object.keys(next).length === 0) {
+      throw new BadRequestException('Nothing to update: send gstin, billingAddress, stateCode and/or companyName');
+    }
+
+    try {
+      if (typeof db?.transaction === 'function') {
+        const row = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const [updated] = await tx
+            .update(customers)
+            .set(next)
+            .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)))
+            .returning();
+          return updated;
+        });
+        if (!row) throw new NotFoundException('Customer not found');
+        return { id: row.id, gstin: row.gstin, billingAddress: row.billingAddress, stateCode: row.stateCode, companyName: row.companyName };
+      }
+    } catch (err: any) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
+      this.logger.warn(`Postgres offline; updating customer billing details in memory: ${err.message}`);
+    }
+    const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
+    if (!mem) throw new NotFoundException('Customer not found');
+    Object.assign(mem, next);
+    return { id: mem.id, gstin: mem.gstin ?? null, billingAddress: mem.billingAddress ?? null, stateCode: mem.stateCode ?? null, companyName: mem.companyName ?? null };
+  }
 
   /**
    * List all customers for a tenant with computed outstanding balance
