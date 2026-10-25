@@ -8,6 +8,7 @@ import { hasPermission } from '@friendly-crm/shared';
 import { FastQuotationBuilder } from '../../../components/sales/FastQuotationBuilder';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
+import { EnquiryAttachments } from '../../../components/crm/EnquiryAttachments';
 
 interface Customer {
   id: string;
@@ -64,11 +65,15 @@ function NewQuotation() {
     return <p className="rounded-2xl bg-white p-10 text-center text-sm text-slate-400">Loading…</p>;
   }
   return (
-    <FastQuotationBuilder
-      customer={customer}
-      leadId={leadId}
-      industry={active!.industryKey}
-    />
+    <div className="space-y-4">
+      {/* What the customer asked for (voice note, photos, drawings), alongside the quote being prepared */}
+      <EnquiryAttachments leadId={leadId} customerId={customer.id} />
+      <FastQuotationBuilder
+        customer={customer}
+        leadId={leadId}
+        industry={active!.industryKey}
+      />
+    </div>
   );
 }
 

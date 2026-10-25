@@ -330,6 +330,10 @@ export function AppShell({
               const body = await res.json().catch(() => ({}));
               throw new Error(Array.isArray(body.message) ? body.message.join(' ') : body.message || `Could not save the enquiry (${res.status}).`);
             }
+            // The drawer attaches any voice note / files to this enquiry, then calls onSuccess below
+            return res.json().catch(() => ({}));
+          }}
+          onSuccess={() => {
             setShowQuickAdd(false);
             // The new enquiry now waits under "Quotes to send" on the Home screen: take the person straight there
             window.location.assign('/');

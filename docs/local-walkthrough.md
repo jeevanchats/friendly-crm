@@ -17,7 +17,7 @@ npm run dev -- --env-mode=loose
 - Web app: http://localhost:3000   API: http://localhost:4000/api
 - The first visit to each page compiles it and can take 20-40 seconds. Later visits are instant.
 - Tamil text can look garbled in the console. Run `chcp 65001` first, or ignore it; the web pages are fine.
-- Postgres must be running (database `friendly_crm`). Migrations 0001-0009 are already applied to it.
+- Postgres must be running (database `friendly_crm`). Migrations 0001-0012 are already applied to it.
 
 ## 2. Log in
 
@@ -50,7 +50,8 @@ No leads, quotes, GSTIN or UPI ID are set yet. Most of the walkthrough below use
 | Customers | `/customers` | List, search by name or phone, balance column. **Add customer** adds one (no enquiry is created) |
 | Import customers | `/customers/import` | Upload a CSV (or paste rows from Excel), check the columns, preview what will be added, then import. Handles opening balances, GSTIN, state, address; skips phone numbers that already exist |
 | Customer detail | `/customers/<id>` | Orders, quotes, ledger, timeline. **GST details** card at the bottom: edit GSTIN, state, address, and "Do not send automatic payment reminders" |
-| New quote | `/quotations/new?customerId=<id>` (the **New Quote** button on a customer) | Add items with rate, GST % and optional HSN; save; View PDF / WhatsApp share / Convert Order |
+| Quick Add (voice note / files) | the **Quick Add** button | Under the enquiry fields: **Record** a voice note of the requirement (play it back, record again) and **Attach** photos, drawings, PDF, Word, Excel, CSV or text files (up to 10, files 10 MB, voice 5 MB / 5 minutes). They are uploaded right after the enquiry is saved; if one fails the enquiry is kept and the button becomes **Retry attachments** |
+| New quote | `/quotations/new?customerId=<id>` (the **New Quote** button on a customer, or **Prepare quote** on Home) | The **Customer's requirement** box at the top shows the enquiry's voice note and files: **Play**, **View** a photo, download, remove, or **＋ Add** more. Then add items with rate, GST % and optional HSN; save; View PDF / WhatsApp share / Convert Order |
 | Quote PDF view | `/q/<id>/pdf` | Printable quote; **Download PDF** button |
 | Products | `/products` | Your product and service list: search, **Add product**, edit, archive. Each has code, HSN/SAC, unit, rate (before GST) and GST % |
 | Import products | `/products/import` | Upload a CSV or paste from Excel, check the columns, preview, import. Skips or updates products with the same name or code |
@@ -137,6 +138,8 @@ WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows t
 - **Quote links only reach other phones once the server has a public address.** Locally the link in the quote message points at `http://localhost:4000` (works on this computer only). For real use set `PUBLIC_API_URL` (the address customers can reach) and `QUOTE_LINK_SECRET` (16+ random characters); without them in production no link is sent.
 - **Customers in credit (advances)** cannot be imported yet; a negative balance is rejected.
 - **WhatsApp is a sandbox.** Replies print in the console; nothing reaches a phone. No interactive buttons yet.
+- **Voice notes are stored, not transcribed**: someone has to listen to them. The browser asks for microphone permission; recording works on `localhost` and on https sites only. Safari records `.m4a`, Chrome and Edge `.webm`.
+- **Attachments live in the database** (simple, but not for hundreds of large files per business); moving them to cloud file storage is a later step. WhatsApp voice notes or photos sent by customers are not attached to enquiries yet.
 - **Invoice PDF** prints "Rs." and cannot show Tamil names (font limitation).
 - **Not yet reviewed in a browser by me:** page layout, Tamil text, mobile view. Report anything that looks wrong.
 - There is no separate leads list page; a lead made with Quick Add shows wherever the dashboard lists leads.

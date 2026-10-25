@@ -18,3 +18,4 @@ export * from './constants/order-stages';
 export * from './gst';
 export * from './customer-import';
 export * from './product-import';
+export * from './attachments';

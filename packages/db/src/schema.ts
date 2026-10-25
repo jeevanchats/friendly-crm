@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   index,
   primaryKey,
+  customType,
 } from 'drizzle-orm/pg-core';
 
 // --- REUSABLE HELPERS ---
@@ -158,6 +159,36 @@ export const leads = pgTable(
   (table) => ({
     tenantStageIdx: index('leads_tenant_stage_idx').on(table.tenantId, table.stage),
     tenantAssigneeIdx: index('leads_tenant_assignee_idx').on(table.tenantId, table.assignedToId),
+  })
+);
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+/**
+ * A voice note or file attached to an enquiry. The bytes are kept here (not on the lead) so lists of enquiries
+ * never load them; read them one at a time through the attachment download endpoint.
+ */
+export const leadAttachments = pgTable(
+  'lead_attachments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }).notNull(),
+    kind: varchar('kind', { length: 10 }).notNull(), // 'VOICE' | 'FILE'
+    fileName: varchar('file_name', { length: 120 }).notNull(),
+    mimeType: varchar('mime_type', { length: 100 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    durationSeconds: integer('duration_seconds'),
+    data: bytea('data').notNull(),
+    createdById: uuid('created_by_id').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    leadIdx: index('lead_attachments_lead_idx').on(table.tenantId, table.leadId),
   })
 );
 

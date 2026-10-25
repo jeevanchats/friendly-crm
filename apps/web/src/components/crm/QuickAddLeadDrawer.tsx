@@ -5,6 +5,8 @@ import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
 import { IndustryKey, getIndustryExamples } from '@friendly-crm/shared';
 import { X } from 'lucide-react';
 import { apiFetch } from '../../lib/session';
+import { AttachmentPicker, PickerValue, voiceFileName } from './AttachmentPicker';
+import { uploadAttachment } from '../../lib/attachments';
 
 export interface QuickAddProps {
   isOpen?: boolean;
@@ -13,7 +15,8 @@ export interface QuickAddProps {
   defaultLang?: 'en' | 'ta';
   locale?: 'en' | 'ta';
   onSuccess?: () => void;
-  onSubmit?: (leadData: any) => Promise<void> | void;
+  /** Saves the enquiry. May return the saved record ({ lead: { id } }) so attachments can be added to it. */
+  onSubmit?: (leadData: any) => Promise<any> | any;
 }
 
 export function QuickAddLeadDrawer({
@@ -35,6 +38,9 @@ export function QuickAddLeadDrawer({
   const [customData, setCustomData] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attach, setAttach] = useState<PickerValue>({ voice: null, files: [] });
+  // Once the enquiry is saved, pressing the button again only retries the attachments (never saves a second enquiry)
+  const [savedLeadId, setSavedLeadId] = useState<string | null>(null);
 
   // Sync lang when locale prop changes
   React.useEffect(() => {
@@ -80,19 +86,53 @@ export function QuickAddLeadDrawer({
         customData,
       };
 
-      if (onSubmit) {
-        await onSubmit(payload);
-      } else {
-        const res = await apiFetch('/api/crm/intake-lead', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(Array.isArray(body.message) ? body.message.join(' ') : body.message || `Could not save the enquiry (${res.status}).`);
+      let leadId = savedLeadId;
+      if (!leadId) {
+        let saved: any;
+        if (onSubmit) {
+          saved = await onSubmit(payload);
+        } else {
+          const res = await apiFetch('/api/crm/intake-lead', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(Array.isArray(body.message) ? body.message.join(' ') : body.message || `Could not save the enquiry (${res.status}).`);
+          }
+          saved = await res.json().catch(() => ({}));
+        }
+        leadId = saved?.lead?.id ?? null;
+        if (leadId) setSavedLeadId(leadId);
+      }
+
+      // Voice note and files go up after the enquiry exists. Whatever fails stays in the list for a retry.
+      if (leadId && (attach.voice || attach.files.length)) {
+        const failures: string[] = [];
+        let voice = attach.voice;
+        if (voice) {
+          const r = await uploadAttachment(leadId, voice.blob, voiceFileName(voice.blob.type), voice.seconds);
+          if (r.ok) voice = null;
+          else failures.push(`${lang === 'ta' ? 'குரல் பதிவு' : 'Voice note'}: ${r.error}`);
+        }
+        const left: File[] = [];
+        for (const f of attach.files) {
+          const r = await uploadAttachment(leadId, f, f.name);
+          if (!r.ok) {
+            left.push(f);
+            failures.push(`${f.name}: ${r.error}`);
+          }
+        }
+        setAttach({ voice, files: left });
+        if (failures.length) {
+          setError(
+            (lang === 'ta' ? 'விசாரணை சேமிக்கப்பட்டது, ஆனால் இணைக்க முடியவில்லை: ' : 'The enquiry is saved, but these could not be attached: ') +
+              failures.join(' ')
+          );
+          return;
         }
       }
 
@@ -104,6 +144,8 @@ export function QuickAddLeadDrawer({
       setCompanyName('');
       setTitle('');
       setCustomData({});
+      setAttach({ voice: null, files: [] });
+      setSavedLeadId(null);
     } catch (err: any) {
       setError(err?.message || (lang === 'ta' ? 'சேமிக்க முடியவில்லை.' : 'Could not save the enquiry.'));
     } finally {
@@ -241,6 +283,9 @@ export function QuickAddLeadDrawer({
             onChange={(key, val) => setCustomData((prev) => ({ ...prev, [key]: val }))}
           />
 
+          {/* Voice note + files: the person preparing the quote sees these with the enquiry */}
+          <AttachmentPicker value={attach} onChange={setAttach} lang={lang} disabled={loading} />
+
           {/* 1-Tap Follow-Up Reminder Chips */}
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase text-slate-500">
@@ -290,7 +335,9 @@ export function QuickAddLeadDrawer({
             >
               {loading
                 ? lang === 'ta' ? 'சேமிக்கிறது...' : 'Saving...'
-                : lang === 'ta' ? 'விசாரணையை சேமி' : 'Save Enquiry'}
+                : savedLeadId
+                  ? lang === 'ta' ? 'இணைப்புகளை மீண்டும் அனுப்பு' : 'Retry attachments'
+                  : lang === 'ta' ? 'விசாரணையை சேமி' : 'Save Enquiry'}
             </button>
           </div>
         </form>
