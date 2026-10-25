@@ -10,6 +10,7 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_ATTACHMENTS_PER_LEAD = 10;
 /** A voice note longer than this is probably left recording by mistake. */
 export const MAX_VOICE_SECONDS = 300;
+export const MAX_TRANSCRIPT_CHARS = 5000;
 
 const VOICE_TYPES = ['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'audio/wav', 'audio/x-wav'];
 

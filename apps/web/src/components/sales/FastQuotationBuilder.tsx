@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
 import { apiFetch } from '../../lib/session';
 import { ProductPicker } from '../products/ProductPicker';
+import { GST_RATE_SLABS, SuggestedLine } from '@friendly-crm/shared';
 
 type LineItem = {
   itemName: string;
@@ -13,6 +14,8 @@ type LineItem = {
   unit: string;
   unitPrice: number;
   taxPercent: number;
+  /** Set on lines filled in from the customer's enquiry: where it came from and what staff still have to add. */
+  hint?: { source: string; matched: string | null; missing: Array<'quantity' | 'rate'> };
 };
 
 /** The quote being revised: its lines, discount and details become the starting point of the new version. */
@@ -33,6 +36,8 @@ interface FastQuotationProps {
   onQuoteCreated?: (quote: any) => void;
   /** Present when this is a new version of an existing quote rather than a brand new one. */
   revise?: ReviseSeed;
+  /** Lines read from the enquiry's notes, files and voice note. Each new `id` adds its lines to the form. */
+  suggestion?: { id: number; lines: SuggestedLine[] } | null;
 }
 
 export function FastQuotationBuilder({
@@ -42,6 +47,7 @@ export function FastQuotationBuilder({
   defaultLang = 'en',
   onQuoteCreated,
   revise,
+  suggestion,
 }: FastQuotationProps) {
   const [lang, setLang] = useState<'en' | 'ta'>(defaultLang);
   const [items, setItems] = useState<LineItem[]>(
@@ -70,6 +76,27 @@ export function FastQuotationBuilder({
   };
   const [filledFrom, setFilledFrom] = useState<Record<number, string>>({});
 
+  // Lines read from the enquiry join the form once per reading. A form still holding only the blank starter line
+  // is replaced; anything staff already typed is kept and the new lines go below it.
+  const appliedSuggestion = useRef<number | null>(null);
+  useEffect(() => {
+    if (!suggestion || suggestion.lines.length === 0 || appliedSuggestion.current === suggestion.id) return;
+    appliedSuggestion.current = suggestion.id;
+    const fresh: LineItem[] = suggestion.lines.map((l) => ({
+      itemName: l.itemName,
+      description: l.description,
+      hsnCode: l.hsnCode,
+      quantity: l.quantity,
+      unit: l.unit,
+      unitPrice: l.unitPrice,
+      taxPercent: l.taxPercent,
+      hint: { source: l.sourceNote, matched: l.matchedProduct, missing: l.missing },
+    }));
+    setFilledFrom({});
+    setItems((prev) => (prev.every((i) => !i.itemName.trim() && !i.unitPrice) ? fresh : [...prev, ...fresh]));
+  }, [suggestion]);
+  const removeItem = (idx: number) => setItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+
   const handleSaveQuote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving || savedQuote) return; // a second click must never create a second quote
@@ -86,7 +113,7 @@ export function FastQuotationBuilder({
           leadId: revise ? undefined : leadId,
           discountAmount: discount,
           customData,
-          items: items.map((i) => ({ ...i, hsnCode: i.hsnCode.trim() || undefined })),
+          items: items.map(({ hint: _hint, ...i }) => ({ ...i, hsnCode: i.hsnCode.trim() || undefined })),
         }),
       });
       if (res.ok) {
@@ -180,6 +207,21 @@ export function FastQuotationBuilder({
                 {lang === 'ta' ? 'விலை, GST, HSN உங்கள் பொருள் பட்டியலிலிருந்து நிரப்பப்பட்டது. மாற்றலாம்.' : 'Rate, GST and HSN filled from your product list. You can still change them.'}
               </p>
             )}
+            {item.hint && (
+              <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                <p className="font-semibold">
+                  {lang === 'ta' ? 'விசாரணையிலிருந்து நிரப்பப்பட்டது — சரிபார்க்கவும்' : 'Filled from the enquiry — please check'}
+                  {item.hint.matched ? ` · ${lang === 'ta' ? 'பொருள் பட்டியல்' : 'product list'}: ${item.hint.matched}` : ''}
+                </p>
+                {item.hint.source && <p className="italic">“{item.hint.source}”</p>}
+                {item.hint.missing.length > 0 && (
+                  <p className="font-bold text-red-700">
+                    {lang === 'ta' ? 'நீங்கள் நிரப்ப வேண்டியது: ' : 'You need to fill in: '}
+                    {item.hint.missing.map((m) => (m === 'quantity' ? (lang === 'ta' ? 'அளவு' : 'quantity') : lang === 'ta' ? 'விலை' : 'rate')).join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-[11px] font-semibold text-slate-500">
@@ -212,10 +254,11 @@ export function FastQuotationBuilder({
                   onChange={(e) => updateItem(idx, 'taxPercent', Number(e.target.value))}
                   className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-2 text-sm"
                 >
-                  <option value={0}>0%</option>
-                  <option value={5}>5%</option>
-                  <option value={12}>12%</option>
-                  <option value={18}>18%</option>
+                  {(GST_RATE_SLABS.includes(item.taxPercent as any) ? GST_RATE_SLABS : [...GST_RATE_SLABS, item.taxPercent]).map((r) => (
+                    <option key={r} value={r}>
+                      {r}%
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -233,6 +276,11 @@ export function FastQuotationBuilder({
                 className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm"
               />
             </div>
+            {items.length > 1 && (
+              <button type="button" onClick={() => removeItem(idx)} className="text-[11px] font-semibold text-red-600">
+                {lang === 'ta' ? 'இந்த வரியை நீக்கு' : 'Remove this line'}
+              </button>
+            )}
           </div>
         ))}
 

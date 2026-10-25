@@ -7,11 +7,13 @@ import {
   Headers,
   Res,
   BadRequestException,
+  ForbiddenException,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
 import { CustomerQuoteService } from './customer-quote.service';
+import { QuoteReaderService } from './quote-reader.service';
 import { Response } from 'express';
 import {
   AuthGuard,
@@ -37,7 +39,8 @@ import {
 export class SalesController {
   constructor(
     private readonly salesService: SalesService,
-    private readonly customerQuotes: CustomerQuoteService
+    private readonly customerQuotes: CustomerQuoteService,
+    private readonly quoteReader: QuoteReaderService
   ) {}
 
   /**
@@ -53,6 +56,26 @@ export class SalesController {
   ) {
     const role = (user?.role || 'READ_ONLY') as TenantRole;
     return this.customerQuotes.inbox(tenant.id, hasPermission(role, 'payment:view'));
+  }
+
+  /**
+   * POST /api/sales/quotations/suggest { leadId? | customerId? }
+   * Reads the enquiry's notes, photos, PDFs and voice-note text and returns quotation lines for staff to check.
+   * Saves nothing. Needs quote:create (to prepare quotes) and lead:view (to open what the customer sent).
+   */
+  @Post('quotations/suggest')
+  @RequirePermission('quote:create')
+  async suggestQuotation(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
+    @Body() body: { leadId?: string; customerId?: string }
+  ) {
+    const role = (user?.role || 'READ_ONLY') as TenantRole;
+    if (!hasPermission(role, 'lead:view')) throw new ForbiddenException('Your role cannot open enquiries.');
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const leadId = typeof body?.leadId === 'string' && uuid.test(body.leadId) ? body.leadId : undefined;
+    const customerId = typeof body?.customerId === 'string' && uuid.test(body.customerId) ? body.customerId : undefined;
+    return this.quoteReader.read(tenant.id, { leadId, customerId });
   }
 
   /**

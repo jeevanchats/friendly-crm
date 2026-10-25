@@ -8,6 +8,7 @@ export interface AttachmentInfo {
   mimeType: string;
   sizeBytes: number;
   durationSeconds: number | null;
+  transcript: string | null;
   createdAt: string;
   leadTitle?: string;
 }
@@ -23,12 +24,14 @@ export async function uploadAttachment(
   leadId: string,
   file: Blob,
   fileName: string,
-  durationSeconds?: number
+  durationSeconds?: number,
+  transcript?: string
 ): Promise<{ ok: true; attachment: AttachmentInfo } | { ok: false; error: string }> {
   try {
     const form = new FormData();
     form.append('file', file, fileName);
     if (durationSeconds !== undefined) form.append('durationSeconds', String(durationSeconds));
+    if (transcript) form.append('transcript', transcript);
     const res = await apiFetch(`/api/crm/leads/${leadId}/attachments`, { method: 'POST', body: form });
     if (!res.ok) return { ok: false, error: await errorText(res, 'Could not upload') };
     return { ok: true, attachment: await res.json() };

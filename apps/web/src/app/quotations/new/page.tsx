@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { hasPermission } from '@friendly-crm/shared';
+import { hasPermission, SuggestedLine } from '@friendly-crm/shared';
 import { FastQuotationBuilder } from '../../../components/sales/FastQuotationBuilder';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
@@ -22,6 +22,7 @@ function NewQuotation() {
   const leadId = useSearchParams()?.get('leadId') ?? undefined;
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<{ id: number; lines: SuggestedLine[] } | null>(null);
 
   const allowed = hasPermission(active!.role, 'quote:create');
 
@@ -67,11 +68,16 @@ function NewQuotation() {
   return (
     <div className="space-y-4">
       {/* What the customer asked for (voice note, photos, drawings), alongside the quote being prepared */}
-      <EnquiryAttachments leadId={leadId} customerId={customer.id} />
+      <EnquiryAttachments
+        leadId={leadId}
+        customerId={customer.id}
+        onSuggest={(lines) => setSuggestion((prev) => ({ id: (prev?.id ?? 0) + 1, lines }))}
+      />
       <FastQuotationBuilder
         customer={customer}
         leadId={leadId}
         industry={active!.industryKey}
+        suggestion={suggestion}
       />
     </div>
   );

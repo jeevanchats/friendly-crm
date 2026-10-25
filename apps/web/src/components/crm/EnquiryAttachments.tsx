@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Mic, FileText, Image as ImageIcon, Download, Trash2, Play } from 'lucide-react';
-import { hasPermission } from '@friendly-crm/shared';
+import { hasPermission, SuggestedLine } from '@friendly-crm/shared';
+import { apiFetch } from '../../lib/session';
 import { useAuth } from '../auth/AuthProvider';
 import { AttachmentPicker, PickerValue, voiceFileName } from './AttachmentPicker';
 import {
@@ -87,6 +88,7 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
           )}
         </span>
       </div>
+      {item.kind === 'VOICE' && item.transcript && <p className="mt-1.5 text-xs italic text-slate-600">“{item.transcript}”</p>}
       {url && item.kind === 'VOICE' && <audio controls autoPlay src={url} className="mt-2 h-10 w-full" />}
       {url && isImage && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -101,13 +103,24 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
  * The voice note and files that came with an enquiry, shown while its quote is being prepared.
  * Give it the enquiry (leadId) when known, otherwise the customer: it then lists those of their live enquiries.
  */
-export function EnquiryAttachments({ leadId, customerId }: { leadId?: string; customerId?: string }) {
+export function EnquiryAttachments({
+  leadId,
+  customerId,
+  onSuggest,
+}: {
+  leadId?: string;
+  customerId?: string;
+  /** Called with the lines read from the enquiry, to be added to the quotation form. */
+  onSuggest?: (lines: SuggestedLine[]) => void;
+}) {
   const { active } = useAuth();
   const [items, setItems] = useState<AttachmentInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<PickerValue>({ voice: null, files: [] });
   const [saving, setSaving] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState<{ summary: string; skipped: string[]; count: number; message?: string } | null>(null);
 
   const allowed = !!active && hasPermission(active.role, 'lead:view');
   const canAdd = !!active && hasPermission(active.role, 'lead:create');
@@ -138,7 +151,7 @@ export function EnquiryAttachments({ leadId, customerId }: { leadId?: string; cu
     const failures: string[] = [];
     let voice = draft.voice;
     if (voice) {
-      const r = await uploadAttachment(targetLead, voice.blob, voiceFileName(voice.blob.type), voice.seconds);
+      const r = await uploadAttachment(targetLead, voice.blob, voiceFileName(voice.blob.type), voice.seconds, voice.transcript);
       if (r.ok) voice = null;
       else failures.push(`Voice note: ${r.error}`);
     }
@@ -157,6 +170,31 @@ export function EnquiryAttachments({ leadId, customerId }: { leadId?: string; cu
     else setAdding(false);
   };
 
+  const readEnquiry = async () => {
+    setReading(true);
+    setError(null);
+    setReadNote(null);
+    try {
+      const res = await apiFetch('/api/sales/quotations/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(leadId ? { leadId } : { customerId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError((Array.isArray(body.message) ? body.message.join(' ') : body.message) || `Could not read the enquiry (${res.status}).`);
+        return;
+      }
+      setReadNote({ summary: body.summary ?? '', skipped: body.skipped ?? [], count: body.lines?.length ?? 0, message: body.enabled === false ? body.message : undefined });
+      if (body.lines?.length) onSuggest?.(body.lines as SuggestedLine[]);
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setReading(false);
+    }
+  };
+  const canRead = !!onSuggest && !!active && hasPermission(active.role, 'quote:create');
+
   const titles = new Set((items ?? []).map((i) => i.leadTitle).filter(Boolean));
 
   return (
@@ -170,6 +208,33 @@ export function EnquiryAttachments({ leadId, customerId }: { leadId?: string; cu
         )}
       </div>
       {items === null && !error && <p className="text-xs text-slate-400">Loading…</p>}
+      {canRead && (
+        <button
+          type="button"
+          onClick={readEnquiry}
+          disabled={reading}
+          className="w-full min-h-[44px] rounded-xl bg-[#243B40] text-sm font-bold text-white disabled:opacity-50"
+        >
+          {reading ? 'Reading the notes, files and voice note…' : '✨ Read enquiry and fill the quote'}
+        </button>
+      )}
+      {readNote && (
+        <div className="rounded-lg bg-white p-3 text-xs text-[#243B40]">
+          {readNote.message ? (
+            <p className="font-semibold text-amber-800">{readNote.message}</p>
+          ) : (
+            <p className="font-semibold">
+              {readNote.count > 0
+                ? `${readNote.count} line${readNote.count === 1 ? '' : 's'} added to the quote below. Check each one and fill what is marked missing.`
+                : 'Nothing could be filled in automatically. Add the lines by hand.'}
+            </p>
+          )}
+          {readNote.summary && <p className="mt-1 text-slate-600">{readNote.summary}</p>}
+          {readNote.skipped.map((n, i) => (
+            <p key={i} className="mt-1 text-amber-800">{n}</p>
+          ))}
+        </div>
+      )}
       {items && items.length > 0 && (
         <ul className="space-y-2">
           {items.map((it) => (

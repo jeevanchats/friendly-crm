@@ -183,6 +183,7 @@ export const leadAttachments = pgTable(
     mimeType: varchar('mime_type', { length: 100 }).notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     durationSeconds: integer('duration_seconds'),
+    transcript: text('transcript'),
     data: bytea('data').notNull(),
     createdById: uuid('created_by_id').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

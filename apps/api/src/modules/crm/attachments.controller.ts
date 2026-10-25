@@ -25,7 +25,7 @@ import { MAX_FILE_BYTES, isInlineViewable, sanitizeFileName } from '@friendly-cr
 export class AttachmentsController {
   constructor(private readonly attachments: AttachmentsService) {}
 
-  /** POST /api/crm/leads/:id/attachments  (multipart: file, durationSeconds?) */
+  /** POST /api/crm/leads/:id/attachments  (multipart: file, durationSeconds?, transcript?) */
   @Post('leads/:id/attachments')
   @RequirePermission('lead:create')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_BYTES, files: 1 } }))
@@ -34,9 +34,9 @@ export class AttachmentsController {
     @CurrentUser() user: { id: string } | undefined,
     @Param('id', new ParseUUIDPipe()) leadId: string,
     @UploadedFile() file: UploadedFileShape | undefined,
-    @Body() body: { durationSeconds?: string }
+    @Body() body: { durationSeconds?: string; transcript?: string }
   ) {
-    return this.attachments.add(tenant.id, user?.id ?? null, leadId, file, body?.durationSeconds);
+    return this.attachments.add(tenant.id, user?.id ?? null, leadId, file, body?.durationSeconds, body?.transcript);
   }
 
   /** GET /api/crm/attachments?leadId=… or ?customerId=… */

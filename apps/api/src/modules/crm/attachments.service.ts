@@ -7,6 +7,7 @@ import {
   baseMimeType,
   MAX_ATTACHMENTS_PER_LEAD,
   MAX_VOICE_SECONDS,
+  MAX_TRANSCRIPT_CHARS,
   AttachmentKind,
 } from '@friendly-crm/shared';
 import { randomUUID } from 'crypto';
@@ -28,6 +29,8 @@ export interface AttachmentInfo {
   mimeType: string;
   sizeBytes: number;
   durationSeconds: number | null;
+  /** What was said in a voice note, as written down by the browser and checked by staff. */
+  transcript: string | null;
   createdAt: Date;
 }
 
@@ -47,6 +50,7 @@ const infoOf = (a: any): AttachmentInfo => ({
   mimeType: a.mimeType,
   sizeBytes: a.sizeBytes,
   durationSeconds: a.durationSeconds ?? null,
+  transcript: a.transcript ?? null,
   createdAt: a.createdAt,
 });
 
@@ -58,6 +62,7 @@ const INFO_COLUMNS = {
   mimeType: leadAttachments.mimeType,
   sizeBytes: leadAttachments.sizeBytes,
   durationSeconds: leadAttachments.durationSeconds,
+  transcript: leadAttachments.transcript,
   createdAt: leadAttachments.createdAt,
 };
 
@@ -88,7 +93,8 @@ export class AttachmentsService {
     userId: string | null,
     leadId: string,
     file: UploadedFile | undefined,
-    durationSeconds?: unknown
+    durationSeconds?: unknown,
+    transcript?: unknown
   ): Promise<AttachmentInfo> {
     if (!file || !file.buffer) throw new BadRequestException('Choose a file or record a voice note first.');
     const mimeType = baseMimeType(file.mimetype);
@@ -101,6 +107,7 @@ export class AttachmentsService {
       const n = Math.round(Number(durationSeconds));
       if (Number.isFinite(n) && n >= 0) duration = Math.min(n, MAX_VOICE_SECONDS);
     }
+    const text = kind === 'VOICE' && typeof transcript === 'string' && transcript.trim() ? transcript.trim().slice(0, MAX_TRANSCRIPT_CHARS) : null;
     const fileName = sanitizeFileName(file.originalname, kind === 'VOICE' ? 'voice-note' : 'attachment');
 
     try {
@@ -116,7 +123,7 @@ export class AttachmentsService {
         }
         const [row] = await tx
           .insert(leadAttachments)
-          .values({ tenantId, leadId, kind, fileName, mimeType, sizeBytes: file.size, durationSeconds: duration, data: file.buffer, createdById: userId })
+          .values({ tenantId, leadId, kind, fileName, mimeType, sizeBytes: file.size, durationSeconds: duration, transcript: text, data: file.buffer, createdById: userId })
           .returning(INFO_COLUMNS);
         return infoOf(row);
       });
@@ -131,7 +138,7 @@ export class AttachmentsService {
       throw new BadRequestException(`An enquiry can have at most ${MAX_ATTACHMENTS_PER_LEAD} attachments. Remove one first.`);
     }
     const stored: StoredAttachment = {
-      id: randomUUID(), tenantId, leadId, kind, fileName, mimeType, sizeBytes: file.size, durationSeconds: duration, createdAt: new Date(), data: file.buffer,
+      id: randomUUID(), tenantId, leadId, kind, fileName, mimeType, sizeBytes: file.size, durationSeconds: duration, transcript: text, createdAt: new Date(), data: file.buffer,
     };
     memoryAttachments.unshift(stored);
     return infoOf(stored);
@@ -172,6 +179,38 @@ export class AttachmentsService {
       .filter((a) => a.tenantId === tenantId && titles.has(a.leadId))
       .slice(0, 50)
       .map((a) => ({ ...infoOf(a), leadTitle: titles.get(a.leadId) ?? '' }));
+  }
+
+  /**
+   * Everything the quote reader needs about an enquiry (or a customer's live enquiries): what was typed on the
+   * enquiry itself and each attachment with its bytes. Only called when staff ask for the enquiry to be read.
+   */
+  async readable(
+    tenantId: string,
+    scope: { leadId?: string; customerId?: string }
+  ): Promise<{ leads: Array<{ id: string; title: string; notes: string | null; customData: Record<string, any> }>; attachments: Array<AttachmentInfo & { data: Buffer }> }> {
+    const infos = await this.list(tenantId, scope);
+    const attachments: Array<AttachmentInfo & { data: Buffer }> = [];
+    for (const i of infos.slice(0, MAX_ATTACHMENTS_PER_LEAD)) attachments.push(await this.get(tenantId, i.id));
+
+    const leadRows = async (): Promise<Array<{ id: string; title: string; notes: string | null; customData: Record<string, any> }>> => {
+      try {
+        const rows = await this.inTenant(tenantId, async (tx) => {
+          const filter = scope.leadId
+            ? and(eq(leads.tenantId, tenantId), eq(leads.id, scope.leadId))
+            : and(eq(leads.tenantId, tenantId), eq(leads.customerId, scope.customerId!), ne(leads.stage, 'LOST'));
+          return tx.select({ id: leads.id, title: leads.title, notes: leads.notes, customData: leads.customData }).from(leads).where(filter).limit(10);
+        });
+        if (rows.length) return rows;
+      } catch (err: any) {
+        this.rethrowUnlessOffline(err);
+      }
+      return (globalMemoryLeads as any[])
+        .filter((l) => l.tenantId === tenantId && (scope.leadId ? l.id === scope.leadId : l.customerId === scope.customerId && l.stage !== 'LOST'))
+        .slice(0, 10)
+        .map((l) => ({ id: l.id, title: l.title, notes: l.notes ?? null, customData: l.customData ?? {} }));
+    };
+    return { leads: await leadRows(), attachments };
   }
 
   async get(tenantId: string, id: string): Promise<AttachmentInfo & { data: Buffer }> {

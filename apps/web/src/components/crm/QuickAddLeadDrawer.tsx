@@ -114,7 +114,7 @@ export function QuickAddLeadDrawer({
         const failures: string[] = [];
         let voice = attach.voice;
         if (voice) {
-          const r = await uploadAttachment(leadId, voice.blob, voiceFileName(voice.blob.type), voice.seconds);
+          const r = await uploadAttachment(leadId, voice.blob, voiceFileName(voice.blob.type), voice.seconds, voice.transcript);
           if (r.ok) voice = null;
           else failures.push(`${lang === 'ta' ? 'குரல் பதிவு' : 'Voice note'}: ${r.error}`);
         }

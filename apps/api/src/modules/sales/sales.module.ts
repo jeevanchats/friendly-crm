@@ -5,10 +5,14 @@ import { PdfEngineService } from './pdf/pdf-engine.service';
 import { CustomerQuoteService } from './customer-quote.service';
 import { QuoteLinkService } from './quote-link.service';
 import { PublicQuotesController } from './public-quotes.controller';
+import { QuoteReaderService } from './quote-reader.service';
+import { CrmModule } from '../crm/crm.module';
+import { ProductsModule } from '../products/products.module';
 
 @Module({
+  imports: [CrmModule, ProductsModule],
   controllers: [SalesController, PublicQuotesController],
-  providers: [SalesService, PdfEngineService, CustomerQuoteService, QuoteLinkService],
-  exports: [SalesService, PdfEngineService, CustomerQuoteService, QuoteLinkService],
+  providers: [SalesService, PdfEngineService, CustomerQuoteService, QuoteLinkService, QuoteReaderService],
+  exports: [SalesService, PdfEngineService, CustomerQuoteService, QuoteLinkService, QuoteReaderService],
 })
 export class SalesModule {}

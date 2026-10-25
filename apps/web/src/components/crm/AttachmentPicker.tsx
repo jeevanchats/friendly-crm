@@ -2,12 +2,14 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Mic, Square, Paperclip, Trash2, RotateCcw } from 'lucide-react';
-import { MAX_ATTACHMENTS_PER_LEAD, MAX_VOICE_SECONDS, validateAttachment } from '@friendly-crm/shared';
+import { MAX_ATTACHMENTS_PER_LEAD, MAX_TRANSCRIPT_CHARS, MAX_VOICE_SECONDS, validateAttachment } from '@friendly-crm/shared';
 import { formatClock, formatSize } from '../../lib/attachments';
 
 export interface VoiceClip {
   blob: Blob;
   seconds: number;
+  /** What was said, written down while recording (where the browser can) and editable. */
+  transcript: string;
 }
 
 export interface PickerValue {
@@ -21,6 +23,13 @@ const RECORDER_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'au
 function pickRecorderType(): string | undefined {
   if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return undefined;
   return RECORDER_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
+}
+
+/** The browser's own speech-to-text, where it has one (Chrome, Edge, Safari). It handles Tamil and Indian English. */
+function speechRecognitionCtor(): (new () => any) | null {
+  if (typeof window === 'undefined') return null;
+  const w = window as any;
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
 export function voiceFileName(mime: string): string {
@@ -39,6 +48,8 @@ const T = {
   attach: { en: 'Attach', ta: 'இணை' },
   noMic: { en: 'Voice recording is not available in this browser. You can attach an audio file instead.', ta: 'இந்த உலாவியில் குரல் பதிவு இல்லை. ஆடியோ கோப்பை இணைக்கவும்.' },
   denied: { en: 'The microphone is blocked. Allow it in the browser address bar, then try again.', ta: 'மைக்ரோஃபோன் தடுக்கப்பட்டுள்ளது. உலாவியில் அனுமதித்து மீண்டும் முயற்சிக்கவும்.' },
+  said: { en: 'What was said (check and correct; the quote is filled from this)', ta: 'பேசியது (சரிபார்த்து திருத்தவும்; இதிலிருந்து கொட்டேஷன் நிரப்பப்படும்)' },
+  saidHint: { en: 'Type what the customer said if this is empty. Without text, the voice note cannot be read automatically.', ta: 'காலியாக இருந்தால் வாடிக்கையாளர் சொன்னதை தட்டச்சு செய்யவும். எழுத்து இல்லையென்றால் குரல் பதிவை தானாகப் படிக்க முடியாது.' },
   tooMany: { en: `At most ${MAX_ATTACHMENTS_PER_LEAD} attachments.`, ta: `அதிகபட்சம் ${MAX_ATTACHMENTS_PER_LEAD} இணைப்புகள்.` },
 };
 
@@ -66,11 +77,19 @@ export function AttachmentPicker({
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedRef = useRef(0);
+  const speechRef = useRef<any>(null);
+  const heardRef = useRef('');
   const valueRef = useRef(value);
   valueRef.current = value;
   const canRecord = typeof window !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && !!pickRecorderType();
 
   const release = () => {
+    try {
+      speechRef.current?.stop();
+    } catch {
+      // already stopped
+    }
+    speechRef.current = null;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -111,6 +130,10 @@ export function AttachmentPicker({
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        // give the speech recogniser a moment to deliver its last words
+        setTimeout(finish, 400);
+      };
+      const finish = () => {
         const seconds = Math.min(MAX_VOICE_SECONDS, Math.round((Date.now() - startedRef.current) / 1000));
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || type || 'audio/webm' });
         release();
@@ -121,9 +144,29 @@ export function AttachmentPicker({
           setNotice(check.reason ?? null);
           return;
         }
-        onChange({ ...valueRef.current, voice: { blob, seconds } });
+        onChange({ ...valueRef.current, voice: { blob, seconds, transcript: heardRef.current.trim().slice(0, MAX_TRANSCRIPT_CHARS) } });
       };
       recorderRef.current = recorder;
+      heardRef.current = '';
+      const Speech = speechRecognitionCtor();
+      if (Speech) {
+        try {
+          const rec = new Speech();
+          rec.continuous = true;
+          rec.interimResults = false;
+          rec.lang = lang === 'ta' ? 'ta-IN' : 'en-IN';
+          rec.onresult = (ev: any) => {
+            for (let i = ev.resultIndex; i < ev.results.length; i++) {
+              if (ev.results[i].isFinal) heardRef.current += ` ${ev.results[i][0].transcript}`;
+            }
+          };
+          rec.onerror = () => undefined; // no speech text is not a failure: staff can type it
+          rec.start();
+          speechRef.current = rec;
+        } catch {
+          speechRef.current = null;
+        }
+      }
       startedRef.current = Date.now();
       setElapsed(0);
       recorder.start();
@@ -141,6 +184,11 @@ export function AttachmentPicker({
   };
 
   const stop = () => {
+    try {
+      speechRef.current?.stop(); // lets it deliver the last words before the clip is closed
+    } catch {
+      // already stopped
+    }
     const r = recorderRef.current;
     if (r && r.state !== 'inactive') r.stop();
   };
@@ -201,6 +249,20 @@ export function AttachmentPicker({
           </button>
         )}
         {!canRecord && !value.voice && <p className="mt-1 text-[11px] text-slate-500">{T.noMic[lang]}</p>}
+        {value.voice && !recording && (
+          <div className="mt-2">
+            <label className="mb-1 block text-[11px] font-semibold text-slate-500">{T.said[lang]}</label>
+            <textarea
+              rows={3}
+              maxLength={MAX_TRANSCRIPT_CHARS}
+              disabled={disabled}
+              value={value.voice.transcript}
+              onChange={(e) => onChange({ ...value, voice: { ...value.voice!, transcript: e.target.value } })}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
+            />
+            {!value.voice.transcript.trim() && <p className="mt-1 text-[11px] text-amber-700">{T.saidHint[lang]}</p>}
+          </div>
+        )}
       </div>
 
       {/* Files */}
