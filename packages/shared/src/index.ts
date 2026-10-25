@@ -21,3 +21,4 @@ export * from './product-import';
 export * from './attachments';
 export * from './quote-suggest';
 export * from './quote-text';
+export * from './credit-note';

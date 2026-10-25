@@ -454,6 +454,82 @@ export const invoiceCounters = pgTable(
   })
 );
 
+/**
+ * A GST credit note against an issued invoice (goods returned, discount after sale, correction, cancellation).
+ * Like an invoice it is a snapshot with a gapless number of its own and cannot be edited or deleted by the app.
+ * Issuing one lowers the order total (and so its balance) by `amount`.
+ */
+export const creditNotes = pgTable(
+  'credit_notes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    creditNoteNumber: varchar('credit_note_number', { length: 50 }).notNull(), // 'CN/2026-27/0001'
+    financialYear: varchar('financial_year', { length: 7 }).notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id).notNull(),
+    orderId: uuid('order_id').references(() => orders.id).notNull(),
+    customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    reason: varchar('reason', { length: 30 }).notNull(), // 'SALES_RETURN' | 'POST_SALE_DISCOUNT' | 'CORRECTION' | 'CANCELLATION' | 'OTHER'
+    reasonNote: text('reason_note'),
+    supplyType: varchar('supply_type', { length: 10 }).notNull(),
+    placeOfSupply: varchar('place_of_supply', { length: 2 }).notNull(),
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }).notNull(),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    roundOff: numeric('round_off', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    supplier: jsonb('supplier').$type<InvoiceParty>().notNull(),
+    buyer: jsonb('buyer').$type<InvoiceParty>().notNull(),
+    issuedById: uuid('issued_by_id').references(() => users.id),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tenantNumberIdx: uniqueIndex('credit_notes_tenant_number_idx').on(table.tenantId, table.creditNoteNumber),
+    invoiceIdx: index('credit_notes_invoice_idx').on(table.tenantId, table.invoiceId),
+  })
+);
+
+export const creditNoteItems = pgTable(
+  'credit_note_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    creditNoteId: uuid('credit_note_id').references(() => creditNotes.id, { onDelete: 'cascade' }).notNull(),
+    invoiceItemId: uuid('invoice_item_id').references(() => invoiceItems.id).notNull(),
+    lineNo: integer('line_no').notNull(),
+    itemName: varchar('item_name', { length: 200 }).notNull(),
+    description: text('description'),
+    hsnCode: varchar('hsn_code', { length: 8 }).notNull(),
+    quantity: numeric('quantity', { precision: 10, scale: 2 }).default('0.00').notNull(), // 0 for a value-only credit
+    unit: varchar('unit', { length: 30 }).notNull(),
+    unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+    taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).notNull(),
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }).notNull(),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
+  },
+  (table) => ({
+    noteIdx: index('credit_note_items_note_idx').on(table.tenantId, table.creditNoteId),
+    invoiceItemIdx: index('credit_note_items_invoice_item_idx').on(table.tenantId, table.invoiceItemId),
+  })
+);
+
+/** Last used credit note serial per business per financial year; incremented inside the issuing transaction. */
+export const creditNoteCounters = pgTable(
+  'credit_note_counters',
+  {
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    financialYear: varchar('financial_year', { length: 7 }).notNull(),
+    lastNumber: integer('last_number').default(0).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.tenantId, table.financialYear] }),
+  })
+);
+
 export const payments = pgTable(
   'payments',
   {

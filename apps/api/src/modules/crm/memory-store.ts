@@ -315,6 +315,9 @@ export const globalMemoryInvoices: Array<any> = [];
 export const globalMemoryInvoiceItems: Array<any> = [];
 /** Last invoice serial per `${tenantId}:${financialYear}`. */
 export const globalMemoryInvoiceCounters = new Map<string, number>();
+export const globalMemoryCreditNotes: Array<any> = [];
+export const globalMemoryCreditNoteItems: Array<any> = [];
+export const globalMemoryCreditNoteCounters = new Map<string, number>();
 export const globalMemoryPayments: Array<any> = [
   {
     id: 'pay-demo-1',

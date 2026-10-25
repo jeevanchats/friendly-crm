@@ -347,7 +347,7 @@ describe('GST invoices', () => {
 
       globalMemoryOrders.find((x) => x.id === o.id)!.balanceDue = '480.00';
       const part = await (await http(owner, `/invoices/${inv.id}`)).json();
-      expect(part.payment).toEqual({ paid: '700.00', balanceDue: '480.00', status: 'PARTIAL' });
+      expect(part.payment).toEqual({ paid: '700.00', balanceDue: '480.00', customerCredit: '0.00', status: 'PARTIAL' });
       globalMemoryOrders.find((x) => x.id === o.id)!.balanceDue = '0.00';
       expect((await (await http(owner, `/invoices/by-order/${o.id}`)).json()).payment.status).toBe('PAID');
 

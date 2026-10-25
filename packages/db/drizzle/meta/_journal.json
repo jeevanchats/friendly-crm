@@ -99,6 +99,13 @@
       "when": 1792711000000,
       "tag": "0013_attachment_transcript",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792712000000,
+      "tag": "0014_credit_notes",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../components/auth/AuthProvider';
 import { apiFetch } from '../../lib/session';
-import { downloadInvoicePdf } from '../../lib/invoice-pdf';
+import { downloadInvoicePdf, downloadCreditNotePdf } from '../../lib/invoice-pdf';
 
 interface InvoiceRow {
   id: string;
@@ -15,7 +15,19 @@ interface InvoiceRow {
   customerName: string;
   grandTotal: string;
   balanceDue: string;
-  status: 'UNPAID' | 'PARTIAL' | 'PAID';
+  credited: string;
+  status: 'UNPAID' | 'PARTIAL' | 'PAID' | 'CREDITED';
+}
+
+interface CreditNoteRow {
+  id: string;
+  creditNoteNumber: string;
+  issuedAt: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  reasonLabel: string;
+  grandTotal: string;
 }
 
 const rupees = (v: string) => `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -23,6 +35,7 @@ const STATUS_STYLE: Record<InvoiceRow['status'], string> = {
   PAID: 'bg-emerald-50 text-emerald-800',
   PARTIAL: 'bg-amber-50 text-amber-800',
   UNPAID: 'bg-rose-50 text-rose-800',
+  CREDITED: 'bg-slate-100 text-slate-600',
 };
 
 export default function InvoicesPage() {
@@ -31,6 +44,7 @@ export default function InvoicesPage() {
   const [lang, setLang] = useState<'en' | 'ta'>('en');
   const ta = lang === 'ta';
   const [rows, setRows] = useState<InvoiceRow[] | null>(null);
+  const [notes, setNotes] = useState<CreditNoteRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -38,7 +52,8 @@ export default function InvoicesPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch('/api/invoices');
+      const [res, cn] = await Promise.all([apiFetch('/api/invoices'), apiFetch('/api/credit-notes')]);
+      if (cn.ok) setNotes((await cn.json()).data);
       if (res.ok) setRows((await res.json()).data);
       else {
         setRows(null);
@@ -93,8 +108,13 @@ export default function InvoicesPage() {
               <div className="text-right">
                 <div className="text-sm font-extrabold text-[#243B40]">{rupees(r.grandTotal)}</div>
                 <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[r.status]}`}>
-                  {r.status === 'PAID' ? (ta ? 'செலுத்தப்பட்டது' : 'Paid') : r.status === 'PARTIAL' ? `${ta ? 'நிலுவை' : 'Due'} ${rupees(r.balanceDue)}` : ta ? 'செலுத்தவில்லை' : 'Unpaid'}
+                  {r.status === 'CREDITED'
+                    ? ta ? 'கிரெடிட் செய்யப்பட்டது' : 'Credited in full'
+                    : r.status === 'PAID' ? (ta ? 'செலுத்தப்பட்டது' : 'Paid') : r.status === 'PARTIAL' ? `${ta ? 'நிலுவை' : 'Due'} ${rupees(r.balanceDue)}` : ta ? 'செலுத்தவில்லை' : 'Unpaid'}
                 </span>
+                {Number(r.credited) > 0 && r.status !== 'CREDITED' && (
+                  <div className="mt-0.5 text-[10px] font-semibold text-amber-800">{ta ? 'கிரெடிட்' : 'Credit notes'} - {rupees(r.credited)}</div>
+                )}
               </div>
               <div className="flex w-full items-center gap-3 text-xs font-semibold">
                 <Link href={`/orders/${r.orderId}`} className="text-[#167D79] hover:underline">{ta ? 'ஆர்டர்' : 'Open order'}</Link>
@@ -112,6 +132,37 @@ export default function InvoicesPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {notes.length > 0 && (
+        <div className="space-y-2 pt-2">
+          <h2 className="text-sm font-extrabold text-[#243B40]">{ta ? 'கிரெடிட் நோட்கள்' : 'Credit notes'}</h2>
+          <ul className="space-y-2">
+            {notes.map((n) => (
+              <li key={n.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-[#243B40]">{n.creditNoteNumber}</div>
+                  <div className="truncate text-xs text-slate-500">
+                    {n.customerName} · {new Date(n.issuedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} · {n.reasonLabel} · {ta ? 'விலைப்பட்டியல்' : 'against'} {n.invoiceNumber}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-sm font-extrabold text-[#243B40]">- {rupees(n.grandTotal)}</div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const msg = await downloadCreditNotePdf(n.id, n.creditNoteNumber);
+                      if (msg) setError(msg);
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#167D79] hover:underline"
+                  >
+                    <Download className="w-3 h-3" /> PDF
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

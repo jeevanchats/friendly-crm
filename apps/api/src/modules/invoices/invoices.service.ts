@@ -44,6 +44,7 @@ import {
   globalMemoryInvoiceCounters,
   globalMemoryProducts,
 } from '../crm/memory-store';
+import { CreditNotesService } from './credit-notes.service';
 
 export type PlaceOfSupplySource = 'OVERRIDE' | 'CUSTOMER_GSTIN' | 'CUSTOMER_STATE' | 'DEFAULT_SUPPLIER_STATE';
 
@@ -120,9 +121,16 @@ export interface InvoiceView {
   buyer: InvoiceParty;
   lines: InvoiceLineView[];
   totals: InvoiceTotals;
-  /** Derived from the order's balance, not stored on the invoice. */
-  payment: { paid: string; balanceDue: string; status: 'UNPAID' | 'PARTIAL' | 'PAID' };
+  /** Total of credit notes issued against this invoice. */
+  credited: string;
+  /** What the invoice is worth after credit notes (grand total minus credited). */
+  netTotal: string;
+  /** Derived from the order's balance, not stored on the invoice. `customerCredit` is set when credit notes exceed what is owed. */
+  payment: { paid: string; balanceDue: string; customerCredit: string; status: InvoicePayStatus };
 }
+
+/** CREDITED: credit notes have taken back the whole invoice. */
+export type InvoicePayStatus = 'UNPAID' | 'PARTIAL' | 'PAID' | 'CREDITED';
 
 export interface InvoiceSummary {
   id: string;
@@ -132,7 +140,8 @@ export interface InvoiceSummary {
   customerName: string;
   grandTotal: string;
   balanceDue: string;
-  status: 'UNPAID' | 'PARTIAL' | 'PAID';
+  credited: string;
+  status: InvoicePayStatus;
 }
 
 interface Ctx {
@@ -146,8 +155,8 @@ interface Ctx {
 const toPaise = (v: unknown) => Math.round(Number(v) * 100);
 const money = (paise: number) => (paise / 100).toFixed(2);
 const stateName = (code: string) => GST_STATES[code] ?? code;
-const payStatus = (totalPaise: number, balancePaise: number): 'UNPAID' | 'PARTIAL' | 'PAID' =>
-  balancePaise <= 0 ? 'PAID' : balancePaise >= totalPaise ? 'UNPAID' : 'PARTIAL';
+const payStatus = (netPaise: number, balancePaise: number): InvoicePayStatus =>
+  netPaise <= 0 ? 'CREDITED' : balancePaise <= 0 ? 'PAID' : balancePaise >= netPaise ? 'UNPAID' : 'PARTIAL';
 
 /**
  * Issues GST tax invoices from orders. An issued invoice is a snapshot (business, buyer and lines as they were)
@@ -156,6 +165,8 @@ const payStatus = (totalPaise: number, balancePaise: number): 'UNPAID' | 'PARTIA
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
+
+  constructor(private readonly creditNotes: CreditNotesService) {}
 
   // ---------------------------------------------------------------- public API
 
@@ -273,7 +284,7 @@ export class InvoicesService {
           if (h) it.hsnCode = h;
         }
       }
-      return this.toView(row, lineRows, ctx.order);
+      return this.toView(row, lineRows, ctx.order, 0);
     };
 
     try {
@@ -316,8 +327,10 @@ export class InvoicesService {
           .slice(0, limit);
         orderById = new Map(globalMemoryOrders.filter((o) => o.tenantId === tenantId).map((o) => [o.id, o]));
       }
+      const credited = await this.creditNotes.creditedTotals(tx, tenantId, inv.map((i) => i.id));
       return inv.map((i) => {
         const total = toPaise(i.amount);
+        const creditedPaise = credited.get(i.id) ?? 0;
         const balance = toPaise(orderById.get(i.orderId)?.balanceDue ?? i.amount);
         return {
           id: i.id,
@@ -327,7 +340,8 @@ export class InvoicesService {
           customerName: (i.buyer as InvoiceParty | null)?.name ?? '',
           grandTotal: money(total),
           balanceDue: money(Math.max(0, balance)),
-          status: payStatus(total, balance),
+          credited: money(creditedPaise),
+          status: payStatus(total - creditedPaise, balance),
         };
       });
     });
@@ -441,9 +455,14 @@ export class InvoicesService {
     };
   }
 
-  private toView(inv: any, lines: any[], order: any): InvoiceView {
+  private toView(inv: any, lines: any[], order: any, creditedPaise: number): InvoiceView {
     const total = toPaise(inv.amount);
-    const balance = toPaise(order?.balanceDue ?? inv.amount);
+    const net = total - creditedPaise;
+    // The order's balance already has credit notes taken off its total; negative means the customer is in credit.
+    const balance = toPaise(order?.balanceDue ?? net);
+    // Received = what the invoice is worth minus what is still owed. When credit notes exceed what was owed, balance is
+    // negative and this comes out as the full amount the customer paid.
+    const paid = Math.max(0, net - balance);
     return {
       id: inv.id,
       invoiceNumber: inv.invoiceNumber,
@@ -481,7 +500,9 @@ export class InvoicesService {
         roundOff: String(inv.roundOff),
         grandTotal: String(inv.amount),
       },
-      payment: { paid: money(Math.max(0, total - Math.max(0, balance))), balanceDue: money(Math.max(0, balance)), status: payStatus(total, balance) },
+      credited: money(creditedPaise),
+      netTotal: money(net),
+      payment: { paid: money(paid), balanceDue: money(Math.max(0, balance)), customerCredit: money(Math.max(0, -balance)), status: payStatus(net, balance) },
     };
   }
 
@@ -596,7 +617,8 @@ export class InvoicesService {
     if (!inv) return null;
     const lines = await tx.select().from(invoiceItems).where(and(eq(invoiceItems.invoiceId, inv.id), eq(invoiceItems.tenantId, tenantId)));
     const [order] = await tx.select().from(orders).where(and(eq(orders.id, inv.orderId), eq(orders.tenantId, tenantId))).limit(1);
-    return this.toView(inv, lines, order);
+    const credited = (await this.creditNotes.creditedTotals(tx, tenantId, [inv.id])).get(inv.id) ?? 0;
+    return this.toView(inv, lines, order, credited);
   }
 
   private async readMemory(tenantId: string, by: { id?: string; orderId?: string }): Promise<InvoiceView | null> {
@@ -604,6 +626,7 @@ export class InvoicesService {
     if (!inv) return null;
     const lines = globalMemoryInvoiceItems.filter((l) => l.invoiceId === inv.id && l.tenantId === tenantId);
     const order = globalMemoryOrders.find((o) => o.id === inv.orderId && o.tenantId === tenantId);
-    return this.toView(inv, lines, order);
+    const credited = (await this.creditNotes.creditedTotals(null, tenantId, [inv.id])).get(inv.id) ?? 0;
+    return this.toView(inv, lines, order, credited);
   }
 }

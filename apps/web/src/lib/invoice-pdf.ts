@@ -27,5 +27,8 @@ const safeName = (s: string) => s.replace(/[^A-Za-z0-9-]/g, '-');
 export const downloadInvoicePdf = (invoiceId: string, invoiceNumber: string) =>
   downloadAuthedFile(`/api/invoices/${invoiceId}/pdf`, `Invoice-${safeName(invoiceNumber)}.pdf`);
 
+export const downloadCreditNotePdf = (creditNoteId: string, creditNoteNumber: string) =>
+  downloadAuthedFile(`/api/credit-notes/${creditNoteId}/pdf`, `CreditNote-${safeName(creditNoteNumber)}.pdf`);
+
 export const downloadQuotationPdf = (quotationId: string, quoteNumber: string) =>
   downloadAuthedFile(`/api/sales/quotations/${quotationId}/pdf`, `Quotation-${safeName(quoteNumber)}.pdf`);

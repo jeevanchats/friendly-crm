@@ -6,6 +6,7 @@ import { FileText, Download, RefreshCw } from 'lucide-react';
 import { GST_STATES, hasPermission, isValidHsn, TenantRole } from '@friendly-crm/shared';
 import { apiFetch } from '../../lib/session';
 import { downloadInvoicePdf } from '../../lib/invoice-pdf';
+import { CreditNotePanel } from './CreditNotePanel';
 
 interface PreparedLine {
   orderItemId: string;
@@ -29,7 +30,9 @@ interface IssuedInvoice {
   invoiceNumber: string;
   issuedAt: string;
   totals: { grandTotal: string };
-  payment: { status: string };
+  credited?: string;
+  netTotal?: string;
+  payment: { status: string; customerCredit?: string };
 }
 
 const rupees = (v: string) => `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -147,6 +150,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
   // ---- already invoiced
   if (invoice) {
     return (
+      <div className="space-y-3">
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-2" aria-label={ta ? 'GST விலைப்பட்டியல்' : 'GST invoice'}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-extrabold text-[#243B40]">
@@ -159,6 +163,16 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
         </div>
         <div className="text-xs text-slate-500">
           {new Date(invoice.issuedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} · {rupees(invoice.totals.grandTotal)}
+          {Number(invoice.credited ?? 0) > 0 && (
+            <span className="ml-1 font-semibold text-amber-800">
+              · {ta ? 'கிரெடிட்' : 'credited'} {rupees(invoice.credited as string)} → {ta ? 'நிகரம்' : 'net'} {rupees(invoice.netTotal ?? '0')}
+            </span>
+          )}
+          {Number(invoice.payment.customerCredit ?? 0) > 0 && (
+            <span className="block font-semibold text-amber-800">
+              {ta ? 'வாடிக்கையாளருக்கு கிரெடிட்' : 'Customer is in credit by'} {rupees(invoice.payment.customerCredit as string)}
+            </span>
+          )}
         </div>
         <button type="button" onClick={download} className="inline-flex items-center gap-1.5 rounded-lg bg-[#167D79] px-3 py-1.5 text-xs font-bold text-white">
           <Download className="w-3.5 h-3.5" />
@@ -166,6 +180,8 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
         </button>
         {message && <p role="alert" className="text-xs font-semibold text-red-700">{message}</p>}
       </section>
+      <CreditNotePanel invoiceId={invoice.id} role={role} lang={lang} onChanged={loadExisting} />
+      </div>
     );
   }
 

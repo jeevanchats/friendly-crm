@@ -18,7 +18,7 @@ npm run dev -- --env-mode=loose
 - Web app: http://localhost:3000   API: http://localhost:4000/api
 - The first visit to each page compiles it and can take 20-40 seconds. Later visits are instant.
 - Tamil text can look garbled in the console. Run `chcp 65001` first, or ignore it; the web pages are fine.
-- Postgres must be running (database `friendly_crm`). Migrations 0001-0013 are already applied to it.
+- Postgres must be running (database `friendly_crm`). Migrations 0001-0014 are already applied to it.
 
 ## 2. Log in
 
@@ -57,10 +57,10 @@ No leads, quotes, GSTIN or UPI ID are set yet. Most of the walkthrough below use
 | Products | `/products` | Your product and service list: search, **Add product**, edit, archive. Each has code, HSN/SAC, unit, rate (before GST) and GST % |
 | Import products | `/products/import` | Upload a CSV or paste from Excel, check the columns, preview, import. Skips or updates products with the same name or code |
 | Orders | `/orders` | List and stage filter |
-| Order detail | `/orders/<id>` | Stage card (move the order forward), payments, **Issue GST invoice** panel |
+| Order detail | `/orders/<id>` | Stage card (move the order forward), payments, **Issue GST invoice** panel. Once invoiced, a **Credit notes** box: **Issue credit note** to take back goods returned (quantity per item), give a discount after the sale or correct a value (amount per item), or **Cancel the whole invoice**. The exact total (CGST/SGST or IGST) is shown before you issue it |
 | Inbox | `/inbox` | Customer change requests from WhatsApp, and approved orders still waiting for payment |
 | Dues ("Who owes me") | `/dues` | Total, ageing buckets (click to filter), per-customer **Send reminder**, WhatsApp / Call links. Money owed from before Friendly CRM shows as a purple **Before Friendly CRM** bucket; expand a customer and press **Record payment received** to clear it |
-| Invoices | `/invoices` | Issued GST invoices with PDF download and paid / due status |
+| Invoices | `/invoices` | Issued GST invoices with PDF download and paid / due / credited status, and below them the credit notes issued |
 | Reports | `/reports` | Funnel, pending collections, repeat opportunities. Owner / Manager / Accounts only |
 | Settings | `/settings` | Owner only: legal name, GSTIN, address, UPI ID, automatic reminder schedule |
 
@@ -134,7 +134,7 @@ WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows t
 
 - **No Razorpay / card payments** (no keys). Payments are UPI links plus staff recording the payment.
 - **No e-invoice or e-way bill** (needs government API access).
-- **One invoice per order**, and issued invoices cannot be cancelled or credit-noted yet.
+- **One invoice per order.** Credit notes (own series `CN/2026-27/0001`) reduce an issued invoice but an order cannot be invoiced a second time: after a full cancellation the order stays un-invoiced-able. A credit note lowers the order total and balance; if the invoice was already paid the balance goes negative, meaning the customer is in credit with you (shown on the invoice; the customer list may show it as a negative balance). Refunding that money is done outside the app. Credit notes are not sent to the customer automatically.
 - **A customer cannot reply "stop"** to automatic reminders on WhatsApp; staff set it on the customer page.
 - **Quote links only reach other phones once the server has a public address.** Locally the link in the quote message points at `http://localhost:4000` (works on this computer only). For real use set `PUBLIC_API_URL` (the address customers can reach) and `QUOTE_LINK_SECRET` (16+ random characters); without them in production no link is sent.
 - **Customers in credit (advances)** cannot be imported yet; a negative balance is rejected.
