@@ -11,6 +11,7 @@ import { InMemorySessionStore } from './session-store';
 import { CustomerIdentityService } from './customer-identity.service';
 import { TenantService } from '../../tenant/tenant.service';
 import { CustomerQuoteService } from '../../sales/customer-quote.service';
+import { CustomersService } from '../../crm/customers.service';
 
 /**
  * Wires the pure ConversationEngine to the real CRM / Orders / Auth services and sends replies.
@@ -28,7 +29,8 @@ export class WhatsAppBotService {
     private readonly providers: TenantNotificationProviderManager,
     private readonly customerIdentity: CustomerIdentityService,
     private readonly tenants: TenantService,
-    private readonly customerQuotes: CustomerQuoteService
+    private readonly customerQuotes: CustomerQuoteService,
+    private readonly customersService: CustomersService
   ) {
     this.engine = new ConversationEngine(this.buildPorts(), new InMemorySessionStore<BotSession>());
   }
@@ -91,6 +93,9 @@ export class WhatsAppBotService {
           expectedDeliveryAt: r.expectedDeliveryAt ?? null,
         }));
       },
+
+      // The balance carried over from before Friendly CRM, for the same verified customer only.
+      getCustomerOpeningBalance: (who) => this.customersService.getOpeningBalance(who.tenantId, who.customerId),
 
       // Quote decisions: tenantId/customerId come from the verified phone lookup, never from message text.
       listCustomerQuotes: (who) => this.customerQuotes.listForCustomer(who.tenantId, who.customerId),

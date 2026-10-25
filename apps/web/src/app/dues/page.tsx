@@ -7,7 +7,7 @@ import { hasPermission } from '@friendly-crm/shared';
 import { useAuth } from '../../components/auth/AuthProvider';
 import { apiFetch } from '../../lib/session';
 
-type BucketKey = '0-30' | '31-60' | '61-90' | '90+';
+type BucketKey = '0-30' | '31-60' | '61-90' | '90+' | 'OPENING';
 
 interface DueOrder {
   orderId: string;
@@ -23,6 +23,7 @@ interface DueCustomer {
   companyName: string | null;
   phone: string;
   totalDue: string;
+  openingBalance: string;
   oldestAgeDays: number;
   bucket: BucketKey;
   orders: DueOrder[];
@@ -45,6 +46,7 @@ const BUCKET_STYLE: Record<BucketKey, string> = {
   '31-60': 'bg-amber-50 text-amber-800 border-amber-200',
   '61-90': 'bg-orange-50 text-orange-800 border-orange-200',
   '90+': 'bg-rose-50 text-rose-800 border-rose-200',
+  OPENING: 'bg-violet-50 text-violet-800 border-violet-200',
 };
 
 const ago = (iso: string) => {
@@ -68,6 +70,7 @@ export default function DuesPage() {
   const [notice, setNotice] = useState<{ id: string; ok: boolean; text: string } | null>(null);
 
   const ta = lang === 'ta';
+  const canRecord = hasPermission(active!.role, 'payment:create');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,8 +127,11 @@ export default function DuesPage() {
     }
   };
 
-  const rows = data ? data.customers.filter((c) => !filter || c.orders.some((o) => o.bucket === filter)) : [];
-  const bucketLabel = (k: BucketKey) => (ta ? `${k} நாள்` : `${k} days`);
+  const rows = data ? data.customers.filter(
+        (c) => !filter || (filter === 'OPENING' ? Number(c.openingBalance) > 0 : c.orders.some((o) => o.bucket === filter))
+      ) : [];
+  const bucketLabel = (k: BucketKey) =>
+    k === 'OPENING' ? (ta ? 'முந்தைய நிலுவை' : 'Before Friendly CRM') : ta ? `${k} நாள்` : `${k} days`;
 
   return (
     <div className="space-y-5">
@@ -165,7 +171,7 @@ export default function DuesPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label={ta ? 'வயது வாரியாக' : 'Filter by age'}>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" role="group" aria-label={ta ? 'வயது வாரியாக' : 'Filter by age'}>
             {data.buckets.map((b) => (
               <button
                 key={b.key}
@@ -201,7 +207,7 @@ export default function DuesPage() {
                         </Link>
                         {c.companyName && <div className="truncate text-xs text-slate-400">{c.companyName}</div>}
                         <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${BUCKET_STYLE[c.bucket]}`}>
-                          {ta ? `${c.oldestAgeDays} நாள்` : `oldest ${c.oldestAgeDays}d`}
+                          {c.orders.length === 0 ? bucketLabel('OPENING') : ta ? `${c.oldestAgeDays} நாள்` : `oldest ${c.oldestAgeDays}d`}
                         </span>
                       </div>
                       <div className="text-right text-lg font-extrabold text-[#243B40]">{rupees(c.totalDue)}</div>
@@ -252,6 +258,27 @@ export default function DuesPage() {
 
                     {expanded && (
                       <ul className="divide-y divide-slate-100 rounded-xl bg-slate-50 text-xs">
+                        {Number(c.openingBalance) > 0 && (
+                          <li className="space-y-2 px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-bold text-violet-800">
+                                {ta ? 'முந்தைய நிலுவை' : 'Previous balance (before Friendly CRM)'}
+                              </span>
+                              <span className="font-semibold text-slate-700">{rupees(c.openingBalance)}</span>
+                            </div>
+                            {canRecord && (
+                              <OpeningPaymentForm
+                                customerId={c.customerId}
+                                owed={c.openingBalance}
+                                ta={ta}
+                                onDone={(msg) => {
+                                  setNotice({ id: c.customerId, ok: true, text: msg });
+                                  load();
+                                }}
+                              />
+                            )}
+                          </li>
+                        )}
                         {c.orders.map((o) => (
                           <li key={o.orderId} className="flex items-center justify-between gap-3 px-3 py-2">
                             <Link href={`/orders/${o.orderId}`} className="font-bold text-[#167D79] hover:underline">{o.orderNumber}</Link>
@@ -269,5 +296,74 @@ export default function DuesPage() {
         </>
       )}
     </div>
+  );
+}
+
+/** Records money received against a customer's old (pre-Friendly CRM) balance. */
+function OpeningPaymentForm({ customerId, owed, ta, onDone }: { customerId: string; owed: string; ta: boolean; onDone: (message: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [mode, setMode] = useState('UPI');
+  const [ref, setRef] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // One key per attempt, so a double click cannot record the payment twice.
+  const [key, setKey] = useState(() => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now())));
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="rounded-lg border border-violet-300 bg-white px-3 py-1 text-[11px] font-bold text-violet-800">
+        {ta ? 'பணம் பெற்றதைப் பதி' : 'Record payment received'}
+      </button>
+    );
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/receivables/customers/${customerId}/payments`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'idempotency-key': key },
+        body: JSON.stringify({ amount: Number(amount), mode, referenceNo: ref || undefined }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setKey(String(Date.now()));
+        setOpen(false);
+        setAmount('');
+        setRef('');
+        onDone(ta ? `ரசீது ${body.receiptNumber} அனுப்பப்பட்டது.` : `Recorded. Receipt ${body.receiptNumber} sent to the customer.`);
+      } else {
+        setError(Array.isArray(body.message) ? body.message.join(' ') : body.message || `Could not record the payment (${res.status}).`);
+      }
+    } catch {
+      setError(ta ? 'சர்வரை அடைய முடியவில்லை.' : 'Could not reach the server.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = 'rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs';
+  return (
+    <form onSubmit={submit} className="space-y-2 rounded-lg bg-white p-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input aria-label="Amount" className={`${field} w-28`} inputMode="decimal" placeholder={ta ? 'தொகை' : 'Amount'} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <button type="button" onClick={() => setAmount(owed)} className="text-[11px] font-bold text-violet-800 underline">{ta ? 'முழுவதும்' : 'Full'} {rupees(owed)}</button>
+        <select aria-label="Mode" className={field} value={mode} onChange={(e) => setMode(e.target.value)}>
+          <option value="UPI">UPI</option>
+          <option value="CASH">Cash</option>
+          <option value="BANK_TRANSFER">Bank transfer</option>
+          <option value="CHEQUE">Cheque</option>
+        </select>
+        <input aria-label="Reference" className={`${field} w-32`} placeholder={ta ? 'UTR / எண் (விருப்பம்)' : 'UTR / ref (optional)'} value={ref} onChange={(e) => setRef(e.target.value)} />
+      </div>
+      {error && <p role="alert" className="text-[11px] font-semibold text-red-700">{error}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={busy || !amount} className="rounded-lg bg-violet-700 px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">{busy ? '…' : ta ? 'பதி' : 'Record'}</button>
+        <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-slate-300 px-3 py-1 text-[11px] font-bold text-slate-600">{ta ? 'ரத்து' : 'Cancel'}</button>
+      </div>
+    </form>
   );
 }

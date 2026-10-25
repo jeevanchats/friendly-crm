@@ -1,18 +1,26 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, gt, inArray } from 'drizzle-orm';
-import { db, sql, orders, customers, activities, tenants } from '@friendly-crm/db';
+import { db, sql, orders, customers, activities, tenants, payments } from '@friendly-crm/db';
 import {
   globalMemoryOrders,
   globalMemoryCustomers,
   globalMemoryActivities,
   globalMemoryTenants,
+  globalMemoryPayments,
 } from '../crm/memory-store';
+import {
+  getNextDbDocumentNumber,
+  getNextMemoryDocumentNumber,
+  getIdempotentResult,
+  setIdempotentResult,
+} from '../../common/utils/document-number.util';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
 import { buildReminderMessage } from './reminder-message';
 
-export type AgeBucketKey = '0-30' | '31-60' | '61-90' | '90+';
-const BUCKET_KEYS: AgeBucketKey[] = ['0-30', '31-60', '61-90', '90+'];
+/** Age of an unpaid order since it was placed, or OPENING: money owed from before Friendly CRM (age unknown). */
+export type AgeBucketKey = '0-30' | '31-60' | '61-90' | '90+' | 'OPENING';
+const BUCKET_KEYS: AgeBucketKey[] = ['0-30', '31-60', '61-90', '90+', 'OPENING'];
 const DAY_MS = 86_400_000;
 /** One reminder per customer per this long, so a double click or a busy afternoon cannot spam a customer. */
 export const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -31,7 +39,10 @@ export interface DueCustomer {
   name: string;
   companyName: string | null;
   phone: string;
+  /** Everything owed: open order balances plus the opening balance. */
   totalDue: string;
+  /** Owed from before Friendly CRM; part of totalDue. Cleared by recording payments on account. */
+  openingBalance: string;
   oldestAgeDays: number;
   bucket: AgeBucketKey;
   orders: DueOrder[];
@@ -156,7 +167,7 @@ export class ReceivablesService {
   ): Promise<ReminderResult> {
     const { orderRows, custRows, reminders } = await this.load(tenantId, customerId);
     const view = this.build(orderRows, custRows, reminders, now);
-    const cust = view.customers[0];
+    const cust = view.customers.find((c) => c.customerId === customerId);
     if (!cust) throw new NotFoundException('This customer has nothing outstanding.');
 
     if (cust.lastReminderAt && now.getTime() - new Date(cust.lastReminderAt).getTime() < REMINDER_COOLDOWN_MS) {
@@ -179,7 +190,12 @@ export class ReceivablesService {
       tenantName: tenant.name,
       tenantPhone: tenant.phone,
       upiId: tenant.upiId,
-      orders: cust.orders.map((o) => ({ orderNumber: o.orderNumber, duePaise: toPaise(o.balanceDue) })),
+      orders: [
+        ...cust.orders.map((o) => ({ orderNumber: o.orderNumber, duePaise: toPaise(o.balanceDue) })),
+        ...(toPaise(cust.openingBalance) > 0
+          ? [{ orderNumber: lang === 'ta' ? 'முந்தைய நிலுவை' : 'Previous balance', duePaise: toPaise(cust.openingBalance) }]
+          : []),
+      ],
     });
 
     const job: any = await this.outbox.enqueueNotification({ tenantId, recipient, rawMessage: message, lang });
@@ -201,6 +217,177 @@ export class ReceivablesService {
     return { customerId, sentTo: recipient, totalDue: cust.totalDue, status };
   }
 
+  // ---- payments on account (opening balances) ----
+
+  /**
+   * Records money received against a customer's OPENING balance (what they owed before Friendly CRM), which no
+   * order carries. It lowers the opening balance, writes a receipt, and WhatsApps the customer the receipt.
+   * Payments against an order's own balance go through the order instead.
+   */
+  async recordOpeningPayment(
+    tenantId: string,
+    actorId: string,
+    customerId: string,
+    dto: { amount?: unknown; mode?: unknown; referenceNo?: unknown; notes?: unknown },
+    idempotencyKey?: string
+  ) {
+    const rupees = Number(dto.amount);
+    const paise = Math.round(rupees * 100);
+    if (!Number.isFinite(rupees) || paise <= 0 || paise > 99_999_999_999) {
+      throw new BadRequestException('Payment amount must be greater than zero');
+    }
+    if (Math.abs(rupees * 100 - paise) > 1e-6) throw new BadRequestException('Payment amount can have at most two decimal places');
+    const mode = String(dto.mode ?? 'UPI').toUpperCase();
+    if (!['UPI', 'CASH', 'BANK_TRANSFER', 'CHEQUE'].includes(mode)) {
+      throw new BadRequestException('Payment mode must be UPI, CASH, BANK_TRANSFER or CHEQUE');
+    }
+    const reference = typeof dto.referenceNo === 'string' && dto.referenceNo.trim() ? dto.referenceNo.trim().slice(0, 100) : null;
+    const notes = typeof dto.notes === 'string' && dto.notes.trim() ? dto.notes.trim().slice(0, 500) : 'Payment against opening balance';
+
+    if (idempotencyKey) {
+      const cached = getIdempotentResult(tenantId, 'record-opening-payment', idempotencyKey);
+      if (cached) return { ...cached, isIdempotent: true };
+    }
+
+    const tooMuch = (balance: number) =>
+      new BadRequestException(`Payment (₹${money(paise)}) is more than the opening balance still owed (₹${money(balance)})`);
+    let result: { receiptNumber: string; amount: string; openingBalanceRemaining: string; totalRemaining: string; customerName: string; phone: string };
+
+    const done = async () => {
+      if (idempotencyKey) setIdempotentResult(tenantId, 'record-opening-payment', idempotencyKey, result);
+      if (result.phone) {
+        this.outbox
+          .enqueueNotification({
+            tenantId,
+            recipient: result.phone,
+            templateKey: 'PAYMENT_RECEIPT',
+            params: {
+              customerName: result.customerName,
+              amount: result.amount,
+              mode,
+              receiptNumber: result.receiptNumber,
+              balanceRemaining: result.totalRemaining,
+            },
+          })
+          .catch((e: any) => this.logger.warn(`Receipt enqueue failed: ${e.message}`));
+      }
+      return result;
+    };
+
+    try {
+      if (db && typeof db.transaction === 'function') {
+        await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          if (reference) {
+            const [dup] = await tx
+              .select({ id: payments.id })
+              .from(payments)
+              .where(and(eq(payments.tenantId, tenantId), eq(payments.customerId, customerId), eq(payments.referenceNo, reference)))
+              .limit(1);
+            if (dup) throw new BadRequestException(`A payment with reference '${reference}' has already been recorded for this customer`);
+          }
+          // One atomic statement: it only subtracts if enough is still owed, so two staff cannot overdraw it.
+          const [cust] = await tx
+            .update(customers)
+            .set({ openingBalance: sql`${customers.openingBalance} - ${money(paise)}::numeric`, updatedAt: new Date() })
+            .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId), sql`${customers.openingBalance} >= ${money(paise)}::numeric`))
+            .returning();
+          if (!cust) {
+            const [exists] = await tx
+              .select()
+              .from(customers)
+              .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)))
+              .limit(1);
+            if (!exists) throw new NotFoundException('Customer not found');
+            throw tooMuch(toPaise(exists.openingBalance));
+          }
+          const receiptNumber = await getNextDbDocumentNumber(tx, payments, payments.receiptNumber, 'RCP', tenantId);
+          await tx.insert(payments).values({
+            tenantId,
+            receiptNumber,
+            customerId,
+            orderId: null,
+            amount: money(paise),
+            mode,
+            referenceNo: reference,
+            receivedById: actorId,
+            notes,
+            paidAt: new Date(),
+          });
+          await tx.insert(activities).values({
+            tenantId,
+            actorId,
+            entityType: 'CUSTOMER',
+            entityId: customerId,
+            action: 'OPENING_BALANCE_PAYMENT',
+            metadata: { receiptNumber, amount: money(paise), mode, openingBalanceRemaining: String(cust.openingBalance) },
+          });
+          const open = await tx
+            .select({ balance: orders.balanceDue })
+            .from(orders)
+            .where(and(eq(orders.tenantId, tenantId), eq(orders.customerId, customerId), gt(orders.balanceDue, '0')));
+          const orderBalance = open.reduce((s: number, o: any) => s + toPaise(o.balance), 0);
+          result = {
+            receiptNumber,
+            amount: money(paise),
+            openingBalanceRemaining: money(toPaise(cust.openingBalance)),
+            totalRemaining: money(toPaise(cust.openingBalance) + orderBalance),
+            customerName: cust.name,
+            phone: cust.whatsappNumber || cust.phone || '',
+          };
+        });
+        return await done();
+      }
+    } catch (err: any) {
+      if (err instanceof HttpException) throw err;
+      this.logger.warn(`Postgres offline; recording the payment in memory: ${err.message}`);
+    }
+
+    const cust: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
+    if (!cust) throw new NotFoundException('Customer not found');
+    const owed = toPaise(cust.openingBalance);
+    if (paise > owed) throw tooMuch(owed);
+    if (reference && globalMemoryPayments.some((p) => p.tenantId === tenantId && p.customerId === customerId && p.referenceNo === reference)) {
+      throw new BadRequestException(`A payment with reference '${reference}' has already been recorded for this customer`);
+    }
+    const receiptNumber = getNextMemoryDocumentNumber(globalMemoryPayments, 'receiptNumber', 'RCP', tenantId);
+    cust.openingBalance = money(owed - paise);
+    globalMemoryPayments.unshift({
+      id: randomUUID(),
+      tenantId,
+      receiptNumber,
+      customerId,
+      orderId: null,
+      amount: money(paise),
+      mode,
+      referenceNo: reference,
+      receivedById: actorId,
+      paidAt: new Date(),
+      notes,
+    });
+    globalMemoryActivities.unshift({
+      id: randomUUID(),
+      tenantId,
+      actorId,
+      entityType: 'CUSTOMER',
+      entityId: customerId,
+      action: 'OPENING_BALANCE_PAYMENT',
+      metadata: { receiptNumber, amount: money(paise), mode, openingBalanceRemaining: cust.openingBalance },
+      createdAt: new Date(),
+    } as any);
+    const orderBalance = globalMemoryOrders
+      .filter((o: any) => o.tenantId === tenantId && o.customerId === customerId && o.productionStage !== 'CANCELLED')
+      .reduce((s: number, o: any) => s + toPaise(o.balanceDue), 0);
+    result = {
+      receiptNumber,
+      amount: money(paise),
+      openingBalanceRemaining: cust.openingBalance,
+      totalRemaining: money(toPaise(cust.openingBalance) + orderBalance),
+      customerName: cust.name,
+      phone: cust.whatsappNumber || cust.phone || '',
+    };
+    return await done();
+  }
   // ---- automatic reminders ----
 
   /**
@@ -325,25 +512,42 @@ export class ReceivablesService {
       if (!oldestPlaced.has(o.customerId) || placed < oldestPlaced.get(o.customerId)!) oldestPlaced.set(o.customerId, placed);
     }
 
+    // Customers owe money either through open orders or through an opening balance (or both)
+    const dueIds = new Set<string>(byCustomer.keys());
+    for (const c of custRows) if (toPaise(c.openingBalance) > 0) dueIds.add(c.id);
+    const openingTotals = bucketTotals.get('OPENING')!;
+
     const rows: DueCustomer[] = [];
-    for (const [customerId, list] of byCustomer) {
+    for (const customerId of dueIds) {
       const c = custById.get(customerId);
+      if (!c) continue;
+      const list = byCustomer.get(customerId) ?? [];
       list.sort((a, b) => b.ageDays - a.ageDays);
-      const total = list.reduce((s, o) => s + toPaise(o.balanceDue), 0);
+      const opening = toPaise(c.openingBalance);
+      if (opening > 0) {
+        openingTotals.paise += opening;
+        openingTotals.count += 1;
+      }
+      const total = list.reduce((s, o) => s + toPaise(o.balanceDue), 0) + opening;
       const log = reminders.get(customerId) ?? [];
       const last = log.reduce<Date | null>((m, r) => (!m || r.at > m ? r.at : m), null);
-      const since = oldestPlaced.get(customerId) ?? 0;
+      // An opening balance has no order date; it counts from the day the customer joined Friendly CRM, so
+      // automatic reminders for imported balances start after the usual grace period, not on import day.
+      const joined = new Date(c.createdAt ?? now).getTime();
+      const since = Math.min(oldestPlaced.get(customerId) ?? Infinity, opening > 0 ? joined : Infinity);
+      const openingAge = opening > 0 ? Math.max(0, Math.floor((now.getTime() - joined) / DAY_MS)) : 0;
       rows.push({
         customerId,
         name: c.name,
         companyName: c.companyName ?? null,
         phone: c.whatsappNumber || c.phone || '',
         totalDue: money(total),
-        oldestAgeDays: list[0].ageDays,
-        bucket: list[0].bucket,
+        openingBalance: money(opening),
+        oldestAgeDays: Math.max(list[0]?.ageDays ?? 0, openingAge),
+        bucket: list.length > 0 ? list[0].bucket : 'OPENING',
         orders: list,
         lastReminderAt: last ? last.toISOString() : null,
-        autoRemindersSent: log.filter((r) => r.auto && r.at.getTime() >= since).length,
+        autoRemindersSent: log.filter((r) => r.auto && r.at.getTime() >= (Number.isFinite(since) ? since : 0)).length,
         remindersOptOut: c.remindersOptOut === true,
       });
     }
@@ -378,7 +582,17 @@ export class ReceivablesService {
                 ...(onlyCustomerId ? [eq(orders.customerId, onlyCustomerId)] : [])
               )
             );
-          const ids = [...new Set(orderRows.map((o: any) => o.customerId))] as string[];
+          const openingRows = await tx
+            .select({ id: customers.id })
+            .from(customers)
+            .where(
+              and(
+                eq(customers.tenantId, tenantId),
+                gt(customers.openingBalance, '0'),
+                ...(onlyCustomerId ? [eq(customers.id, onlyCustomerId)] : [])
+              )
+            );
+          const ids = [...new Set([...orderRows.map((o: any) => o.customerId), ...openingRows.map((c: any) => c.id)])] as string[];
           if (ids.length === 0) return { orderRows, custRows: [] as any[], reminders: new Map() as ReminderLog };
           const custRows = await tx
             .select()
@@ -406,7 +620,7 @@ export class ReceivablesService {
     const orderRows = globalMemoryOrders.filter(
       (o: any) => o.tenantId === tenantId && (!onlyCustomerId || o.customerId === onlyCustomerId)
     );
-    const custRows = globalMemoryCustomers.filter((c) => c.tenantId === tenantId);
+    const custRows = globalMemoryCustomers.filter((c) => c.tenantId === tenantId && (!onlyCustomerId || c.id === onlyCustomerId));
     const acts = globalMemoryActivities.filter(
       (a: any) => a.tenantId === tenantId && a.entityType === 'CUSTOMER' && a.action === REMINDER_ACTION
     );

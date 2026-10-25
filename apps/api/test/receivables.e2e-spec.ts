@@ -165,6 +165,7 @@ describe('Receivables: who owes me money', () => {
       '31-60': '1000.00',
       '61-90': '700.00',
       '90+': '5000.00',
+      OPENING: '0.00',
     });
   });
 

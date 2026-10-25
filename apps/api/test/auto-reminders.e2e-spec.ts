@@ -39,6 +39,7 @@ describe('isDueForAutoReminder', () => {
     companyName: null,
     phone: '+919840000001',
     totalDue: '1000.00',
+    openingBalance: '0.00',
     oldestAgeDays: 10,
     bucket: '0-30',
     orders: [],

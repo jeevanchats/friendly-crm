@@ -2,9 +2,11 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { sql, eq, and, or, inArray, desc } from 'drizzle-orm';
 import {
   db,
@@ -18,7 +20,9 @@ import {
 } from '@friendly-crm/db';
 import {
   TenantRole,
+  CleanCustomer,
   hasPermission,
+  validateCustomerRow,
   isValidGstin,
   isValidStateCode,
   normalizeGstin,
@@ -34,6 +38,32 @@ import {
   globalMemoryTasks,
   globalMemoryActivities,
 } from './memory-store';
+
+export const MAX_IMPORT_ROWS = 1000;
+
+export type ImportRowStatus = 'create' | 'update' | 'skip' | 'error';
+
+export interface ImportRowResult {
+  /** 1-based position among the data rows (not counting the header). */
+  row: number;
+  name: string;
+  phone: string;
+  status: ImportRowStatus;
+  messages: string[];
+}
+
+export interface ImportResult {
+  dryRun: boolean;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  /** Total of the opening balances being brought in by new customers, in rupees. */
+  openingBalanceTotal: string;
+  rows: ImportRowResult[];
+}
+
+const money = (paise: number) => (paise / 100).toFixed(2);
 
 export interface PilotCustomerRecord {
   id: string;
@@ -54,6 +84,256 @@ export interface PilotCustomerRecord {
 export class CustomersService {
   private readonly logger = new Logger(CustomersService.name);
 
+  /** Customers of this business whose phone number is one of `phones`, keyed by E.164 number. */
+  private async findByPhones(tx: any | null, tenantId: string, phones: string[]): Promise<Map<string, any>> {
+    const out = new Map<string, any>();
+    if (phones.length === 0) return out;
+    if (tx) {
+      for (let i = 0; i < phones.length; i += 500) {
+        const rows = await tx
+          .select()
+          .from(customers)
+          .where(and(eq(customers.tenantId, tenantId), inArray(customers.phone, phones.slice(i, i + 500))));
+        for (const r of rows) out.set(r.phone, r);
+      }
+    } else {
+      const want = new Set(phones);
+      for (const c of globalMemoryCustomers) if (c.tenantId === tenantId && want.has(c.phone)) out.set(c.phone, c);
+    }
+    return out;
+  }
+
+  private insertValues(tenantId: string, actorId: string | null, c: CleanCustomer) {
+    return {
+      tenantId,
+      name: c.name,
+      companyName: c.companyName,
+      phone: c.phone,
+      whatsappNumber: c.whatsappNumber,
+      email: c.email,
+      gstin: c.gstin,
+      stateCode: c.stateCode,
+      billingAddress: c.billingAddress,
+      openingBalance: money(c.openingBalancePaise),
+      creditLimit: money(c.creditLimitPaise),
+      createdById: actorId,
+    };
+  }
+
+  /** What changes on an existing customer when an import says 'update': only fields the sheet actually filled in. */
+  private updateValues(c: CleanCustomer) {
+    const set: Record<string, unknown> = {};
+    if (c.companyName) set.companyName = c.companyName;
+    if (c.email) set.email = c.email;
+    if (c.gstin) {
+      set.gstin = c.gstin;
+      set.stateCode = c.stateCode;
+    } else if (c.stateCode) set.stateCode = c.stateCode;
+    if (c.billingAddress) set.billingAddress = c.billingAddress;
+    if (c.creditLimitPaise > 0) set.creditLimit = money(c.creditLimitPaise);
+    return set;
+  }
+
+  /** What this customer owed before Friendly CRM, as rupees text ("0.00" if nothing / unknown customer). */
+  async getOpeningBalance(tenantId: string, customerId: string): Promise<string> {
+    try {
+      if (typeof db?.transaction === 'function') {
+        return await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const [row] = await tx
+            .select({ openingBalance: customers.openingBalance })
+            .from(customers)
+            .where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)))
+            .limit(1);
+          return row?.openingBalance ?? '0.00';
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Postgres offline; reading opening balance from memory: ${err.message}`);
+    }
+    const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
+    return mem?.openingBalance ?? '0.00';
+  }
+
+  /** Adds one customer. A phone number that already belongs to a customer of this business is refused. */
+  async createCustomer(tenantId: string, actorId: string | null, raw: Record<string, unknown>) {
+    const check = validateCustomerRow(raw as any);
+    if (!check.ok || !check.value) {
+      throw new BadRequestException({ statusCode: 400, error: 'InvalidCustomer', message: check.errors.join('. '), errors: check.errors });
+    }
+    const c = check.value;
+    const dup = (existing: any) =>
+      new ConflictException({
+        statusCode: 409,
+        error: 'CustomerExists',
+        message: `${existing.name} already uses ${c.phone}.`,
+        customerId: existing.id,
+      });
+
+    try {
+      if (typeof db?.transaction === 'function') {
+        return await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const existing = (await this.findByPhones(tx, tenantId, [c.phone])).get(c.phone);
+          if (existing) throw dup(existing);
+          const [row] = await tx.insert(customers).values(this.insertValues(tenantId, actorId, c)).returning();
+          return row;
+        });
+      }
+    } catch (err: any) {
+      if (err instanceof ConflictException) throw err;
+      if (err?.code === '23505') throw new ConflictException({ statusCode: 409, error: 'CustomerExists', message: `${c.phone} is already a customer.` });
+      this.logger.warn(`Postgres offline; creating customer in memory: ${err.message}`);
+    }
+    const existing = (await this.findByPhones(null, tenantId, [c.phone])).get(c.phone);
+    if (existing) throw dup(existing);
+    const mem: any = {
+      id: randomUUID(),
+      ...this.insertValues(tenantId, actorId, c),
+      activeOrdersCount: 0,
+      totalReceivable: money(c.openingBalancePaise),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    globalMemoryCustomers.push(mem);
+    return mem;
+  }
+
+  /**
+   * Bulk-adds customers from a parsed sheet. Every row is checked with the same rules as the browser preview.
+   * `dryRun` reports what would happen without writing. Rows with problems are reported and skipped; they never
+   * stop the good rows. A phone number that already belongs to a customer is skipped, or, with 'update', has only
+   * its blank fields filled. Opening balances are only ever set on NEW customers: changing the balance of an
+   * existing customer from a sheet could double-count money they have already paid.
+   */
+  async importCustomers(
+    tenantId: string,
+    actorId: string | null,
+    rawRows: unknown,
+    opts: { dryRun: boolean; onDuplicate: 'skip' | 'update' }
+  ): Promise<ImportResult> {
+    if (!Array.isArray(rawRows) || rawRows.length === 0) throw new BadRequestException('Send at least one row to import');
+    if (rawRows.length > MAX_IMPORT_ROWS) {
+      throw new BadRequestException(`Import at most ${MAX_IMPORT_ROWS} customers at a time (this file has ${rawRows.length}). Split it into parts.`);
+    }
+
+    type Planned = { result: ImportRowResult; clean?: CleanCustomer; existing?: any; warnings?: string[] };
+    const planned: Planned[] = [];
+    const firstRowForPhone = new Map<string, number>();
+
+    rawRows.forEach((raw, i) => {
+      const rowNo = i + 1;
+      const check = validateCustomerRow((raw && typeof raw === 'object' ? raw : {}) as any);
+      const name = String((raw as any)?.name ?? '').trim();
+      const phoneText = String((raw as any)?.phone ?? '').trim();
+      if (!check.ok || !check.value) {
+        planned.push({ result: { row: rowNo, name, phone: phoneText, status: 'error', messages: check.errors } });
+        return;
+      }
+      const seen = firstRowForPhone.get(check.value.phone);
+      if (seen !== undefined) {
+        planned.push({
+          result: { row: rowNo, name: check.value.name, phone: check.value.phone, status: 'error', messages: [`Same phone number as row ${seen}`] },
+        });
+        return;
+      }
+      firstRowForPhone.set(check.value.phone, rowNo);
+      planned.push({
+        result: { row: rowNo, name: check.value.name, phone: check.value.phone, status: 'create', messages: [...check.warnings] },
+        clean: check.value,
+        warnings: [...check.warnings],
+      });
+    });
+
+    const run = async (tx: any | null) => {
+      const phones = planned.filter((p) => p.clean).map((p) => p.clean!.phone);
+      const existing = await this.findByPhones(tx, tenantId, phones);
+      for (const p of planned) {
+        if (!p.clean) continue;
+        const found = existing.get(p.clean.phone);
+        if (!found) continue;
+        p.existing = found;
+        if (opts.onDuplicate === 'update') {
+          p.result.status = 'update';
+          p.result.messages.push(`Already a customer (${found.name}); blank fields will be filled in`);
+          if (p.clean.openingBalancePaise > 0) p.result.messages.push('Opening balance not changed for an existing customer');
+        } else {
+          p.result.status = 'skip';
+          p.result.messages.push(`Already a customer (${found.name})`);
+        }
+      }
+      if (opts.dryRun) return;
+
+      const toCreate = planned.filter((p) => p.result.status === 'create' && p.clean);
+      const toUpdate = planned.filter((p) => p.result.status === 'update' && p.clean && p.existing);
+      if (tx) {
+        for (let i = 0; i < toCreate.length; i += 200) {
+          await tx.insert(customers).values(toCreate.slice(i, i + 200).map((p) => this.insertValues(tenantId, actorId, p.clean!)));
+        }
+        for (const p of toUpdate) {
+          const set = this.updateValues(p.clean!);
+          if (Object.keys(set).length > 0) {
+            await tx.update(customers).set(set).where(and(eq(customers.id, p.existing.id), eq(customers.tenantId, tenantId)));
+          }
+        }
+      } else {
+        for (const p of toCreate) {
+          globalMemoryCustomers.push({
+            id: randomUUID(),
+            ...this.insertValues(tenantId, actorId, p.clean!),
+            activeOrdersCount: 0,
+            totalReceivable: money(p.clean!.openingBalancePaise),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as any);
+        }
+        for (const p of toUpdate) Object.assign(p.existing, this.updateValues(p.clean!));
+      }
+    };
+
+    let usedMemory = false;
+    try {
+      if (typeof db?.transaction === 'function') {
+        await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          await run(tx);
+        });
+      } else usedMemory = true;
+    } catch (err: any) {
+      if (err instanceof BadRequestException || err instanceof ConflictException) throw err;
+      if (err?.code === '23505') {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'CustomerExists',
+          message: 'Another person added one of these customers while you were importing. Nothing was imported; please try again.',
+        });
+      }
+      this.logger.warn(`Postgres offline; importing customers into memory: ${err.message}`);
+      usedMemory = true;
+    }
+    if (usedMemory) {
+      // Start the plan over: the failed database attempt may already have marked rows as duplicates.
+      for (const p of planned) {
+        if (!p.clean) continue;
+        p.result.status = 'create';
+        p.result.messages = [...(p.warnings ?? [])];
+        p.existing = undefined;
+      }
+      await run(null);
+    }
+
+    const rows = planned.map((p) => p.result);
+    const count = (s: ImportRowStatus) => rows.filter((r) => r.status === s).length;
+    return {
+      dryRun: opts.dryRun,
+      created: count('create'),
+      updated: count('update'),
+      skipped: count('skip'),
+      errors: count('error'),
+      openingBalanceTotal: money(planned.filter((p) => p.result.status === 'create' && p.clean).reduce((s, p) => s + p.clean!.openingBalancePaise, 0)),
+      rows,
+    };
+  }
   /**
    * Updates the details a GST invoice needs about a buyer: GSTIN, billing address, GST state and company name.
    * Only the fields present in `patch` change; null or '' clears one. A GSTIN fixes the state, so the two

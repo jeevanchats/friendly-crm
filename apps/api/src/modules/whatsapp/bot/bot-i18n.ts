@@ -217,6 +217,11 @@ export const MESSAGES = {
     en: '*Pending dues: {total}* ({count} orders)',
     ta: '*நிலுவைத் தொகை: {total}* ({count} ஆர்டர்கள்)',
   },
+  c_dues_title_prev: {
+    en: '*Pending dues: {total}*',
+    ta: '*நிலுவைத் தொகை: {total}*',
+  },
+  c_dues_previous: { en: 'Previous balance', ta: 'முந்தைய நிலுவை' },
   c_dues_pay: { en: 'Pay', ta: 'செலுத்த' },
   c_dues_pay_all: { en: 'Pay all {total}', ta: 'முழுவதும் செலுத்த {total}' },
   c_dues_more: { en: '…and {n} more. Call us for the full list.', ta: '…மேலும் {n}. முழு பட்டியலுக்கு எங்களை அழைக்கவும்.' },

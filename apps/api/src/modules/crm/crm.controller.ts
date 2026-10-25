@@ -10,6 +10,7 @@ import {
   UseGuards,
   UseInterceptors,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { CrmService } from './crm.service';
 import { DashboardService } from './dashboard.service';
@@ -35,6 +36,7 @@ import {
   LeadFilterQuerySchema,
   LeadFilterQueryDto,
   TenantRole,
+  hasPermission,
 } from '@friendly-crm/shared';
 
 @Controller('crm')
@@ -249,6 +251,52 @@ export class CrmController {
     return this.customersService.getCustomer360(tenant.id, userRole, customerId);
   }
 
+  /**
+   * POST /api/crm/customers
+   * Add one customer (no enquiry or task is created). 409 when the phone number is already a customer.
+   * Bringing in an opening balance needs the payment permission.
+   */
+  @Post('customers')
+  @RequirePermission('customer:create')
+  async createCustomer(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
+    @Body() body: Record<string, unknown>
+  ) {
+    const role = (user?.role || 'READ_ONLY') as TenantRole;
+    const row: Record<string, unknown> = { ...body, state: body?.state ?? body?.stateCode };
+    if (String(row.openingBalance ?? '').trim() !== '' && !hasPermission(role, 'payment:create')) {
+      throw new ForbiddenException('Your role cannot set an opening balance.');
+    }
+    return this.customersService.createCustomer(tenant.id, user?.id ?? null, row);
+  }
+
+  /**
+   * POST /api/crm/customers/import { rows, dryRun?, onDuplicate? }
+   * Bulk-add customers from a parsed sheet. dryRun defaults to TRUE: nothing is written until the caller sends
+   * dryRun: false after reviewing the preview.
+   */
+  @Post('customers/import')
+  @RequirePermission('customer:create')
+  async importCustomers(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
+    @Body() body: { rows?: unknown; dryRun?: boolean; onDuplicate?: string }
+  ) {
+    const role = (user?.role || 'READ_ONLY') as TenantRole;
+    const rows = body?.rows;
+    if (
+      Array.isArray(rows) &&
+      !hasPermission(role, 'payment:create') &&
+      rows.some((r) => r && typeof r === 'object' && String((r as any).openingBalance ?? '').trim() !== '')
+    ) {
+      throw new ForbiddenException('Your role cannot import opening balances. Remove that column or ask the owner.');
+    }
+    return this.customersService.importCustomers(tenant.id, user?.id ?? null, rows, {
+      dryRun: body?.dryRun !== false,
+      onDuplicate: body?.onDuplicate === 'update' ? 'update' : 'skip',
+    });
+  }
   /**
    * PATCH /api/crm/customers/:id/billing
    * GSTIN, billing address, GST state and company name: what a GST invoice needs about the buyer.

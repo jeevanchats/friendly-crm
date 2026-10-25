@@ -112,6 +112,11 @@ export interface BotPorts {
   findCustomerByPhone(phone: string): Promise<CustomerIdentity[]>;
   /** Orders belonging to THIS customer only, newest first. */
   listCustomerOrders(who: CustomerIdentity): Promise<CustomerOrderView[]>;
+  /**
+   * What this customer owed before Friendly CRM (an opening balance), in rupees. Scoped to the verified customer.
+   * Optional so a deployment without it simply shows order dues.
+   */
+  getCustomerOpeningBalance?(who: CustomerIdentity): Promise<string | null>;
   /** Quotes sent to THIS customer that are still open. */
   listCustomerQuotes(who: CustomerIdentity): Promise<CustomerQuoteView[]>;
   /** Approves the quote as shown (expectedTotal guards against a price change since display). */
@@ -926,23 +931,33 @@ export class ConversationEngine {
     const due = (await this.ports.listCustomerOrders(who))
       .map((o) => ({ o, paise: toPaise(o.balanceDue) }))
       .filter((x) => x.paise > 0);
-    if (due.length === 0) return [t(locale, 'c_dues_none')];
+    const previous = toPaise(await this.ports.getCustomerOpeningBalance?.(who));
+    if (due.length === 0 && previous === 0) return [t(locale, 'c_dues_none')];
 
     const upi = who.upiId && isValidUpiId(who.upiId) ? who.upiId : null;
     const link = (paise: number, note: string) =>
       buildUpiLink({ upiId: upi!, payeeName: who.tenantName, amountPaise: paise, note });
     const rupees = (paise: number) => fmtMoney(paise / 100);
-    const totalPaise = due.reduce((sum, x) => sum + x.paise, 0);
+    const totalPaise = due.reduce((sum, x) => sum + x.paise, 0) + previous;
 
-    const blocks = [t(locale, 'c_dues_title', { total: rupees(totalPaise), count: due.length })];
+    const blocks = [
+      due.length > 0
+        ? t(locale, 'c_dues_title', { total: rupees(totalPaise), count: due.length })
+        : t(locale, 'c_dues_title_prev', { total: rupees(totalPaise) }),
+    ];
     for (const { o, paise } of due.slice(0, MAX_DUES_LISTED)) {
       const lines = [`*${o.orderNumber}* · ${rupees(paise)}`];
       if (upi) lines.push(`${t(locale, 'c_dues_pay')}: ${link(paise, o.orderNumber)}`);
       blocks.push(lines.join('\n'));
     }
     if (due.length > MAX_DUES_LISTED) blocks.push(t(locale, 'c_dues_more', { n: due.length - MAX_DUES_LISTED }));
+    if (previous > 0) {
+      const lines = [`*${t(locale, 'c_dues_previous')}* · ${rupees(previous)}`];
+      if (upi) lines.push(`${t(locale, 'c_dues_pay')}: ${link(previous, t(locale, 'c_dues_previous'))}`);
+      blocks.push(lines.join('\n'));
+    }
     if (upi) {
-      if (due.length > 1) {
+      if (due.length + (previous > 0 ? 1 : 0) > 1) {
         blocks.push(`${t(locale, 'c_dues_pay_all', { total: rupees(totalPaise) })}: ${link(totalPaise, 'Dues')}`);
       }
       blocks.push(t(locale, 'c_dues_upi_id', { upi }));

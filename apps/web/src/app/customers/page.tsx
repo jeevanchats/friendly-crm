@@ -3,7 +3,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Search, Phone, MessageSquare, ArrowRight, Building, Plus, Users, IndianRupee } from 'lucide-react';
+import { hasPermission } from '@friendly-crm/shared';
 import { useAuth } from '../../components/auth/AuthProvider';
+import { AddCustomerForm } from '../../components/crm/AddCustomerForm';
 import { apiFetch } from '../../lib/session';
 
 interface CustomerSummary {
@@ -24,6 +26,8 @@ export default function CustomersDirectoryPage() {
   const tenantId = active!.tenantId;
   const activeTenant = { name: active!.tenantName };
 
+  const canAdd = hasPermission(active!.role, 'customer:create');
+  const [showAdd, setShowAdd] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,10 +79,24 @@ export default function CustomersDirectoryPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-[#167D79]/10 px-3 py-1 text-xs font-bold text-[#167D79]">
             {customers.length} Customers
           </span>
+          {canAdd && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#167D79] px-3 py-1.5 text-xs font-bold text-white"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add customer
+              </button>
+              <Link href="/customers/import" className="inline-flex items-center rounded-lg border border-[#167D79] px-3 py-1.5 text-xs font-bold text-[#167D79]">
+                Import from Excel / CSV
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
@@ -105,6 +123,11 @@ export default function CustomersDirectoryPage() {
         ) : customers.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center space-y-2">
             <p className="text-sm font-semibold text-slate-600">No customers found for this business.</p>
+            {canAdd && (
+              <p className="text-xs text-slate-500">
+                Use <strong>Add customer</strong>, or <Link href="/customers/import" className="font-bold text-[#167D79] underline">import your customer list</Link>.
+              </p>
+            )}
             <p className="text-xs text-slate-400">
               Each tenant's database is strictly isolated. Switch business from the top dropdown to see other customers.
             </p>
@@ -185,6 +208,16 @@ export default function CustomersDirectoryPage() {
           })
         )}
       </div>
+      {showAdd && (
+        <AddCustomerForm
+          role={active!.role}
+          onClose={() => setShowAdd(false)}
+          onCreated={() => {
+            setShowAdd(false);
+            fetchCustomers(searchQuery);
+          }}
+        />
+      )}
     </div>
   );
 }

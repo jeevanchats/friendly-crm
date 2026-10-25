@@ -54,6 +54,7 @@ function setup(
     clock?: () => number;
     quotes?: CustomerQuoteView[];
     approve?: () => Promise<QuoteApproveResult>;
+    openingBalances?: Record<string, string>;
   } = {}
 ) {
   const calls = {
@@ -68,6 +69,7 @@ function setup(
     approve: [] as any[],
     change: [] as any[],
   };
+  const openingBalances: Record<string, string> = opts.openingBalances ?? {};
   const state = { selfService: true, failSet: false };
   const failures = { createLead: false, recordPayment: false };
   const ports: BotPorts = {
@@ -77,6 +79,7 @@ function setup(
       calls.customerOrderCalls.push(who.customerId);
       return customerOrders[who.customerId] ?? [];
     },
+    getCustomerOpeningBalance: async (who) => openingBalances[who.customerId] ?? null,
     listCustomerQuotes: async () => {
       calls.quoteList++;
       return opts.quotes ?? [];
@@ -780,6 +783,33 @@ describe('WhatsApp conversation engine', () => {
 
       it('says so when nothing is due', async () => {
         const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] });
+        await open(say);
+        expect(await say('3', CUSTOMER_PHONE)).toContain('no pending dues');
+      });
+
+      it('adds a balance carried over from before Friendly CRM to the total, with its own pay link', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders, { openingBalances: { c1: '10000.00' } });
+        await open(say);
+        const out = await say('3', CUSTOMER_PHONE);
+        expect(out).toContain('Pending dues: ₹86,234.5');
+        expect(out).toContain('Previous balance');
+        expect(out).toContain('₹10,000');
+        expect(out).toContain('am=10000.00&cu=INR&tn=Previous%20balance');
+        expect(out).toContain('am=86234.50&cu=INR&tn=Dues'); // pay all includes it
+      });
+
+      it('shows a previous balance even when no order is open', async () => {
+        const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] }, { openingBalances: { c1: '2500' } });
+        await open(say);
+        const out = await say('3', CUSTOMER_PHONE);
+        expect(out).toContain('Pending dues: ₹2,500');
+        expect(out).not.toContain('orders)');
+        expect(out).toContain('Previous balance');
+        expect(out).not.toContain('no pending dues');
+      });
+
+      it('treats a zero or missing previous balance as nothing', async () => {
+        const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] }, { openingBalances: { c1: '0.00' } });
         await open(say);
         expect(await say('3', CUSTOMER_PHONE)).toContain('no pending dues');
       });

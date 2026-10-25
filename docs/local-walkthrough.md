@@ -47,20 +47,31 @@ No leads, quotes, GSTIN or UPI ID are set yet. Most of the walkthrough below use
 |---|---|---|
 | Login | `/login` | OTP request, wrong code is rejected, resend countdown, English / Tamil toggle |
 | Home | `/` | Dashboard cards and tasks for the active business. **Quick Add** creates a lead |
-| Customers | `/customers` | List, search by name or phone, balance column |
+| Customers | `/customers` | List, search by name or phone, balance column. **Add customer** adds one (no enquiry is created) |
+| Import customers | `/customers/import` | Upload a CSV (or paste rows from Excel), check the columns, preview what will be added, then import. Handles opening balances, GSTIN, state, address; skips phone numbers that already exist |
 | Customer detail | `/customers/<id>` | Orders, quotes, ledger, timeline. **GST details** card at the bottom: edit GSTIN, state, address, and "Do not send automatic payment reminders" |
 | New quote | `/quotations/new?customerId=<id>` (the **New Quote** button on a customer) | Add items with rate, GST % and optional HSN; save; View PDF / WhatsApp share / Convert Order |
 | Quote PDF view | `/q/<id>/pdf` | Printable quote; **Download PDF** button |
 | Orders | `/orders` | List and stage filter |
 | Order detail | `/orders/<id>` | Stage card (move the order forward), payments, **Issue GST invoice** panel |
 | Inbox | `/inbox` | Customer change requests from WhatsApp, and approved orders still waiting for payment |
-| Dues ("Who owes me") | `/dues` | Total, ageing buckets (click to filter), per-customer **Send reminder**, WhatsApp / Call links |
+| Dues ("Who owes me") | `/dues` | Total, ageing buckets (click to filter), per-customer **Send reminder**, WhatsApp / Call links. Money owed from before Friendly CRM shows as a purple **Before Friendly CRM** bucket; expand a customer and press **Record payment received** to clear it |
 | Invoices | `/invoices` | Issued GST invoices with PDF download and paid / due status |
 | Reports | `/reports` | Funnel, pending collections, repeat opportunities. Owner / Manager / Accounts only |
 | Settings | `/settings` | Owner only: legal name, GSTIN, address, UPI ID, automatic reminder schedule |
 
 Also check on every screen: the business switcher, the language toggle, sign out, a narrow browser window
 (the bottom bar scrolls sideways), and what happens after you sign out and press Back.
+
+## 4b. Bringing in your existing customers
+
+1. Customers → **Import from Excel / CSV** → **Download template** to see the columns (Name and Phone are required).
+2. Fill it in, or use your own sheet: columns like `Party Name`, `Mobile`, `GST No`, `State`, `Outstanding` are recognised automatically.
+3. In Excel use **Save As → CSV UTF-8** so Tamil names import correctly.
+4. **Check the list** shows what will be added, skipped (phone already a customer) or rejected (with the reason per row). Nothing is saved yet.
+5. **Import**. `Opening balance` is what each customer owed before Friendly CRM; it shows up in **Who owes me** and in the customer's WhatsApp `dues` reply.
+
+An opening balance is only set for NEW customers. Importing a customer that already exists never changes their balance.
 
 ## 5. End-to-end money flow (about 10 minutes)
 
@@ -109,6 +120,8 @@ WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows t
 - **No e-invoice or e-way bill** (needs government API access).
 - **One invoice per order**, and issued invoices cannot be cancelled or credit-noted yet.
 - **A customer cannot reply "stop"** to automatic reminders on WhatsApp; staff set it on the customer page.
+- **The quote link in the WhatsApp quote message is not clickable yet** (it is a relative address, and the quote page needs a staff login). A public customer link or a PDF attachment is needed.
+- **Customers in credit (advances)** cannot be imported yet; a negative balance is rejected.
 - **WhatsApp is a sandbox.** Replies print in the console; nothing reaches a phone. No interactive buttons yet.
 - **Invoice PDF** prints "Rs." and cannot show Tamil names (font limitation).
 - **Not yet reviewed in a browser by me:** page layout, Tamil text, mobile view. Report anything that looks wrong.
