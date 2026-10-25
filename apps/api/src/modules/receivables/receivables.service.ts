@@ -36,6 +36,53 @@ export interface DueCustomer {
   bucket: AgeBucketKey;
   orders: DueOrder[];
   lastReminderAt: string | null;
+  /** Automatic reminders sent since the oldest open order was placed (reset by a fresh debt, not by payment). */
+  autoRemindersSent: number;
+  /** The customer asked not to get automatic reminders. Staff can still send one by hand. */
+  remindersOptOut: boolean;
+}
+
+export interface ReminderSchedule {
+  /** First reminder once the oldest unpaid order is this many days old. */
+  afterDays: number;
+  /** Then repeat every this many days. */
+  repeatDays: number;
+  /** At most this many automatic reminders for one outstanding debt. */
+  maxCount: number;
+}
+
+export interface AutoRunSummary {
+  tenants: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+}
+
+/** Automatic reminders go out 09:00-19:00 India time only, never in the middle of the night. */
+const SEND_WINDOW_START_HOUR = 9;
+const SEND_WINDOW_END_HOUR = 19;
+const MAX_AUTO_PER_TENANT_PER_RUN = 50;
+
+export const istHour = (d: Date): number =>
+  Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).format(d));
+
+export const inSendWindow = (d: Date): boolean => {
+  const h = istHour(d);
+  return h >= SEND_WINDOW_START_HOUR && h < SEND_WINDOW_END_HOUR;
+};
+
+/**
+ * Whether a customer should get an automatic reminder right now. Pure, so the rules can be tested without a
+ * database. Every condition must hold: not opted out, has a phone, owes something, the oldest order is old
+ * enough, the last reminder (automatic or by hand) was long enough ago, and the cap has not been reached.
+ */
+export function isDueForAutoReminder(c: DueCustomer, s: ReminderSchedule, now: Date): boolean {
+  if (c.remindersOptOut || !c.phone) return false;
+  if (toPaise(c.totalDue) === 0) return false;
+  if (c.oldestAgeDays < s.afterDays) return false;
+  if (c.autoRemindersSent >= s.maxCount) return false;
+  if (c.lastReminderAt && now.getTime() - new Date(c.lastReminderAt).getTime() < s.repeatDays * DAY_MS) return false;
+  return true;
 }
 
 export interface Receivables {
@@ -53,6 +100,9 @@ export interface ReminderResult {
   status: string;
 }
 
+/** Every reminder sent to a customer (by hand or automatically), keyed by customer id. */
+type ReminderLog = Map<string, Array<{ at: Date; auto: boolean }>>;
+
 const toPaise = (v: unknown) => {
   const n = Math.round(Number(v) * 100);
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -68,6 +118,7 @@ const bucketOf = (ageDays: number): AgeBucketKey =>
 @Injectable()
 export class ReceivablesService {
   private readonly logger = new Logger(ReceivablesService.name);
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(private readonly outbox: NotificationOutboxService) {}
 
@@ -76,7 +127,33 @@ export class ReceivablesService {
     return this.build(orderRows, custRows, reminders, now);
   }
 
-  async sendReminder(tenantId: string, actorId: string | null, customerId: string, now = new Date()): Promise<ReminderResult> {
+  async sendReminder(
+    tenantId: string,
+    actorId: string | null,
+    customerId: string,
+    now = new Date(),
+    opts: { auto?: boolean } = {}
+  ): Promise<ReminderResult> {
+    // One reminder at a time per customer in this process: the second caller re-reads the log the first one
+    // wrote, so the 24 hour limit holds even for simultaneous clicks or overlapping passes.
+    const key = `${tenantId}:${customerId}`;
+    const previous = this.inFlight.get(key) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => this.sendReminderOnce(tenantId, actorId, customerId, now, opts));
+    this.inFlight.set(key, run);
+    try {
+      return await run;
+    } finally {
+      if (this.inFlight.get(key) === run) this.inFlight.delete(key);
+    }
+  }
+
+  private async sendReminderOnce(
+    tenantId: string,
+    actorId: string | null,
+    customerId: string,
+    now: Date,
+    opts: { auto?: boolean }
+  ): Promise<ReminderResult> {
     const { orderRows, custRows, reminders } = await this.load(tenantId, customerId);
     const view = this.build(orderRows, custRows, reminders, now);
     const cust = view.customers[0];
@@ -119,15 +196,116 @@ export class ReceivablesService {
       orderNumbers: cust.orders.map((o) => o.orderNumber),
       deliveryStatus: status,
       outboxId: job?.id ?? null,
+      auto: opts.auto === true,
     });
     return { customerId, sentTo: recipient, totalDue: cust.totalDue, status };
   }
 
+  // ---- automatic reminders ----
+
+  /**
+   * One pass of the automatic reminder scheduler over every business that has turned it on. Safe to call often
+   * and from several API instances: each business is processed under a database advisory lock, and every
+   * customer is re-checked (last reminder, cap) before sending, so nobody is reminded twice.
+   * Nothing is sent outside 09:00-19:00 India time.
+   */
+  async runAutoReminders(now = new Date()): Promise<AutoRunSummary> {
+    const summary: AutoRunSummary = { tenants: 0, sent: 0, skipped: 0, failed: 0 };
+    if (!inSendWindow(now)) return summary;
+
+    for (const t of await this.tenantsWithAutoReminders()) {
+      summary.tenants++;
+      try {
+        await this.withTenantLock(t.id, async () => {
+          const schedule: ReminderSchedule = { afterDays: t.afterDays, repeatDays: t.repeatDays, maxCount: t.maxCount };
+          const view = await this.list(t.id, now);
+          let sentHere = 0;
+          for (const c of view.customers) {
+            if (!isDueForAutoReminder(c, schedule, now)) {
+              summary.skipped++;
+              continue;
+            }
+            if (sentHere >= MAX_AUTO_PER_TENANT_PER_RUN) break;
+            try {
+              await this.sendReminder(t.id, null, c.customerId, now, { auto: true });
+              summary.sent++;
+              sentHere++;
+            } catch (err: any) {
+              if (err instanceof ConflictException) {
+                summary.skipped++; // reminded a moment ago by another pass or by hand
+              } else {
+                summary.failed++;
+                this.logger.warn(`Auto reminder for ${c.customerId} failed: ${err.message}`);
+              }
+            }
+          }
+        });
+      } catch (err: any) {
+        summary.failed++;
+        this.logger.error(`Auto reminders failed for business ${t.id}: ${err.message}`);
+      }
+    }
+    return summary;
+  }
+
+  private async tenantsWithAutoReminders(): Promise<Array<{ id: string; afterDays: number; repeatDays: number; maxCount: number }>> {
+    try {
+      if (db && typeof db.select === 'function') {
+        const rows = await db
+          .select({
+            id: tenants.id,
+            afterDays: tenants.reminderAfterDays,
+            repeatDays: tenants.reminderRepeatDays,
+            maxCount: tenants.reminderMaxCount,
+          })
+          .from(tenants)
+          .where(and(eq(tenants.autoRemindersEnabled, true), eq(tenants.isActive, true)));
+        return rows;
+      }
+    } catch {
+      // Postgres offline: memory fallback below
+    }
+    return [...globalMemoryTenants.values()]
+      .filter((t: any) => t.autoRemindersEnabled === true && t.isActive !== false)
+      .map((t: any) => ({
+        id: t.id,
+        afterDays: t.reminderAfterDays ?? 7,
+        repeatDays: t.reminderRepeatDays ?? 7,
+        maxCount: t.reminderMaxCount ?? 3,
+      }));
+  }
+
+  /**
+   * Runs `fn` only if no other API instance is already working on this business. The lock lives for the
+   * length of a database transaction and is released automatically if this process dies. Without a database
+   * (local development) there is only one process, so it just runs.
+   */
+  private async withTenantLock(tenantId: string, fn: () => Promise<void>): Promise<void> {
+    let started = false;
+    if (db && typeof db.transaction === 'function') {
+      try {
+        await db.transaction(async (tx: any) => {
+          const rows: any = await tx.execute(sql`select pg_try_advisory_xact_lock(hashtext(${'auto-remind:' + tenantId})) as locked`);
+          const first = Array.isArray(rows) ? rows[0] : rows?.rows?.[0];
+          if (!first?.locked) return; // another instance has this business right now
+          started = true;
+          await fn();
+        });
+        return;
+      } catch (err: any) {
+        if (started) throw err; // the work itself failed: never run it a second time
+        this.logger.warn(`Postgres offline; running auto reminders without a lock: ${err.message}`);
+      }
+    }
+    await fn();
+  }
+
   // ---- internals ----
 
-  private build(orderRows: any[], custRows: any[], reminders: Map<string, Date>, now: Date): Receivables {
+  private build(orderRows: any[], custRows: any[], reminders: ReminderLog, now: Date): Receivables {
     const custById = new Map(custRows.map((c) => [c.id, c]));
     const byCustomer = new Map<string, DueOrder[]>();
+    const oldestPlaced = new Map<string, number>();
     const bucketTotals = new Map<AgeBucketKey, { paise: number; count: number }>(
       BUCKET_KEYS.map((k) => [k, { paise: 0, count: 0 }])
     );
@@ -143,6 +321,8 @@ export class ReceivablesService {
       const list = byCustomer.get(o.customerId) ?? [];
       list.push({ orderId: o.id, orderNumber: o.orderNumber, balanceDue: money(paise), ageDays, bucket });
       byCustomer.set(o.customerId, list);
+      const placed = new Date(o.createdAt).getTime();
+      if (!oldestPlaced.has(o.customerId) || placed < oldestPlaced.get(o.customerId)!) oldestPlaced.set(o.customerId, placed);
     }
 
     const rows: DueCustomer[] = [];
@@ -150,7 +330,9 @@ export class ReceivablesService {
       const c = custById.get(customerId);
       list.sort((a, b) => b.ageDays - a.ageDays);
       const total = list.reduce((s, o) => s + toPaise(o.balanceDue), 0);
-      const last = reminders.get(customerId);
+      const log = reminders.get(customerId) ?? [];
+      const last = log.reduce<Date | null>((m, r) => (!m || r.at > m ? r.at : m), null);
+      const since = oldestPlaced.get(customerId) ?? 0;
       rows.push({
         customerId,
         name: c.name,
@@ -161,6 +343,8 @@ export class ReceivablesService {
         bucket: list[0].bucket,
         orders: list,
         lastReminderAt: last ? last.toISOString() : null,
+        autoRemindersSent: log.filter((r) => r.auto && r.at.getTime() >= since).length,
+        remindersOptOut: c.remindersOptOut === true,
       });
     }
     rows.sort((a, b) => toPaise(b.totalDue) - toPaise(a.totalDue));
@@ -195,7 +379,7 @@ export class ReceivablesService {
               )
             );
           const ids = [...new Set(orderRows.map((o: any) => o.customerId))] as string[];
-          if (ids.length === 0) return { orderRows, custRows: [] as any[], reminders: new Map<string, Date>() };
+          if (ids.length === 0) return { orderRows, custRows: [] as any[], reminders: new Map() as ReminderLog };
           const custRows = await tx
             .select()
             .from(customers)
@@ -229,12 +413,12 @@ export class ReceivablesService {
     return { orderRows, custRows, reminders: this.latestReminders(acts) };
   }
 
-  private latestReminders(acts: any[]): Map<string, Date> {
-    const out = new Map<string, Date>();
+  private latestReminders(acts: any[]): ReminderLog {
+    const out: ReminderLog = new Map();
     for (const a of acts) {
-      const at = new Date(a.createdAt);
-      const prev = out.get(a.entityId);
-      if (!prev || at > prev) out.set(a.entityId, at);
+      const list = out.get(a.entityId) ?? [];
+      list.push({ at: new Date(a.createdAt), auto: a.metadata?.auto === true });
+      out.set(a.entityId, list);
     }
     return out;
   }

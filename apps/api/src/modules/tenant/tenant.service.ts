@@ -24,6 +24,14 @@ export interface TenantSettings {
   address: string | null;
   /** Two-digit GST state code; derived from the GSTIN when one is set. */
   stateCode: string | null;
+  /** Automatic payment reminders. Off until the owner turns them on. */
+  autoRemindersEnabled: boolean;
+  /** First reminder once the oldest unpaid order is this many days old. */
+  reminderAfterDays: number;
+  /** Then repeat every this many days. */
+  reminderRepeatDays: number;
+  /** At most this many automatic reminders per customer for one outstanding debt. */
+  reminderMaxCount: number;
 }
 
 export interface CreateTenantDto {
@@ -191,6 +199,10 @@ export class TenantService {
             legalName: tenants.legalName,
             address: tenants.address,
             stateCode: tenants.stateCode,
+            autoRemindersEnabled: tenants.autoRemindersEnabled,
+            reminderAfterDays: tenants.reminderAfterDays,
+            reminderRepeatDays: tenants.reminderRepeatDays,
+            reminderMaxCount: tenants.reminderMaxCount,
           })
           .from(tenants)
           .where(eq(tenants.id, tenantId))
@@ -203,6 +215,10 @@ export class TenantService {
             legalName: row.legalName ?? null,
             address: row.address ?? null,
             stateCode: row.stateCode ?? null,
+            autoRemindersEnabled: row.autoRemindersEnabled,
+            reminderAfterDays: row.reminderAfterDays,
+            reminderRepeatDays: row.reminderRepeatDays,
+            reminderMaxCount: row.reminderMaxCount,
           };
         }
       }
@@ -218,6 +234,10 @@ export class TenantService {
       legalName: mem.legalName ?? null,
       address: mem.address ?? null,
       stateCode: mem.stateCode ?? null,
+      autoRemindersEnabled: mem.autoRemindersEnabled === true,
+      reminderAfterDays: mem.reminderAfterDays ?? 7,
+      reminderRepeatDays: mem.reminderRepeatDays ?? 7,
+      reminderMaxCount: mem.reminderMaxCount ?? 3,
     };
   }
 
@@ -235,6 +255,10 @@ export class TenantService {
       legalName?: string | null;
       address?: string | null;
       stateCode?: string | null;
+      autoRemindersEnabled?: boolean;
+      reminderAfterDays?: number;
+      reminderRepeatDays?: number;
+      reminderMaxCount?: number;
     },
     channel: 'API' | 'WHATSAPP'
   ): Promise<TenantSettings> {
@@ -278,9 +302,24 @@ export class TenantService {
     } else if (patch.stateCode === null || patch.stateCode === '') {
       if (!next.gstNumber) next.stateCode = null;
     }
+    if (patch.autoRemindersEnabled !== undefined) {
+      if (typeof patch.autoRemindersEnabled !== 'boolean') {
+        throw new BadRequestException('autoRemindersEnabled must be true or false');
+      }
+      next.autoRemindersEnabled = patch.autoRemindersEnabled;
+    }
+    const whole = (v: unknown, min: number, max: number, field: string): number => {
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) {
+        throw new BadRequestException(`${field} must be a whole number from ${min} to ${max}`);
+      }
+      return v;
+    };
+    if (patch.reminderAfterDays !== undefined) next.reminderAfterDays = whole(patch.reminderAfterDays, 1, 90, 'reminderAfterDays');
+    if (patch.reminderRepeatDays !== undefined) next.reminderRepeatDays = whole(patch.reminderRepeatDays, 1, 60, 'reminderRepeatDays');
+    if (patch.reminderMaxCount !== undefined) next.reminderMaxCount = whole(patch.reminderMaxCount, 1, 10, 'reminderMaxCount');
     if (Object.keys(next).length === 0) {
       throw new BadRequestException(
-        'Nothing to update: send customerSelfServiceEnabled, upiId, gstNumber, legalName, address and/or stateCode'
+        'Nothing to update: send customerSelfServiceEnabled, upiId, gstNumber, legalName, address, stateCode and/or the reminder settings'
       );
     }
     const current = await this.getSettings(tenantId);

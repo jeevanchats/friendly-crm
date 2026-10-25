@@ -57,6 +57,20 @@
       "when": 1792705000000,
       "tag": "0007_gst_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792706000000,
+      "tag": "0008_notification_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792707000000,
+      "tag": "0009_auto_reminders",
+      "breakpoints": true
     }
   ]
 }

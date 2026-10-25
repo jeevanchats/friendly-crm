@@ -47,6 +47,10 @@ export class TenantController {
       legalName?: string | null;
       address?: string | null;
       stateCode?: string | null;
+      autoRemindersEnabled?: boolean;
+      reminderAfterDays?: number;
+      reminderRepeatDays?: number;
+      reminderMaxCount?: number;
     }
   ) {
     return this.tenantService.updateSettings(
@@ -59,6 +63,10 @@ export class TenantController {
         legalName: body?.legalName,
         address: body?.address,
         stateCode: body?.stateCode,
+        autoRemindersEnabled: body?.autoRemindersEnabled,
+        reminderAfterDays: body?.reminderAfterDays,
+        reminderRepeatDays: body?.reminderRepeatDays,
+        reminderMaxCount: body?.reminderMaxCount,
       },
       'API'
     );

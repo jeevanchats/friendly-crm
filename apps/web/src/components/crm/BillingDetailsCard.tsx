@@ -7,7 +7,7 @@ import { apiFetch } from '../../lib/session';
 interface Props {
   customerId: string;
   role: TenantRole;
-  initial: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null };
+  initial: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null; remindersOptOut?: boolean };
   lang?: 'en' | 'ta';
 }
 
@@ -19,6 +19,7 @@ export function BillingDetailsCard({ customerId, role, initial, lang = 'en' }: P
   const [gstin, setGstin] = useState(initial.gstin ?? '');
   const [address, setAddress] = useState(initial.billingAddress ?? '');
   const [state, setState] = useState(initial.stateCode ?? '');
+  const [optOut, setOptOut] = useState(initial.remindersOptOut === true);
   const [shown, setShown] = useState({ gstin: initial.gstin ?? '', address: initial.billingAddress ?? '', state: initial.stateCode ?? '' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -35,7 +36,7 @@ export function BillingDetailsCard({ customerId, role, initial, lang = 'en' }: P
       const res = await apiFetch(`/api/crm/customers/${customerId}/billing`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ gstin: g || null, billingAddress: address.trim() || null, ...(g ? {} : { stateCode: state || null }) }),
+        body: JSON.stringify({ gstin: g || null, billingAddress: address.trim() || null, ...(g ? {} : { stateCode: state || null }), remindersOptOut: optOut }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -72,6 +73,8 @@ export function BillingDetailsCard({ customerId, role, initial, lang = 'en' }: P
           <dd className="font-semibold">{shown.state ? `${shown.state} - ${GST_STATES[shown.state] ?? ''}` : ta ? 'குறிப்பிடப்படவில்லை' : 'Not set'}</dd>
           <dt className="text-slate-500">{ta ? 'முகவரி' : 'Address'}</dt>
           <dd className="font-semibold whitespace-pre-wrap">{shown.address || (ta ? 'குறிப்பிடப்படவில்லை' : 'Not set')}</dd>
+          <dt className="text-slate-500">{ta ? 'தானியங்கி நினைவூட்டல்' : 'Auto reminders'}</dt>
+          <dd className="font-semibold">{optOut ? (ta ? 'விலக்கப்பட்டது' : 'Excluded') : ta ? 'அனுப்பப்படும்' : 'Allowed'}</dd>
         </dl>
       ) : (
         <form onSubmit={save} className="space-y-3">
@@ -94,6 +97,10 @@ export function BillingDetailsCard({ customerId, role, initial, lang = 'en' }: P
             <label htmlFor="b-addr" className={label}>{ta ? 'முகவரி' : 'Billing address'}</label>
             <textarea id="b-addr" className={field} rows={2} value={address} onChange={(e) => setAddress(e.target.value)} maxLength={500} />
           </div>
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <input type="checkbox" checked={optOut} onChange={(e) => setOptOut(e.target.checked)} />
+            {ta ? 'தானியங்கி பணம் நினைவூட்டல்களை அனுப்ப வேண்டாம்' : 'Do not send automatic payment reminders'}
+          </label>
           {error && <p role="alert" className="text-xs font-semibold text-red-700">{error}</p>}
           <div className="flex gap-2">
             <button type="submit" disabled={busy || gProblem} className="rounded-lg bg-[#167D79] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">{busy ? '…' : ta ? 'சேமி' : 'Save'}</button>

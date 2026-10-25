@@ -258,13 +258,21 @@ export class CrmController {
   async updateCustomerBilling(
     @CurrentTenant() tenant: { id: string },
     @Param('id') customerId: string,
-    @Body() body: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null; companyName?: string | null }
+    @Body()
+    body: {
+      gstin?: string | null;
+      billingAddress?: string | null;
+      stateCode?: string | null;
+      companyName?: string | null;
+      remindersOptOut?: boolean;
+    }
   ) {
     return this.customersService.updateBillingDetails(tenant.id, customerId, {
       gstin: body?.gstin,
       billingAddress: body?.billingAddress,
       stateCode: body?.stateCode,
       companyName: body?.companyName,
+      remindersOptOut: body?.remindersOptOut,
     });
   }
 

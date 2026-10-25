@@ -62,14 +62,30 @@ export class CustomersService {
   async updateBillingDetails(
     tenantId: string,
     customerId: string,
-    patch: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null; companyName?: string | null }
+    patch: {
+      gstin?: string | null;
+      billingAddress?: string | null;
+      stateCode?: string | null;
+      companyName?: string | null;
+      remindersOptOut?: boolean;
+    }
   ) {
     const text = (v: unknown, max: number, field: string): string | null => {
       const t = v === null ? '' : String(v).trim();
       if (t.length > max) throw new BadRequestException(`${field} must be at most ${max} characters`);
       return t === '' ? null : t;
     };
-    const next: { gstin?: string | null; billingAddress?: string | null; stateCode?: string | null; companyName?: string | null } = {};
+    const next: {
+      gstin?: string | null;
+      billingAddress?: string | null;
+      stateCode?: string | null;
+      companyName?: string | null;
+      remindersOptOut?: boolean;
+    } = {};
+    if (patch.remindersOptOut !== undefined) {
+      if (typeof patch.remindersOptOut !== 'boolean') throw new BadRequestException('remindersOptOut must be true or false');
+      next.remindersOptOut = patch.remindersOptOut;
+    }
     if (patch.companyName !== undefined) next.companyName = text(patch.companyName, 160, 'companyName');
     if (patch.billingAddress !== undefined) next.billingAddress = text(patch.billingAddress, 500, 'billingAddress');
     if (patch.gstin !== undefined) {
@@ -89,7 +105,7 @@ export class CustomersService {
       if (!next.gstin) next.stateCode = raw === '' ? null : raw;
     }
     if (Object.keys(next).length === 0) {
-      throw new BadRequestException('Nothing to update: send gstin, billingAddress, stateCode and/or companyName');
+      throw new BadRequestException('Nothing to update: send gstin, billingAddress, stateCode, companyName and/or remindersOptOut');
     }
 
     try {
@@ -104,7 +120,14 @@ export class CustomersService {
           return updated;
         });
         if (!row) throw new NotFoundException('Customer not found');
-        return { id: row.id, gstin: row.gstin, billingAddress: row.billingAddress, stateCode: row.stateCode, companyName: row.companyName };
+        return {
+          id: row.id,
+          gstin: row.gstin,
+          billingAddress: row.billingAddress,
+          stateCode: row.stateCode,
+          companyName: row.companyName,
+          remindersOptOut: row.remindersOptOut,
+        };
       }
     } catch (err: any) {
       if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
@@ -113,7 +136,14 @@ export class CustomersService {
     const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
     if (!mem) throw new NotFoundException('Customer not found');
     Object.assign(mem, next);
-    return { id: mem.id, gstin: mem.gstin ?? null, billingAddress: mem.billingAddress ?? null, stateCode: mem.stateCode ?? null, companyName: mem.companyName ?? null };
+    return {
+      id: mem.id,
+      gstin: mem.gstin ?? null,
+      billingAddress: mem.billingAddress ?? null,
+      stateCode: mem.stateCode ?? null,
+      companyName: mem.companyName ?? null,
+      remindersOptOut: mem.remindersOptOut === true,
+    };
   }
 
   /**

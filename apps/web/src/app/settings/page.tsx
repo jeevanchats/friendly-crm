@@ -12,6 +12,10 @@ interface Settings {
   legalName: string | null;
   address: string | null;
   stateCode: string | null;
+  autoRemindersEnabled: boolean;
+  reminderAfterDays: number;
+  reminderRepeatDays: number;
+  reminderMaxCount: number;
 }
 
 export default function SettingsPage() {
@@ -26,6 +30,10 @@ export default function SettingsPage() {
   const [gst, setGst] = useState('');
   const [address, setAddress] = useState('');
   const [upi, setUpi] = useState('');
+  const [autoOn, setAutoOn] = useState(false);
+  const [afterDays, setAfterDays] = useState('7');
+  const [repeatDays, setRepeatDays] = useState('7');
+  const [maxCount, setMaxCount] = useState('3');
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,6 +44,10 @@ export default function SettingsPage() {
     setGst(s.gstNumber ?? '');
     setAddress(s.address ?? '');
     setUpi(s.upiId ?? '');
+    setAutoOn(s.autoRemindersEnabled);
+    setAfterDays(String(s.reminderAfterDays));
+    setRepeatDays(String(s.reminderRepeatDays));
+    setMaxCount(String(s.reminderMaxCount));
   };
 
   const load = useCallback(async () => {
@@ -72,6 +84,10 @@ export default function SettingsPage() {
           gstNumber: gstTrim || null,
           address: address.trim() || null,
           upiId: upi.trim() || null,
+          autoRemindersEnabled: autoOn,
+          reminderAfterDays: Number(afterDays),
+          reminderRepeatDays: Number(repeatDays),
+          reminderMaxCount: Number(maxCount),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -147,6 +163,37 @@ export default function SettingsPage() {
             <input id="upi" className={field} value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="yourshop@okhdfc" maxLength={100} autoComplete="off" />
             <p className="mt-1 text-[11px] text-slate-400">{ta ? 'வாடிக்கையாளர்களுக்கான பணம் செலுத்தும் இணைப்புகளில் பயன்படும்.' : 'Used in the pay links sent to customers.'}</p>
           </div>
+
+          <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
+            <legend className="px-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              {ta ? 'தானியங்கி பணம் நினைவூட்டல்' : 'Automatic payment reminders'}
+            </legend>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={autoOn} onChange={(e) => setAutoOn(e.target.checked)} />
+              <span>
+                <span className="font-semibold text-[#243B40]">
+                  {ta ? 'நிலுவை உள்ள வாடிக்கையாளர்களுக்கு WhatsApp நினைவூட்டல் தானாக அனுப்பு' : 'Send WhatsApp reminders to customers who owe money'}
+                </span>
+                <span className="block text-[11px] text-slate-400">
+                  {ta ? 'காலை 9 முதல் மாலை 7 மணி வரை மட்டும். வாடிக்கையாளர் பக்கத்தில் ஒருவரை விலக்கலாம்.' : 'Only between 9am and 7pm. You can exclude a customer on their page.'}
+                </span>
+              </span>
+            </label>
+            {autoOn && (
+              <div className="grid grid-cols-3 gap-3">
+                {([
+                  ['first', ta ? 'முதல் நினைவூட்டல் (நாள்)' : 'First after (days)', afterDays, setAfterDays, 90],
+                  ['repeat', ta ? 'மீண்டும் (நாள்)' : 'Repeat every (days)', repeatDays, setRepeatDays, 60],
+                  ['max', ta ? 'அதிகபட்சம்' : 'At most', maxCount, setMaxCount, 10],
+                ] as const).map(([id, text, value, set, max]) => (
+                  <div key={id}>
+                    <label htmlFor={`rem-${id}`} className={label}>{text}</label>
+                    <input id={`rem-${id}`} type="number" min={1} max={max} className={field} value={value} onChange={(e) => set(e.target.value)} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </fieldset>
 
           {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</p>}
           {saved && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">{ta ? 'சேமிக்கப்பட்டது.' : 'Saved.'}</p>}

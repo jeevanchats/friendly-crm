@@ -40,6 +40,11 @@ export const tenants = pgTable('tenants', {
   legalName: varchar('legal_name', { length: 200 }),
   address: text('address'),
   stateCode: varchar('state_code', { length: 2 }),
+  // Automatic payment reminders: opt-in, first after N days overdue, then every N days, at most N in total.
+  autoRemindersEnabled: boolean('auto_reminders_enabled').default(false).notNull(),
+  reminderAfterDays: integer('reminder_after_days').default(7).notNull(),
+  reminderRepeatDays: integer('reminder_repeat_days').default(7).notNull(),
+  reminderMaxCount: integer('reminder_max_count').default(3).notNull(),
   ...timestamps,
 });
 
@@ -120,6 +125,8 @@ export const customers = pgTable(
     shippingAddress: text('shipping_address'),
     // GST state code, used as the place of supply when the customer has no GSTIN
     stateCode: varchar('state_code', { length: 2 }),
+    // The customer asked not to get automatic reminders (staff can still send one by hand)
+    remindersOptOut: boolean('reminders_opt_out').default(false).notNull(),
     creditLimit: numeric('credit_limit', { precision: 12, scale: 2 }).default('0.00'),
     openingBalance: numeric('opening_balance', { precision: 12, scale: 2 }).default('0.00'),
     customData: jsonb('custom_data').$type<Record<string, any>>().default({}).notNull(),
@@ -452,7 +459,7 @@ export const notificationOutbox = pgTable(
     payload: jsonb('payload').default({}).notNull(),
     renderedMessage: text('rendered_message').notNull(),
     mediaUrl: text('media_url'),
-    status: varchar('status', { length: 20 }).default('PENDING').notNull(), // 'PENDING' | 'SENT' | 'FAILED' | 'DEAD_LETTER'
+    status: varchar('status', { length: 20 }).default('PENDING').notNull(), // 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'DEAD_LETTER'
     attempts: integer('attempts').default(0).notNull(),
     maxAttempts: integer('max_attempts').default(3).notNull(),
     lastError: text('last_error'),

@@ -122,6 +122,7 @@ export default function CustomerDetailPage() {
               gstin: customerData.customer?.gstin,
               billingAddress: customerData.customer?.billingAddress,
               stateCode: customerData.customer?.stateCode,
+              remindersOptOut: customerData.customer?.remindersOptOut,
             }}
           />
         </>
