@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { OrderDetailView } from '../../../components/orders/OrderDetailView';
+import { IssueInvoicePanel } from '../../../components/invoices/IssueInvoicePanel';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import {
@@ -133,12 +134,15 @@ export default function OrderDetailPage() {
             <p>{locale === 'ta' ? 'ஆர்டர் விவரங்கள் ஏற்றப்படுகின்றன...' : 'Loading order specifications...'}</p>
           </div>
         ) : (
-          <OrderDetailView
-            initialOrder={orderData}
-            industry={activeIndustry}
-            userRole={activeRole}
-            defaultLang={locale}
-          />
+          <>
+            <OrderDetailView
+              initialOrder={orderData}
+              industry={activeIndustry}
+              userRole={activeRole}
+              defaultLang={locale}
+            />
+            <IssueInvoicePanel orderId={orderData.id} role={activeRole} lang={locale} />
+          </>
         )}
       </main>
 

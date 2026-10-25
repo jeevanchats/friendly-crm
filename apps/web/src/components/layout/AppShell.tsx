@@ -74,8 +74,14 @@ export function AppShell({
     ...(hasPermission(userRole, 'quote:view')
       ? [{ href: '/inbox', labelEn: 'Inbox', labelTa: 'செய்திகள்', icon: '💬' }]
       : []),
+    ...(hasPermission(userRole, 'invoice:view')
+      ? [{ href: '/invoices', labelEn: 'Invoices', labelTa: 'விலைப்பட்டியல்', icon: '🧾' }]
+      : []),
     ...(canViewReports
       ? [{ href: '/reports', labelEn: 'Reports', labelTa: 'அறிக்கைகள்', icon: '📊' }]
+      : []),
+    ...(hasPermission(userRole, 'settings:manage')
+      ? [{ href: '/settings', labelEn: 'Settings', labelTa: 'அமைப்புகள்', icon: '⚙️' }]
       : []),
   ];
 
@@ -275,14 +281,14 @@ export function AppShell({
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION BAR (Home, Customers, Orders, Reports?, + Add) */}
-      <nav className={`fixed bottom-0 inset-x-0 z-30 grid ${canViewReports ? 'grid-cols-5' : 'grid-cols-4'} bg-white border-t border-slate-200 py-1.5 px-2 md:hidden shadow-lg`}>
+      <nav className="fixed bottom-0 inset-x-0 z-30 flex overflow-x-auto bg-white border-t border-slate-200 py-1.5 px-2 md:hidden shadow-lg">
         {navItems.map((item) => {
           const active = pathname === item.href;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center justify-center min-h-[48px] rounded-xl text-xs font-semibold ${
+              className={`flex shrink-0 min-w-[64px] flex-1 flex-col items-center justify-center min-h-[48px] rounded-xl text-xs font-semibold ${
                 active ? 'text-[#167D79] font-bold' : 'text-slate-500'
               }`}
             >
@@ -294,7 +300,7 @@ export function AppShell({
         <button
           type="button"
           onClick={() => setShowQuickAdd(true)}
-          className="flex flex-col items-center justify-center min-h-[48px] rounded-xl bg-[#167D79] text-white font-bold shadow-sm"
+          className="flex shrink-0 min-w-[64px] flex-1 flex-col items-center justify-center min-h-[48px] rounded-xl bg-[#167D79] text-white font-bold shadow-sm"
         >
           <span className="text-base">＋</span>
           <span className="text-[10px]">{lang === 'ta' ? 'புதியது' : 'Quick Add'}</span>

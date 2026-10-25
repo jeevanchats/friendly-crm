@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Customer360View } from '../../../components/crm/Customer360View';
+import { BillingDetailsCard } from '../../../components/crm/BillingDetailsCard';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import { ArrowLeft, UserCheck, RefreshCw, AlertCircle } from 'lucide-react';
@@ -110,7 +111,20 @@ export default function CustomerDetailPage() {
           </div>
         </div>
       ) : customerData ? (
-        <Customer360View data={customerData} defaultLang={locale} />
+        <>
+          <Customer360View data={customerData} defaultLang={locale} />
+          <BillingDetailsCard
+            key={customerId}
+            customerId={customerId}
+            role={activeRole}
+            lang={locale}
+            initial={{
+              gstin: customerData.customer?.gstin,
+              billingAddress: customerData.customer?.billingAddress,
+              stateCode: customerData.customer?.stateCode,
+            }}
+          />
+        </>
       ) : null}
     </div>
   );
