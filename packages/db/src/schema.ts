@@ -306,6 +306,32 @@ export const orderItems = pgTable('order_items', {
   lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
 });
 
+/**
+ * Product / service master. A quotation line copies these defaults when a product is picked, so editing a
+ * product never changes quotes or invoices already made. Archived (is_active = false) instead of deleted.
+ * Name and code are unique per business (case-insensitive) via indexes created in migration 0010.
+ */
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    name: varchar('name', { length: 200 }).notNull(),
+    code: varchar('code', { length: 50 }),
+    description: text('description'),
+    hsnCode: varchar('hsn_code', { length: 8 }),
+    unit: varchar('unit', { length: 30 }).default('Nos').notNull(),
+    unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).default('18.00').notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdById: uuid('created_by_id').references(() => users.id),
+    ...timestamps,
+  },
+  (table) => ({
+    tenantActiveIdx: index('products_tenant_active_idx').on(table.tenantId, table.isActive),
+  })
+);
+
 // ==========================================
 // 4. BILLING & PAYMENTS DOMAIN
 // ==========================================

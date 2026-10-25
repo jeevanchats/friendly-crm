@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
 import { apiFetch } from '../../lib/session';
+import { ProductPicker } from '../products/ProductPicker';
 
 interface FastQuotationProps {
   customer: { id: string; name: string; phone: string };
@@ -38,6 +39,10 @@ export function FastQuotationBuilder({
   const updateItem = (idx: number, key: string, val: any) => {
     setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, [key]: val } : item)));
   };
+  const patchItem = (idx: number, patch: Record<string, unknown>) => {
+    setItems((prev) => prev.map((item, i) => (i === idx ? { ...item, ...patch } : item)));
+  };
+  const [filledFrom, setFilledFrom] = useState<Record<number, string>>({});
 
   const handleSaveQuote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,14 +117,32 @@ export function FastQuotationBuilder({
         {/* Line Items */}
         {items.map((item, idx) => (
           <div key={idx} className="space-y-2.5 rounded-xl bg-[#F6F8F7] p-3.5 border border-slate-200">
-            <input
-              type="text"
-              required
-              placeholder={lang === 'ta' ? 'பொருள் / வேலை பெயர் *' : 'Item / Job Description *'}
+            <ProductPicker
+              id={`item-name-${idx}`}
+              placeholder={lang === 'ta' ? 'பொருள் / வேலை பெயர் * (தேடலாம்)' : 'Item / Job Description * (type to search your products)'}
               value={item.itemName}
-              onChange={(e) => updateItem(idx, 'itemName', e.target.value)}
+              onText={(t) => {
+                updateItem(idx, 'itemName', t);
+                setFilledFrom((m) => (m[idx] ? { ...m, [idx]: '' } : m));
+              }}
+              onPick={(p) => {
+                patchItem(idx, {
+                  itemName: p.name,
+                  description: item.description || p.description || '',
+                  hsnCode: p.hsnCode ?? '',
+                  unit: p.unit,
+                  unitPrice: Number(p.unitPrice),
+                  taxPercent: Number(p.taxPercent),
+                });
+                setFilledFrom((m) => ({ ...m, [idx]: p.name }));
+              }}
               className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
             />
+            {filledFrom[idx] && (
+              <p className="text-[11px] text-emerald-700">
+                {lang === 'ta' ? 'விலை, GST, HSN உங்கள் பொருள் பட்டியலிலிருந்து நிரப்பப்பட்டது. மாற்றலாம்.' : 'Rate, GST and HSN filled from your product list. You can still change them.'}
+              </p>
+            )}
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-[11px] font-semibold text-slate-500">

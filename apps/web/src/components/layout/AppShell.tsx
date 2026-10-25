@@ -71,6 +71,9 @@ export function AppShell({
     ...(hasPermission(userRole, 'payment:view')
       ? [{ href: '/dues', labelEn: 'Dues', labelTa: 'நிலுவை', icon: '💰' }]
       : []),
+    ...(hasPermission(userRole, 'product:view')
+      ? [{ href: '/products', labelEn: 'Products', labelTa: 'பொருட்கள்', icon: '🏷️' }]
+      : []),
     ...(hasPermission(userRole, 'quote:view')
       ? [{ href: '/inbox', labelEn: 'Inbox', labelTa: 'செய்திகள்', icon: '💬' }]
       : []),

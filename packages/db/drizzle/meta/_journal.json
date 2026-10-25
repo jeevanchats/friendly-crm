@@ -71,6 +71,13 @@
       "when": 1792707000000,
       "tag": "0009_auto_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792708000000,
+      "tag": "0010_products",
+      "breakpoints": true
     }
   ]
 }

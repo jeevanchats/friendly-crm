@@ -19,6 +19,7 @@ import {
   invoices,
   invoiceItems,
   invoiceCounters,
+  products,
   type InvoiceParty,
 } from '@friendly-crm/db';
 import {
@@ -41,6 +42,7 @@ import {
   globalMemoryInvoices,
   globalMemoryInvoiceItems,
   globalMemoryInvoiceCounters,
+  globalMemoryProducts,
 } from '../crm/memory-store';
 
 export type PlaceOfSupplySource = 'OVERRIDE' | 'CUSTOMER_GSTIN' | 'CUSTOMER_STATE' | 'DEFAULT_SUPPLIER_STATE';
@@ -556,6 +558,13 @@ export class InvoicesService {
   }
 
   private async suggestHsnDb(tx: any, tenantId: string, itemName: string): Promise<string | null> {
+    // The product master is the deliberate source: use its HSN first.
+    const [master] = await tx
+      .select({ hsn: products.hsnCode })
+      .from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true), dsql`lower(${products.name}) = lower(${itemName})`, dsql`${products.hsnCode} is not null`))
+      .limit(1);
+    if (master?.hsn) return master.hsn;
     const rows = await tx
       .select({ hsn: invoiceItems.hsnCode })
       .from(invoiceItems)
@@ -574,6 +583,8 @@ export class InvoicesService {
 
   private async suggestHsnMemory(tenantId: string, itemName: string): Promise<string | null> {
     const n = itemName.toLowerCase();
+    const master = globalMemoryProducts.find((p) => p.tenantId === tenantId && p.isActive !== false && p.hsnCode && String(p.name).toLowerCase() === n);
+    if (master) return master.hsnCode;
     const inv = globalMemoryInvoiceItems.find((i) => i.tenantId === tenantId && String(i.itemName).toLowerCase() === n);
     if (inv?.hsnCode) return inv.hsnCode;
     return globalMemoryOrderItems.find((i) => i.tenantId === tenantId && i.hsnCode && String(i.itemName).toLowerCase() === n)?.hsnCode ?? null;

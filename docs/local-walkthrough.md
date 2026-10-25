@@ -52,6 +52,8 @@ No leads, quotes, GSTIN or UPI ID are set yet. Most of the walkthrough below use
 | Customer detail | `/customers/<id>` | Orders, quotes, ledger, timeline. **GST details** card at the bottom: edit GSTIN, state, address, and "Do not send automatic payment reminders" |
 | New quote | `/quotations/new?customerId=<id>` (the **New Quote** button on a customer) | Add items with rate, GST % and optional HSN; save; View PDF / WhatsApp share / Convert Order |
 | Quote PDF view | `/q/<id>/pdf` | Printable quote; **Download PDF** button |
+| Products | `/products` | Your product and service list: search, **Add product**, edit, archive. Each has code, HSN/SAC, unit, rate (before GST) and GST % |
+| Import products | `/products/import` | Upload a CSV or paste from Excel, check the columns, preview, import. Skips or updates products with the same name or code |
 | Orders | `/orders` | List and stage filter |
 | Order detail | `/orders/<id>` | Stage card (move the order forward), payments, **Issue GST invoice** panel |
 | Inbox | `/inbox` | Customer change requests from WhatsApp, and approved orders still waiting for payment |
@@ -72,6 +74,15 @@ Also check on every screen: the business switcher, the language toggle, sign out
 5. **Import**. `Opening balance` is what each customer owed before Friendly CRM; it shows up in **Who owes me** and in the customer's WhatsApp `dues` reply.
 
 An opening balance is only set for NEW customers. Importing a customer that already exists never changes their balance.
+
+## 4c. Product master and quotes
+
+1. **Products → Import from Excel / CSV** (or **Add product**). Name is required; Rate, GST %, HSN/SAC and Unit are what fill a quote line. A missing rate becomes ₹0 and a missing GST % becomes 18%; the check step lists those rows.
+2. Customer → **New Quote**: in the item box start typing (for example `cal`). Pick a product and the unit, rate, GST % and HSN fill in. You can still change them, or type an item that is not in the list.
+3. Changing a product later never changes quotes or invoices already made; they keep their own copy.
+4. When you issue a GST invoice, an item that has no HSN gets the HSN from your product list as a suggestion.
+
+Owner and Manager can change products; Sales and Accounts can only look and use them in quotes; Production cannot see prices.
 
 ## 5. End-to-end money flow (about 10 minutes)
 

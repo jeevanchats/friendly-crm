@@ -10,6 +10,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { HealthModule } from './modules/health/health.module';
 import { ReceivablesModule } from './modules/receivables/receivables.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { ProductsModule } from './modules/products/products.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
     HealthModule,
     ReceivablesModule,
     InvoicesModule,
+    ProductsModule,
   ],
 })
 export class AppModule {}

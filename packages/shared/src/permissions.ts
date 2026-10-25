@@ -36,6 +36,8 @@ export type PermissionAction =
   | 'payment:view'
   | 'invoice:create'
   | 'invoice:view'
+  | 'product:view'
+  | 'product:manage'
   | 'report:view'
   | 'settings:manage'
   | 'workflow:read'
@@ -78,6 +80,8 @@ export const ROLE_PERMISSION_MATRIX: Record<TenantRole, PermissionAction[]> = {
     'audit:read',
     'invoice:create',
     'invoice:view',
+    'product:view',
+    'product:manage',
   ],
   MANAGER: [
     'tenant:read',
@@ -107,6 +111,8 @@ export const ROLE_PERMISSION_MATRIX: Record<TenantRole, PermissionAction[]> = {
     'audit:read',
     'invoice:create',
     'invoice:view',
+    'product:view',
+    'product:manage',
   ],
   SALESPERSON: [
     'tenant:read',
@@ -125,6 +131,7 @@ export const ROLE_PERMISSION_MATRIX: Record<TenantRole, PermissionAction[]> = {
     'quote:convert',
     'quote:pdf',
     'order:view',
+    'product:view',
   ],
   ACCOUNTS: [
     'tenant:read',
@@ -136,6 +143,7 @@ export const ROLE_PERMISSION_MATRIX: Record<TenantRole, PermissionAction[]> = {
     'quote:view',
     'invoice:create',
     'invoice:view',
+    'product:view',
   ],
   PRODUCTION: [
     'tenant:read',
@@ -154,6 +162,7 @@ export const ROLE_PERMISSION_MATRIX: Record<TenantRole, PermissionAction[]> = {
     'payment:view',
     'report:view',
     'invoice:view',
+    'product:view',
   ],
 };
 
