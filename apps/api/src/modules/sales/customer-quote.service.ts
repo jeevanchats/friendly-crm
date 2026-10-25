@@ -11,6 +11,7 @@ import {
   globalMemoryCustomers,
 } from '../crm/memory-store';
 import { SalesService } from './sales.service';
+import { QuoteLinkService } from './quote-link.service';
 
 /** What a customer may see about a quote waiting for their decision. */
 export interface CustomerQuoteView {
@@ -19,6 +20,8 @@ export interface CustomerQuoteView {
   version: number;
   grandTotal: string;
   validUntil: string | null;
+  /** Signed public link to the quotation PDF, when the server can make one. */
+  pdfUrl: string | null;
   items: Array<{ itemName: string; quantity: string; unit: string }>;
 }
 
@@ -69,7 +72,10 @@ export class CustomerQuoteService {
   /** Serialises approvals per quote inside this process so a double tap cannot create two orders. */
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
-  constructor(private readonly sales: SalesService) {}
+  constructor(
+    private readonly sales: SalesService,
+    private readonly links: QuoteLinkService
+  ) {}
 
   /** Quotes sent to this customer that are still open: latest version, not converted/rejected, not expired. */
   async listForCustomer(tenantId: string, customerId: string, limit = 5): Promise<CustomerQuoteView[]> {
@@ -81,6 +87,7 @@ export class CustomerQuoteService {
       version: q.version ?? 1,
       grandTotal: String(q.grandTotal),
       validUntil: q.validUntil ? new Date(q.validUntil).toISOString() : null,
+      pdfUrl: this.links.buildUrl(tenantId, q.id),
       items: items.map((i) => ({ itemName: i.itemName, quantity: String(i.quantity), unit: i.unit })),
     });
 

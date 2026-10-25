@@ -9,6 +9,7 @@ import {
 import { sql, eq, and, desc } from 'drizzle-orm';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
 import { PdfEngineService } from './pdf/pdf-engine.service';
+import { QuoteLinkService } from './quote-link.service';
 import {
   db,
   quotations,
@@ -69,8 +70,18 @@ export class SalesService {
 
   constructor(
     @Optional() private readonly notificationOutboxService?: NotificationOutboxService,
-    @Optional() private readonly pdfEngine: PdfEngineService = new PdfEngineService()
+    @Optional() private readonly pdfEngine: PdfEngineService = new PdfEngineService(),
+    @Optional() private readonly quoteLinks?: QuoteLinkService
   ) {}
+
+  /**
+   * Template values for the PDF line of the quote message. The link is a signed public address the customer can open
+   * without logging in; when the server is not set up to make one, the line is left out rather than showing a broken link.
+   */
+  private pdfParams(tenantId: string, quoteId: string): { pdfLine: string } {
+    const url = this.quoteLinks?.buildUrl(tenantId, quoteId);
+    return { pdfLine: url ? `\n\nDownload PDF: ${url}` : '' };
+  }
 
   /**
    * Helper to retrieve active database transaction from TenantRlsInterceptor or default db client
@@ -270,7 +281,7 @@ export class SalesService {
                 quoteNumber: quote.quoteNumber,
                 version: quote.version,
                 grandTotal: quote.grandTotal,
-                pdfUrl: `/q/${quote.id}/pdf`,
+                ...this.pdfParams(tenantId, quote.id),
               },
             }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue quotation notification: ${notifErr.message}`));
           }
@@ -357,7 +368,7 @@ export class SalesService {
           quoteNumber: quote.quoteNumber,
           version: quote.version,
           grandTotal: quote.grandTotal,
-          pdfUrl: `/q/${quote.id}/pdf`,
+          ...this.pdfParams(tenantId, quote.id),
         },
       }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue quotation notification: ${notifErr.message}`));
     }
@@ -1038,20 +1049,43 @@ export class SalesService {
    */
   async generateQuotationPdf(id: string, tenantId: string, userRole: TenantRole): Promise<Buffer> {
     const data = await this.getQuotationById(id, tenantId, userRole);
+    const t: any = data.tenant;
+    const c: any = data.customer;
     return this.pdfEngine.generateQuotationPdf({
       quoteNumber: data.quote.quoteNumber,
+      version: data.quote.version,
+      createdAt: data.quote.createdAt,
       validUntil: data.quote.validUntil,
-      subTotal: data.quote.subTotal,
-      taxTotal: data.quote.taxTotal,
-      discountTotal: data.quote.discountTotal,
-      grandTotal: data.quote.grandTotal,
+      termsAndConditions: data.quote.termsAndConditions,
+      business: {
+        name: (t.legalName || '').trim() || t.name,
+        address: t.address ?? null,
+        gstin: t.gstNumber ?? null,
+        phone: t.phone ?? null,
+      },
+      customer: {
+        name: c.name,
+        companyName: c.companyName ?? null,
+        phone: c.phone ?? null,
+        gstin: c.gstin ?? null,
+        address: c.billingAddress ?? null,
+      },
       items: data.items.map((i: any) => ({
-        description: i.description || i.itemName,
-        quantity: Number(i.quantity),
+        itemName: i.itemName || i.description || 'Item',
+        description: i.itemName ? i.description : null,
+        hsnCode: i.hsnCode ?? null,
+        quantity: i.quantity,
+        unit: i.unit,
         unitPrice: i.unitPrice,
-        total: i.lineTotal,
+        taxPercent: i.taxPercent,
         lineTotal: i.lineTotal,
       })),
+      totals: {
+        subTotal: data.quote.subTotal,
+        taxTotal: data.quote.taxTotal,
+        discountTotal: data.quote.discountTotal,
+        grandTotal: data.quote.grandTotal,
+      },
     });
   }
 }

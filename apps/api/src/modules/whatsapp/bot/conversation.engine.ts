@@ -80,6 +80,8 @@ export interface CustomerQuoteView {
   version: number;
   grandTotal: string;
   validUntil: string | null;
+  /** Signed public link to the quotation PDF, when the server can make one. */
+  pdfUrl?: string | null;
   items: Array<{ itemName: string; quantity: string; unit: string }>;
 }
 
@@ -839,6 +841,7 @@ export class ConversationEngine {
         lines.push(t(locale, 'c_quote_valid_until', { date }));
       }
     }
+    if (quote.pdfUrl) lines.push(t(locale, 'c_quote_pdf', { url: quote.pdfUrl }));
     const options = numbered([t(locale, 'c_quote_approve'), t(locale, 'c_quote_change')]);
     return [`${lines.join('\n')}\n\n${options}`];
   }

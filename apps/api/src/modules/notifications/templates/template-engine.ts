@@ -14,8 +14,8 @@ export interface NotificationTemplate {
 export const BUILTIN_TEMPLATES: Record<string, NotificationTemplate> = {
   QUOTATION_CREATED: {
     key: 'QUOTATION_CREATED',
-    en: 'Hello {{customerName || "Customer"}},\nHere is your quotation from our team:\n*Quote No:* {{quoteNumber}} (v{{version || 1}})\n*Total Amount:* ₹{{grandTotal || "—"}}\n\nDownload PDF: {{pdfUrl || "—"}}\n\nTo approve this quote or ask for a change, reply *quotes* on this chat.',
-    ta: 'வணக்கம் {{customerName || "வாடிக்கையாளர்"}},\nஎங்கள் குழுவின் கொட்டேஷன் இதோ:\n*எண்:* {{quoteNumber}} (v{{version || 1}})\n*மொத்த மதிப்பு:* ₹{{grandTotal || "—"}}\n\nPDF பதிவிறக்க: {{pdfUrl || "—"}}\n\nஇந்த கொட்டேஷனை ஒப்புக்கொள்ள அல்லது மாற்றம் கேட்க, இந்த சாட்டில் *quotes* என பதிலளிக்கவும்.',
+    en: 'Hello {{customerName || "Customer"}},\nHere is your quotation from our team:\n*Quote No:* {{quoteNumber}} (v{{version || 1}})\n*Total Amount:* ₹{{grandTotal || "—"}}{{pdfLine || ""}}\n\nTo approve this quote or ask for a change, reply *quotes* on this chat.',
+    ta: 'வணக்கம் {{customerName || "வாடிக்கையாளர்"}},\nஎங்கள் குழுவின் கொட்டேஷன் இதோ:\n*எண்:* {{quoteNumber}} (v{{version || 1}})\n*மொத்த மதிப்பு:* ₹{{grandTotal || "—"}}{{pdfLine || ""}}\n\nஇந்த கொட்டேஷனை ஒப்புக்கொள்ள அல்லது மாற்றம் கேட்க, இந்த சாட்டில் *quotes* என பதிலளிக்கவும்.',
   },
   ORDER_CONFIRMED: {
     key: 'ORDER_CONFIRMED',

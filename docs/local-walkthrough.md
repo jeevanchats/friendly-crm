@@ -131,7 +131,7 @@ WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows t
 - **No e-invoice or e-way bill** (needs government API access).
 - **One invoice per order**, and issued invoices cannot be cancelled or credit-noted yet.
 - **A customer cannot reply "stop"** to automatic reminders on WhatsApp; staff set it on the customer page.
-- **The quote link in the WhatsApp quote message is not clickable yet** (it is a relative address, and the quote page needs a staff login). A public customer link or a PDF attachment is needed.
+- **Quote links only reach other phones once the server has a public address.** Locally the link in the quote message points at `http://localhost:4000` (works on this computer only). For real use set `PUBLIC_API_URL` (the address customers can reach) and `QUOTE_LINK_SECRET` (16+ random characters); without them in production no link is sent.
 - **Customers in credit (advances)** cannot be imported yet; a negative balance is rejected.
 - **WhatsApp is a sandbox.** Replies print in the console; nothing reaches a phone. No interactive buttons yet.
 - **Invoice PDF** prints "Rs." and cannot show Tamil names (font limitation).

@@ -611,6 +611,20 @@ describe('WhatsApp conversation engine', () => {
         expect(calls.approve[0].ctx.messageId).toBeTruthy();
       });
 
+      it('includes the customer link to the quotation PDF when the server made one, and none when it did not', async () => {
+        const link = 'https://api.example.in/api/public/quotes/abc.def/pdf';
+        const withLink = setup([], [], [customer()], orders, { quotes: [quote({ pdfUrl: link })] });
+        await open(withLink.say);
+        const detail = await withLink.say('2', CUSTOMER_PHONE);
+        expect(detail).toContain(`Open the quotation (PDF): ${link}`);
+
+        const without = setup([], [], [customer()], orders, { quotes: [quote({ pdfUrl: null })] });
+        await open(without.say);
+        const plain = await without.say('2', CUSTOMER_PHONE);
+        expect(plain).not.toContain('PDF');
+        expect(plain).toContain('Approve and place the order');
+      });
+
       it('sends the UPI payment link with the approval when the business has a UPI ID', async () => {
         const { say } = setup([], [], [customer({ upiId: 'senthaamarai@okhdfc' })], orders, { quotes: [quote()] });
         await open(say);

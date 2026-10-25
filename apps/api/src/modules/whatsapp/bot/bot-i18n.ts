@@ -172,6 +172,7 @@ export const MESSAGES = {
     ta: 'ஒப்புதலுக்காக காத்திருக்கும் கொட்டேஷன்கள் எதுவும் இல்லை.',
   },
   c_quotes_pick: { en: 'Which quote?', ta: 'எந்த கொட்டேஷன்?' },
+  c_quote_pdf: { en: 'Open the quotation (PDF): {url}', ta: 'கொட்டேஷன் (PDF): {url}' },
   c_quote_valid_until: { en: 'Valid until {date}', ta: 'செல்லுபடியாகும் நாள்: {date}' },
   c_quote_approve: { en: 'Approve and place the order ✅', ta: 'ஒப்புக்கொண்டு ஆர்டர் செய்ய ✅' },
   c_quote_change: { en: 'Ask for a change ✏️', ta: 'மாற்றம் கேட்க ✏️' },
