@@ -7,7 +7,7 @@ import {
   SuggestedLine,
   baseMimeType,
 } from '@friendly-crm/shared';
-import { AttachmentsService } from '../crm/attachments.service';
+import { AttachmentsService, Viewer } from '../crm/attachments.service';
 import { ProductsService } from '../products/products.service';
 import { DocumentTextService, MIN_OCR_CONFIDENCE } from './document-text.service';
 
@@ -196,11 +196,11 @@ export class QuoteReaderService {
     this.usage.set(tenantId, recent);
   }
 
-  async read(tenantId: string, scope: { leadId?: string; customerId?: string }): Promise<QuoteReading> {
+  async read(tenantId: string, viewer: Viewer, scope: { leadId?: string; customerId?: string }): Promise<QuoteReading> {
     if (!scope.leadId && !scope.customerId) throw new BadRequestException('Say which enquiry or customer to read.');
     const mode = this.mode();
 
-    const { leads, attachments } = await this.attachments.readable(tenantId, scope);
+    const { leads, attachments } = await this.attachments.readable(tenantId, viewer, scope);
     const productList = (await this.products.list(tenantId, { limit: 500 }).catch(() => ({ data: [] as any[] }))).data.filter((p: any) => p.isActive !== false);
 
     const skipped: string[] = [];

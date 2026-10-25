@@ -40,6 +40,12 @@ describe('Enquiry attachments: voice note and files for the person preparing the
   const OWNER = '11111111-8383-4838-8838-838383838383';
   const PROD = '22222222-8383-4838-8838-838383838383';
   const STRANGER = '33333333-8383-4838-8838-838383838383';
+  const SALES_A = '44444444-8383-4838-8838-838383838383';
+  const SALES_B = '55555555-8383-4838-8838-838383838383';
+  const MANAGER = '66666666-8383-4838-8838-838383838383';
+  let salesA: string;
+  let salesB: string;
+  let manager: string;
   let owner: string;
   let production: string;
   let stranger: string;
@@ -91,6 +97,12 @@ describe('Enquiry attachments: voice note and files for the person preparing the
     a.registerMembership(T, OWNER, 'OWNER', true);
     a.registerMembership(T, PROD, 'PRODUCTION', true);
     a.registerMembership(OTHER_T, STRANGER, 'OWNER', true);
+    a.registerUser({ id: SALES_A, fullName: 'A Sales One', phone: '+919840998104' });
+    a.registerUser({ id: SALES_B, fullName: 'A Sales Two', phone: '+919840998105' });
+    a.registerUser({ id: MANAGER, fullName: 'A Manager', phone: '+919840998106' });
+    a.registerMembership(T, SALES_A, 'SALESPERSON', true);
+    a.registerMembership(T, SALES_B, 'SALESPERSON', true);
+    a.registerMembership(T, MANAGER, 'MANAGER', true);
     const login = async (phone: string, tenantId: string) => {
       await a.requestOtp({ phone, countryCode: '+91' });
       const code = DevSmsGateway.getLatestOtp(a.normalizePhone(phone))!;
@@ -99,6 +111,9 @@ describe('Enquiry attachments: voice note and files for the person preparing the
     owner = await login('+919840998101', T);
     production = await login('+919840998102', T);
     stranger = await login('+919840998103', OTHER_T);
+    salesA = await login('+919840998104', T);
+    salesB = await login('+919840998105', T);
+    manager = await login('+919840998106', T);
   });
 
   afterAll(async () => {
@@ -180,6 +195,52 @@ describe('Enquiry attachments: voice note and files for the person preparing the
     expect((await fetch(`${baseUrl}/api/crm/attachments/${a.id}/file`, { headers: auth(stranger, OTHER_T) })).status).toBe(404);
     expect((await upload(stranger, e.lead.id, Buffer.from('x'), 'x.pdf', 'application/pdf', {}, OTHER_T)).status).toBe(404);
     expect(await (await json(stranger, `/crm/attachments?leadId=${e.lead.id}`, { tenant: OTHER_T })).json()).toEqual([]);
+  });
+
+  describe('who may see an enquiry\'s attachments', () => {
+    const enquireAs = async (token: string) => {
+      const res = await json(token, '/crm/intake-lead', {
+        method: 'POST',
+        body: { name: 'Scoped Traders', customerName: 'Scoped Traders', phone: `98409970${String(++phoneSeq).padStart(2, '0')}`, title: 'Private brief', source: 'PHONE', customData: { job_type: 'CALENDAR' } },
+      });
+      expect(res.status).toBe(201);
+      return res.json();
+    };
+    const asUser = (token: string, path: string, init: { method?: string } = {}) =>
+      fetch(`${baseUrl}/api${path}`, { method: init.method ?? 'GET', headers: auth(token) });
+
+    it('lets the person the enquiry belongs to, a manager and the owner see and open it', async () => {
+      const e = await enquireAs(salesA);
+      const a = await (await upload(salesA, e.lead.id, Buffer.from('secret'), 'brief.pdf', 'application/pdf')).json(); // its own assignee may add
+      expect(a.leadId).toBe(e.lead.id);
+      for (const who of [salesA, manager, owner]) {
+        expect(await (await json(who, `/crm/attachments?leadId=${e.lead.id}`)).json()).toHaveLength(1);
+        expect((await asUser(who, `/crm/attachments/${a.id}/file`)).status).toBe(200);
+      }
+    });
+
+    it('keeps another salesperson out: nothing listed, nothing to open, add or remove', async () => {
+      const e = await enquireAs(salesA);
+      const a = await (await upload(salesA, e.lead.id, Buffer.from('secret'), 'brief.pdf', 'application/pdf')).json();
+      expect(await (await json(salesB, `/crm/attachments?leadId=${e.lead.id}`)).json()).toEqual([]);
+      expect(await (await json(salesB, `/crm/attachments?customerId=${e.customer.id}`)).json()).toEqual([]);
+      expect((await asUser(salesB, `/crm/attachments/${a.id}/file`)).status).toBe(404);
+      expect((await upload(salesB, e.lead.id, Buffer.from('x'), 'x.pdf', 'application/pdf')).status).toBe(404);
+      expect((await asUser(salesB, `/crm/attachments/${a.id}`, { method: 'DELETE' })).status).toBe(404);
+      // and it is still there for the person it belongs to
+      expect(await (await json(salesA, `/crm/attachments?leadId=${e.lead.id}`)).json()).toHaveLength(1);
+    });
+
+    it('keeps the quote reader from sending another person\'s files anywhere', async () => {
+      const e = await enquireAs(salesA);
+      await upload(salesA, e.lead.id, Buffer.from('opus'), 'v.webm', 'audio/webm', { transcript: '500 wall calendars' });
+      delete process.env.ANTHROPIC_API_KEY;
+      const mine = await (await json(salesA, '/sales/quotations/suggest', { method: 'POST', body: { leadId: e.lead.id } })).json();
+      expect(mine.sources.join(' ')).toContain('Voice note');
+      const theirs = await (await json(salesB, '/sales/quotations/suggest', { method: 'POST', body: { leadId: e.lead.id } })).json();
+      expect(theirs.lines).toEqual([]);
+      expect(theirs.sources).toEqual([]);
+    });
   });
 
   it('does not let a role without enquiry access add or read them', async () => {

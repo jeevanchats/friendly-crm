@@ -75,7 +75,8 @@ export class SalesController {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const leadId = typeof body?.leadId === 'string' && uuid.test(body.leadId) ? body.leadId : undefined;
     const customerId = typeof body?.customerId === 'string' && uuid.test(body.customerId) ? body.customerId : undefined;
-    return this.quoteReader.read(tenant.id, { leadId, customerId });
+    // Same visibility as the enquiry's own attachments: owners and managers everything, others their own enquiries
+    return this.quoteReader.read(tenant.id, { userId: user?.id ?? null, all: hasPermission(role, 'lead:view_all') }, { leadId, customerId });
   }
 
   /**

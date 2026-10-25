@@ -66,9 +66,27 @@ const INFO_COLUMNS = {
   createdAt: leadAttachments.createdAt,
 };
 
+/**
+ * Who is asking. Owners and managers (lead:view_all) see every enquiry's attachments; everyone else only those of
+ * enquiries assigned to them, the same rule the dashboard already uses for their lead lists.
+ */
+export interface Viewer {
+  userId: string | null;
+  all: boolean;
+}
+
 @Injectable()
 export class AttachmentsService {
   private readonly logger = new Logger(AttachmentsService.name);
+
+  /** SQL condition limiting enquiries to the ones this person may see (nothing to add for owners and managers). */
+  private mine(viewer: Viewer) {
+    return viewer.all ? undefined : viewer.userId ? eq(leads.assignedToId, viewer.userId) : sql`false`;
+  }
+
+  private mineMemory(viewer: Viewer, lead: any): boolean {
+    return viewer.all || (!!viewer.userId && lead?.assignedToId === viewer.userId);
+  }
 
   private getDb() {
     return tenantContextStorage.getStore()?.tx || db;
@@ -91,6 +109,7 @@ export class AttachmentsService {
   async add(
     tenantId: string,
     userId: string | null,
+    viewer: Viewer,
     leadId: string,
     file: UploadedFile | undefined,
     durationSeconds?: unknown,
@@ -112,7 +131,7 @@ export class AttachmentsService {
 
     try {
       const saved = await this.inTenant(tenantId, async (tx) => {
-        const [lead] = await tx.select({ id: leads.id }).from(leads).where(and(eq(leads.tenantId, tenantId), eq(leads.id, leadId))).limit(1);
+        const [lead] = await tx.select({ id: leads.id }).from(leads).where(and(eq(leads.tenantId, tenantId), eq(leads.id, leadId), this.mine(viewer))).limit(1);
         if (!lead) return null; // maybe a memory-only enquiry (offline development); the fallback below decides
         const [{ n }] = await tx
           .select({ n: sql<number>`count(*)::int` })
@@ -133,7 +152,7 @@ export class AttachmentsService {
     }
 
     // Memory fallback
-    if (!globalMemoryLeads.some((l: any) => l.tenantId === tenantId && l.id === leadId)) throw new NotFoundException('Enquiry not found.');
+    if (!globalMemoryLeads.some((l: any) => l.tenantId === tenantId && l.id === leadId && this.mineMemory(viewer, l))) throw new NotFoundException('Enquiry not found.');
     if (memoryAttachments.filter((a) => a.tenantId === tenantId && a.leadId === leadId).length >= MAX_ATTACHMENTS_PER_LEAD) {
       throw new BadRequestException(`An enquiry can have at most ${MAX_ATTACHMENTS_PER_LEAD} attachments. Remove one first.`);
     }
@@ -148,13 +167,13 @@ export class AttachmentsService {
    * Attachments of one enquiry, or of a customer's enquiries that are still live (not lost), newest first.
    * What a person preparing a quote needs: they open "New quote" from the customer and still find the voice note.
    */
-  async list(tenantId: string, scope: { leadId?: string; customerId?: string }): Promise<Array<AttachmentInfo & { leadTitle: string }>> {
+  async list(tenantId: string, viewer: Viewer, scope: { leadId?: string; customerId?: string }): Promise<Array<AttachmentInfo & { leadTitle: string }>> {
     if (!scope.leadId && !scope.customerId) throw new BadRequestException('Say which enquiry or customer to list.');
     try {
       const fromDb = await this.inTenant(tenantId, async (tx) => {
         const leadFilter = scope.leadId
-          ? and(eq(leads.tenantId, tenantId), eq(leads.id, scope.leadId))
-          : and(eq(leads.tenantId, tenantId), eq(leads.customerId, scope.customerId!), ne(leads.stage, 'LOST'));
+          ? and(eq(leads.tenantId, tenantId), eq(leads.id, scope.leadId), this.mine(viewer))
+          : and(eq(leads.tenantId, tenantId), eq(leads.customerId, scope.customerId!), ne(leads.stage, 'LOST'), this.mine(viewer));
         const found = await tx.select({ id: leads.id, title: leads.title }).from(leads).where(leadFilter);
         if (!found.length) return null;
         const titles = new Map<string, string>(found.map((l: any) => [l.id, l.title]));
@@ -172,7 +191,7 @@ export class AttachmentsService {
     }
 
     const memLeads = (globalMemoryLeads as any[]).filter(
-      (l) => l.tenantId === tenantId && (scope.leadId ? l.id === scope.leadId : l.customerId === scope.customerId && l.stage !== 'LOST')
+      (l) => l.tenantId === tenantId && this.mineMemory(viewer, l) && (scope.leadId ? l.id === scope.leadId : l.customerId === scope.customerId && l.stage !== 'LOST')
     );
     const titles = new Map<string, string>(memLeads.map((l) => [l.id, l.title]));
     return memoryAttachments
@@ -187,18 +206,19 @@ export class AttachmentsService {
    */
   async readable(
     tenantId: string,
+    viewer: Viewer,
     scope: { leadId?: string; customerId?: string }
   ): Promise<{ leads: Array<{ id: string; title: string; notes: string | null; customData: Record<string, any> }>; attachments: Array<AttachmentInfo & { data: Buffer }> }> {
-    const infos = await this.list(tenantId, scope);
+    const infos = await this.list(tenantId, viewer, scope);
     const attachments: Array<AttachmentInfo & { data: Buffer }> = [];
-    for (const i of infos.slice(0, MAX_ATTACHMENTS_PER_LEAD)) attachments.push(await this.get(tenantId, i.id));
+    for (const i of infos.slice(0, MAX_ATTACHMENTS_PER_LEAD)) attachments.push(await this.get(tenantId, viewer, i.id));
 
     const leadRows = async (): Promise<Array<{ id: string; title: string; notes: string | null; customData: Record<string, any> }>> => {
       try {
         const rows = await this.inTenant(tenantId, async (tx) => {
           const filter = scope.leadId
-            ? and(eq(leads.tenantId, tenantId), eq(leads.id, scope.leadId))
-            : and(eq(leads.tenantId, tenantId), eq(leads.customerId, scope.customerId!), ne(leads.stage, 'LOST'));
+            ? and(eq(leads.tenantId, tenantId), eq(leads.id, scope.leadId), this.mine(viewer))
+            : and(eq(leads.tenantId, tenantId), eq(leads.customerId, scope.customerId!), ne(leads.stage, 'LOST'), this.mine(viewer));
           return tx.select({ id: leads.id, title: leads.title, notes: leads.notes, customData: leads.customData }).from(leads).where(filter).limit(10);
         });
         if (rows.length) return rows;
@@ -206,20 +226,21 @@ export class AttachmentsService {
         this.rethrowUnlessOffline(err);
       }
       return (globalMemoryLeads as any[])
-        .filter((l) => l.tenantId === tenantId && (scope.leadId ? l.id === scope.leadId : l.customerId === scope.customerId && l.stage !== 'LOST'))
+        .filter((l) => l.tenantId === tenantId && this.mineMemory(viewer, l) && (scope.leadId ? l.id === scope.leadId : l.customerId === scope.customerId && l.stage !== 'LOST'))
         .slice(0, 10)
         .map((l) => ({ id: l.id, title: l.title, notes: l.notes ?? null, customData: l.customData ?? {} }));
     };
     return { leads: await leadRows(), attachments };
   }
 
-  async get(tenantId: string, id: string): Promise<AttachmentInfo & { data: Buffer }> {
+  async get(tenantId: string, viewer: Viewer, id: string): Promise<AttachmentInfo & { data: Buffer }> {
     try {
       const found = await this.inTenant(tenantId, async (tx) => {
         const [row] = await tx
           .select({ ...INFO_COLUMNS, data: leadAttachments.data })
           .from(leadAttachments)
-          .where(and(eq(leadAttachments.tenantId, tenantId), eq(leadAttachments.id, id)))
+          .innerJoin(leads, eq(leads.id, leadAttachments.leadId))
+          .where(and(eq(leadAttachments.tenantId, tenantId), eq(leadAttachments.id, id), this.mine(viewer)))
           .limit(1);
         return row ? { ...infoOf(row), data: row.data as Buffer } : null;
       });
@@ -228,13 +249,20 @@ export class AttachmentsService {
       this.rethrowUnlessOffline(err);
     }
     const m = memoryAttachments.find((a) => a.tenantId === tenantId && a.id === id);
-    if (!m) throw new NotFoundException('Attachment not found.');
+    if (!m || !this.mineMemory(viewer, (globalMemoryLeads as any[]).find((l) => l.id === m.leadId && l.tenantId === tenantId))) throw new NotFoundException('Attachment not found.');
     return { ...infoOf(m), data: m.data };
   }
 
-  async remove(tenantId: string, id: string): Promise<{ removed: true }> {
+  async remove(tenantId: string, viewer: Viewer, id: string): Promise<{ removed: true }> {
     try {
       const done = await this.inTenant(tenantId, async (tx) => {
+        const [allowed] = await tx
+          .select({ id: leadAttachments.id })
+          .from(leadAttachments)
+          .innerJoin(leads, eq(leads.id, leadAttachments.leadId))
+          .where(and(eq(leadAttachments.tenantId, tenantId), eq(leadAttachments.id, id), this.mine(viewer)))
+          .limit(1);
+        if (!allowed) return false;
         const gone = await tx
           .delete(leadAttachments)
           .where(and(eq(leadAttachments.tenantId, tenantId), eq(leadAttachments.id, id)))
@@ -245,7 +273,9 @@ export class AttachmentsService {
     } catch (err: any) {
       this.rethrowUnlessOffline(err);
     }
-    const i = memoryAttachments.findIndex((a) => a.tenantId === tenantId && a.id === id);
+    const i = memoryAttachments.findIndex(
+      (a) => a.tenantId === tenantId && a.id === id && this.mineMemory(viewer, (globalMemoryLeads as any[]).find((l) => l.id === a.leadId && l.tenantId === tenantId))
+    );
     if (i < 0) throw new NotFoundException('Attachment not found.');
     memoryAttachments.splice(i, 1);
     return { removed: true };
