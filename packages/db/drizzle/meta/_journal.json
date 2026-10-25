@@ -120,6 +120,13 @@
       "when": 1792714000000,
       "tag": "0016_reinvoice_after_cancellation",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792715000000,
+      "tag": "0017_bank_details",
+      "breakpoints": true
     }
   ]
 }

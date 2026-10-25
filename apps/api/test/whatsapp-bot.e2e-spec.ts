@@ -15,6 +15,11 @@ import { parseInboundMessages, webhookEventKeys, InboundMessage } from '../src/m
 import { TenantRole } from '@friendly-crm/shared';
 
 const PHONE = '+919876543210';
+/** The business's bank account and UPI ID, as customers are shown them. */
+const PAY = {
+  upiId: 'senthaamarai@okhdfc',
+  bank: { accountName: 'Senthaamarai Art Crafts', bankName: 'HDFC Bank', accountNumber: '50200012345678', ifsc: 'HDFC0001234', branch: 'Coimbatore' },
+};
 const CUSTOMER_PHONE = '+919443022222';
 
 function staff(over: Partial<StaffIdentity> = {}): StaffIdentity {
@@ -636,29 +641,35 @@ describe('WhatsApp conversation engine', () => {
         expect(plain).toContain('Approve and place the order');
       });
 
-      it('sends the UPI payment link with the approval when the business has a UPI ID', async () => {
-        const { say } = setup([], [], [customer({ upiId: 'senthaamarai@okhdfc' })], orders, { quotes: [quote()] });
+      it('shows the bank account and UPI ID as plain text with the approval, never a link', async () => {
+        const { say } = setup([], [], [customer({ payment: PAY })], orders, { quotes: [quote()] });
         await open(say);
         await say('2', CUSTOMER_PHONE);
         const done = await say('1', CUSTOMER_PHONE);
         expect(done).toContain('ORD-2026-9001');
-        expect(done).toContain('upi://pay?pa=senthaamarai%40okhdfc&pn=Senthaamarai%20Calendars&am=172000.00&cu=INR&tn=ORD-2026-9001');
-        expect(done).toContain('senthaamarai@okhdfc');
+        expect(done).toContain('Account name: Senthaamarai Art Crafts');
+        expect(done).toContain('Account no: 50200012345678');
+        expect(done).toContain('IFSC: HDFC0001234');
+        expect(done).toContain('UPI ID: senthaamarai@okhdfc');
+        expect(done).toContain('quote the order number');
+        expect(done).not.toMatch(/upi:\/\/|https?:\/\//);
       });
 
-      it('sends no payment link on approval when there is no valid UPI ID, or the quote was already approved', async () => {
-        const noUpi = setup([], [], [customer()], orders, { quotes: [quote()] });
-        await open(noUpi.say);
-        await noUpi.say('2', CUSTOMER_PHONE);
-        expect(await noUpi.say('1', CUSTOMER_PHONE)).not.toContain('upi://');
+      it('shows no payment details on approval when the business has set none, or the quote was already approved', async () => {
+        const noPay = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(noPay.say);
+        await noPay.say('2', CUSTOMER_PHONE);
+        const out = await noPay.say('1', CUSTOMER_PHONE);
+        expect(out).toContain('ORD-2026-9001');
+        expect(out).not.toContain('IFSC');
 
-        const again = setup([], [], [customer({ upiId: 'senthaamarai@okhdfc' })], orders, {
+        const again = setup([], [], [customer({ payment: PAY })], orders, {
           quotes: [quote()],
           approve: async () => ({ ok: true, orderNumber: 'ORD-2026-0007', alreadyApproved: true }),
         });
         await open(again.say);
         await again.say('2', CUSTOMER_PHONE);
-        expect(await again.say('1', CUSTOMER_PHONE)).not.toContain('upi://');
+        expect(await again.say('1', CUSTOMER_PHONE)).not.toContain('IFSC');
       });
 
       it('a repeated "1" after approving does not approve again', async () => {
@@ -757,7 +768,7 @@ describe('WhatsApp conversation engine', () => {
       });
     });
 
-    describe('dues summary with UPI links', () => {
+    describe('dues summary with bank details', () => {
       const dueOrders: Record<string, CustomerOrderView[]> = {
         c1: [
           { id: 'o1', orderNumber: 'ORD-2026-4011', productionStage: 'PRINTING_CMYK', totalAmount: '125000.00', advanceReceived: '50000.00', balanceDue: '75000.00' },
@@ -765,9 +776,9 @@ describe('WhatsApp conversation engine', () => {
           { id: 'o3', orderNumber: 'ORD-2026-4020', productionStage: 'ARTWORK_PENDING', balanceDue: '1234.50' },
         ],
       };
-      const withUpi = customer({ upiId: 'senthaamarai@okhdfc' });
+      const withUpi = customer({ payment: PAY });
 
-      it('lists only orders with a balance, the total, and a UPI link per order plus pay-all', async () => {
+      it('lists only orders with a balance and the total, then how to pay, as plain text', async () => {
         const { say } = setup([], [], [withUpi], dueOrders);
         await open(say);
         const out = await say('3', CUSTOMER_PHONE);
@@ -776,10 +787,13 @@ describe('WhatsApp conversation engine', () => {
         expect(out).toContain('ORD-2026-4011');
         expect(out).toContain('ORD-2026-4020');
         expect(out).not.toContain('ORD-2026-0100'); // fully paid
-        expect(out).toContain('upi://pay?pa=senthaamarai%40okhdfc&pn=Senthaamarai%20Calendars&am=75000.00&cu=INR&tn=ORD-2026-4011');
-        expect(out).toContain('am=1234.50&cu=INR&tn=ORD-2026-4020');
-        expect(out).toContain('am=76234.50&cu=INR&tn=Dues'); // pay all
-        expect(out).toContain('senthaamarai@okhdfc'); // plain UPI ID if the link does not open
+        expect(out).toContain('Account name: Senthaamarai Art Crafts');
+        expect(out).toContain('Bank: HDFC Bank, Coimbatore');
+        expect(out).toContain('Account no: 50200012345678');
+        expect(out).toContain('IFSC: HDFC0001234');
+        expect(out).toContain('UPI ID: senthaamarai@okhdfc');
+        expect(out).toContain('quote the order number');
+        expect(out).not.toMatch(/upi:\/\/|https?:\/\//);
         expect(out).toContain('+919443011111');
       });
 
@@ -789,21 +803,26 @@ describe('WhatsApp conversation engine', () => {
         expect(await say('dues', CUSTOMER_PHONE)).toContain('Pending dues');
       });
 
-      it('shows the amounts but no payment links when the business has no UPI ID', async () => {
+      it('shows the amounts and asks the customer to call when the business has set no payment details', async () => {
         const { say } = setup([], [], [customer()], dueOrders);
         await open(say);
         const out = await say('3', CUSTOMER_PHONE);
         expect(out).toContain('₹75,000');
-        expect(out).not.toContain('upi://');
+        expect(out).not.toContain('IFSC');
         expect(out).toContain('call us');
       });
 
-      it('never builds a link from an invalid UPI ID', async () => {
-        const { say } = setup([], [], [customer({ upiId: 'not a upi id' })], dueOrders);
-        await open(say);
-        const out = await say('3', CUSTOMER_PHONE);
-        expect(out).not.toContain('upi://');
-        expect(out).toContain('₹75,000');
+      it('shows only the UPI ID when there is no bank account, and only the bank account when there is no UPI ID', async () => {
+        const upiOnly = setup([], [], [customer({ payment: { upiId: 'senthaamarai@okhdfc', bank: null } })], dueOrders);
+        await open(upiOnly.say);
+        const a = await upiOnly.say('3', CUSTOMER_PHONE);
+        expect(a).toContain('UPI ID: senthaamarai@okhdfc');
+        expect(a).not.toContain('Account no');
+        const bankOnly = setup([], [], [customer({ payment: { upiId: null, bank: PAY.bank } })], dueOrders);
+        await open(bankOnly.say);
+        const b = await bankOnly.say('3', CUSTOMER_PHONE);
+        expect(b).toContain('IFSC: HDFC0001234');
+        expect(b).not.toContain('UPI ID');
       });
 
       it('says so when nothing is due', async () => {
@@ -812,15 +831,13 @@ describe('WhatsApp conversation engine', () => {
         expect(await say('3', CUSTOMER_PHONE)).toContain('no pending dues');
       });
 
-      it('adds a balance carried over from before Friendly CRM to the total, with its own pay link', async () => {
+      it('adds a balance carried over from before Friendly CRM to the total', async () => {
         const { say } = setup([], [], [withUpi], dueOrders, { openingBalances: { c1: '10000.00' } });
         await open(say);
         const out = await say('3', CUSTOMER_PHONE);
         expect(out).toContain('Pending dues: ₹86,234.5');
         expect(out).toContain('Previous balance');
         expect(out).toContain('₹10,000');
-        expect(out).toContain('am=10000.00&cu=INR&tn=Previous%20balance');
-        expect(out).toContain('am=86234.50&cu=INR&tn=Dues'); // pay all includes it
       });
 
       it('shows a previous balance even when no order is open', async () => {
@@ -844,7 +861,7 @@ describe('WhatsApp conversation engine', () => {
         await say('hi', CUSTOMER_PHONE);
         const out = await say('dues', CUSTOMER_PHONE);
         expect(out).toContain("doesn't match");
-        expect(out).not.toContain('upi://');
+        expect(out).not.toContain('IFSC');
         expect(calls.customerOrderCalls.every((id) => id === 'c1')).toBe(true);
       });
 

@@ -38,6 +38,12 @@ export const tenants = pgTable('tenants', {
   customerSelfServiceEnabled: boolean('customer_self_service_enabled').default(true).notNull(),
   // The business's UPI ID (VPA) that customers pay dues to. Set by the owner; null = no payment links.
   upiId: varchar('upi_id', { length: 100 }),
+  // The business's bank account, shown to customers who want to pay by transfer. All null until the owner sets it.
+  bankAccountName: varchar('bank_account_name', { length: 160 }),
+  bankName: varchar('bank_name', { length: 120 }),
+  bankAccountNumber: varchar('bank_account_number', { length: 18 }),
+  bankIfsc: varchar('bank_ifsc', { length: 11 }),
+  bankBranch: varchar('bank_branch', { length: 120 }),
   // Supplier block of GST invoices. gstNumber is above; stateCode is the two-digit GST state code.
   legalName: varchar('legal_name', { length: 200 }),
   address: text('address'),

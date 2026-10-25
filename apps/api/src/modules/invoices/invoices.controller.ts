@@ -100,7 +100,7 @@ export class InvoicesController {
   @RequirePermission('invoice:view')
   async getPdf(@CurrentTenant() tenant: { id: string }, @Param('id') id: string, @Res() res: Response) {
     const inv = await this.invoices.getById(tenant.id, id);
-    const buf = await this.pdf.generate(inv);
+    const buf = await this.pdf.generate(inv, await this.invoices.getPaymentDetails(tenant.id));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Invoice-${inv.invoiceNumber.replace(/[^A-Za-z0-9-]/g, '-')}.pdf"`);
     res.send(buf);

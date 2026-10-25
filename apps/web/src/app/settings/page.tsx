@@ -1,13 +1,18 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { GST_STATES, hasPermission, isValidGstin, normalizeGstin, stateCodeFromGstin } from '@friendly-crm/shared';
+import { GST_STATES, hasPermission, isValidGstin, normalizeAccountNumber, normalizeGstin, normalizeIfsc, stateCodeFromGstin } from '@friendly-crm/shared';
 import { useAuth } from '../../components/auth/AuthProvider';
 import { apiFetch } from '../../lib/session';
 
 interface Settings {
   customerSelfServiceEnabled: boolean;
   upiId: string | null;
+  bankAccountName: string | null;
+  bankName: string | null;
+  bankAccountNumber: string | null;
+  bankIfsc: string | null;
+  bankBranch: string | null;
   gstNumber: string | null;
   legalName: string | null;
   address: string | null;
@@ -30,6 +35,11 @@ export default function SettingsPage() {
   const [gst, setGst] = useState('');
   const [address, setAddress] = useState('');
   const [upi, setUpi] = useState('');
+  const [bankAccountName, setBankAccountName] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [bankBranch, setBankBranch] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankIfsc, setBankIfsc] = useState('');
   const [autoOn, setAutoOn] = useState(false);
   const [afterDays, setAfterDays] = useState('7');
   const [repeatDays, setRepeatDays] = useState('7');
@@ -44,6 +54,11 @@ export default function SettingsPage() {
     setGst(s.gstNumber ?? '');
     setAddress(s.address ?? '');
     setUpi(s.upiId ?? '');
+    setBankAccountName(s.bankAccountName ?? '');
+    setBankName(s.bankName ?? '');
+    setBankBranch(s.bankBranch ?? '');
+    setBankAccountNumber(s.bankAccountNumber ?? '');
+    setBankIfsc(s.bankIfsc ?? '');
     setAutoOn(s.autoRemindersEnabled);
     setAfterDays(String(s.reminderAfterDays));
     setRepeatDays(String(s.reminderRepeatDays));
@@ -70,6 +85,12 @@ export default function SettingsPage() {
   const gstProblem = gstTrim !== '' && !isValidGstin(gstTrim);
   const derivedState = gstTrim !== '' && !gstProblem ? stateCodeFromGstin(gstTrim) : null;
 
+  // Bank details are shown to customers, so they must be whole: name, account number and IFSC together, or none.
+  const anyBank = bankAccountName.trim() !== '' || bankAccountNumber.trim() !== '' || bankIfsc.trim() !== '';
+  const ifscProblem = bankIfsc.trim() !== '' && !normalizeIfsc(bankIfsc);
+  const accountProblem = bankAccountNumber.trim() !== '' && !normalizeAccountNumber(bankAccountNumber);
+  const bankIncomplete = anyBank && (bankAccountName.trim() === '' || bankAccountNumber.trim() === '' || bankIfsc.trim() === '');
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -84,6 +105,11 @@ export default function SettingsPage() {
           gstNumber: gstTrim || null,
           address: address.trim() || null,
           upiId: upi.trim() || null,
+          bankAccountName: bankAccountName.trim() || null,
+          bankName: bankName.trim() || null,
+          bankBranch: bankBranch.trim() || null,
+          bankAccountNumber: bankAccountNumber.trim() || null,
+          bankIfsc: bankIfsc.trim() || null,
           autoRemindersEnabled: autoOn,
           reminderAfterDays: Number(afterDays),
           reminderRepeatDays: Number(repeatDays),
@@ -121,7 +147,7 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-xl font-extrabold text-[#243B40]">{ta ? 'வணிக அமைப்புகள்' : 'Business settings'}</h1>
           <p className="text-xs text-slate-500">
-            {ta ? 'இவை GST விலைப்பட்டியல்களிலும் பணம் செலுத்தும் இணைப்புகளிலும் அச்சாகும்.' : 'These print on GST invoices and payment links.'}
+            {ta ? 'இவை GST விலைப்பட்டியல்களிலும் பணம் செலுத்தும் விவரங்களிலும் அச்சாகும்.' : 'These print on GST invoices and show customers how to pay.'}
           </p>
         </div>
         <button type="button" onClick={() => setLang(ta ? 'en' : 'ta')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600">
@@ -158,11 +184,51 @@ export default function SettingsPage() {
             <label htmlFor="address" className={label}>{ta ? 'முகவரி' : 'Address'}</label>
             <textarea id="address" className={field} rows={3} value={address} onChange={(e) => setAddress(e.target.value)} maxLength={500} />
           </div>
-          <div>
-            <label htmlFor="upi" className={label}>UPI ID</label>
-            <input id="upi" className={field} value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="yourshop@okhdfc" maxLength={100} autoComplete="off" />
-            <p className="mt-1 text-[11px] text-slate-400">{ta ? 'வாடிக்கையாளர்களுக்கான பணம் செலுத்தும் இணைப்புகளில் பயன்படும்.' : 'Used in the pay links sent to customers.'}</p>
-          </div>
+          <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
+            <legend className="px-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              {ta ? 'பணம் பெறும் விவரங்கள்' : 'How customers pay you'}
+            </legend>
+            <p className="text-[11px] text-slate-400">
+              {ta
+                ? 'வாடிக்கையாளர்கள் உங்கள் கணக்கில் நேரடியாக செலுத்துவார்கள். இவை விலைப்பட்டியல், கொட்டேஷன் மற்றும் WhatsApp நினைவூட்டல்களில் காட்டப்படும். UPI ID-யிலிருந்து QR குறியீடும் உருவாக்கப்படும். பணம் வந்ததும் நீங்களே பதிவு செய்ய வேண்டும்.'
+                : 'Customers pay you directly. These show on invoices, quotations and WhatsApp reminders, and a UPI QR code is made from your UPI ID. You record each payment when it arrives.'}
+            </p>
+            <div>
+              <label htmlFor="upi" className={label}>UPI ID</label>
+              <input id="upi" className={field} value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="yourshop@okhdfc" maxLength={100} autoComplete="off" />
+            </div>
+            <div>
+              <label htmlFor="bank-name-acct" className={label}>{ta ? 'கணக்குப் பெயர்' : 'Account name'}</label>
+              <input id="bank-name-acct" className={field} value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} maxLength={160} autoComplete="off" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="bank-name" className={label}>{ta ? 'வங்கி' : 'Bank'}</label>
+                <input id="bank-name" className={field} value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="HDFC Bank" maxLength={120} autoComplete="off" />
+              </div>
+              <div>
+                <label htmlFor="bank-branch" className={label}>{ta ? 'கிளை' : 'Branch'}</label>
+                <input id="bank-branch" className={field} value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} maxLength={120} autoComplete="off" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="bank-acct" className={label}>{ta ? 'கணக்கு எண்' : 'Account number'}</label>
+                <input id="bank-acct" inputMode="numeric" className={field} value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} maxLength={24} aria-invalid={accountProblem} autoComplete="off" />
+                {accountProblem && <p className="mt-1 text-[11px] font-semibold text-red-600">{ta ? '9 முதல் 18 இலக்கங்கள்.' : 'Use 9 to 18 digits.'}</p>}
+              </div>
+              <div>
+                <label htmlFor="bank-ifsc" className={label}>IFSC</label>
+                <input id="bank-ifsc" className={field} value={bankIfsc} onChange={(e) => setBankIfsc(e.target.value.toUpperCase())} placeholder="HDFC0001234" maxLength={11} aria-invalid={ifscProblem} autoComplete="off" />
+                {ifscProblem && <p className="mt-1 text-[11px] font-semibold text-red-600">{ta ? 'IFSC சரியாக இல்லை (எ.கா. HDFC0001234).' : 'This IFSC is not valid (example: HDFC0001234).'}</p>}
+              </div>
+            </div>
+            {bankIncomplete && (
+              <p className="text-[11px] font-semibold text-amber-700">
+                {ta ? 'வங்கி விவரங்களுக்கு கணக்குப் பெயர், கணக்கு எண், IFSC மூன்றும் தேவை.' : 'Bank details need the account name, account number and IFSC together.'}
+              </p>
+            )}
+          </fieldset>
 
           <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
             <legend className="px-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">
@@ -197,7 +263,7 @@ export default function SettingsPage() {
 
           {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</p>}
           {saved && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">{ta ? 'சேமிக்கப்பட்டது.' : 'Saved.'}</p>}
-          <button type="submit" disabled={busy || gstProblem} className="rounded-lg bg-[#167D79] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+          <button type="submit" disabled={busy || gstProblem || ifscProblem || accountProblem || bankIncomplete} className="rounded-lg bg-[#167D79] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
             {busy ? (ta ? 'சேமிக்கிறது…' : 'Saving…') : ta ? 'சேமி' : 'Save'}
           </button>
         </form>

@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
+import { PdfPayment, drawPaymentBlock } from '../../payments/payment-info';
+
 // pdfkit is a CommonJS module whose root export is the document constructor
 const PDFDocument = require('pdfkit');
 
@@ -23,6 +25,8 @@ export interface QuotationDocument {
   }>;
   /** Null amounts (for roles that may not see money) print as a dash. */
   totals: { subTotal?: string | number | null; taxTotal?: string | number | null; discountTotal?: string | number | null; grandTotal?: string | number | null };
+  /** How to pay (bank account / UPI ID / UPI QR). Not printed when the business has set none. */
+  payment?: PdfPayment | null;
 }
 
 const MARGIN = 40;
@@ -161,6 +165,9 @@ export class PdfEngineService {
       doc.moveTo(tx, y).lineTo(tx + 200, y).strokeColor('#000').lineWidth(0.6).stroke();
       y += 4;
       row('Total', `Rs. ${inr(q.totals.grandTotal)}`, true);
+
+      // ---- how to pay
+      if (q.payment) y = drawPaymentBlock(doc, q.payment, y, { margin: MARGIN, width: CONTENT_W, bottom: BOTTOM, pageTop: MARGIN });
 
       // ---- terms and the next step
       y += 10;

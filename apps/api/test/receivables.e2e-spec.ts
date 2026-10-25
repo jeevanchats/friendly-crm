@@ -21,28 +21,46 @@ describe('reminder message', () => {
     expect(buildReminderMessage({ ...base, lang: 'ta', orders })).toContain('STOP');
   });
 
-  it('shows the total, a UPI link with an unescaped ampersand, and the UPI id', () => {
-    const msg = buildReminderMessage({ ...base, upiId: 'apex@okhdfc', orders: [{ orderNumber: 'ORD-1', duePaise: 123450 }] });
+  it('shows the total and how to pay: the bank account and UPI ID as plain text, with no links', () => {
+    const msg = buildReminderMessage({
+      ...base,
+      payment: { upiId: 'apex@okhdfc', bank: { accountName: 'Senthaamarai Art Crafts', bankName: 'HDFC Bank', accountNumber: '50200012345678', ifsc: 'HDFC0001234', branch: 'Coimbatore' } },
+      orders: [{ orderNumber: 'ORD-1', duePaise: 123450 }],
+    });
     expect(msg).toContain('₹1,234.5');
-    expect(msg).toContain('upi://pay?pa=apex%40okhdfc');
-    expect(msg).toMatch(/&am=1234\.50/);
-    expect(msg).not.toContain('&amp;');
-    expect(msg).toContain('apex@okhdfc');
+    expect(msg).toContain('Account name: Senthaamarai Art Crafts');
+    expect(msg).toContain('Bank: HDFC Bank, Coimbatore');
+    expect(msg).toContain('Account no: 50200012345678');
+    expect(msg).toContain('IFSC: HDFC0001234');
+    expect(msg).toContain('UPI ID: apex@okhdfc');
+    expect(msg).not.toMatch(/upi:\/\/|https?:\/\//); // nothing to tap, nothing third-party
     expect(msg).toContain('+919840000000');
   });
 
-  it('omits pay links when the UPI id is missing or invalid, and ignores zero balances', () => {
-    for (const upiId of [null, 'not a upi id']) {
-      const msg = buildReminderMessage({ ...base, upiId, orders: [{ orderNumber: 'ORD-1', duePaise: 5000 }, { orderNumber: 'ORD-2', duePaise: 0 }] });
-      expect(msg).not.toContain('upi://');
+  it('shows whichever of bank details and UPI ID the business has, and says nothing about paying when it has neither', () => {
+    const orders = [{ orderNumber: 'ORD-1', duePaise: 5000 }];
+    const bankOnly = buildReminderMessage({ ...base, payment: { upiId: null, bank: { accountName: 'Senthaamarai Art Crafts', bankName: 'HDFC Bank', accountNumber: '50200012345678', ifsc: 'HDFC0001234', branch: 'Coimbatore' } }, orders });
+    expect(bankOnly).toContain('IFSC: HDFC0001234');
+    expect(bankOnly).not.toContain('UPI ID');
+    const upiOnly = buildReminderMessage({ ...base, payment: { upiId: 'apex@okhdfc', bank: null }, orders });
+    expect(upiOnly).toContain('UPI ID: apex@okhdfc');
+    expect(upiOnly).not.toContain('Account no');
+    for (const none of [undefined, null, { upiId: null, bank: null }]) {
+      const msg = buildReminderMessage({ ...base, payment: none as any, orders });
+      expect(msg).not.toContain('To pay');
       expect(msg).toContain('ORD-1');
-      expect(msg).not.toContain('ORD-2');
     }
+  });
+
+  it('ignores zero balances', () => {
+    const msg = buildReminderMessage({ ...base, orders: [{ orderNumber: 'ORD-1', duePaise: 5000 }, { orderNumber: 'ORD-2', duePaise: 0 }] });
+    expect(msg).toContain('ORD-1');
+    expect(msg).not.toContain('ORD-2');
   });
 
   it('caps the listed orders and renders Tamil', () => {
     const many = Array.from({ length: 8 }, (_, i) => ({ orderNumber: `ORD-${i}`, duePaise: 100 }));
-    const msg = buildReminderMessage({ ...base, lang: 'ta', upiId: null, orders: many });
+    const msg = buildReminderMessage({ ...base, lang: 'ta', orders: many });
     expect(msg).toContain('வணக்கம் Ravi');
     expect(msg).toContain('ORD-4');
     expect(msg).not.toContain('ORD-5');
@@ -114,6 +132,10 @@ describe('Receivables: who owes me money', () => {
         defaultLanguage: 'en',
         phone: '+919999900000',
         upiId: 'recvpress@okhdfc',
+        bankAccountName: 'Recv Press',
+        bankName: 'SBI',
+        bankAccountNumber: '30012345678',
+        bankIfsc: 'SBIN0001234',
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -175,7 +197,7 @@ describe('Receivables: who owes me money', () => {
     });
   });
 
-  it('sends one reminder with a UPI link, records it, and blocks a second within 24 hours', async () => {
+  it('sends one reminder with the bank details and UPI ID, records it, and blocks a second within 24 hours', async () => {
     const before = globalMemoryOutbox.length;
     const res = await call(tokenOwner, `/customers/${custBig}/remind`, 'POST');
     expect(res.status).toBe(201);
@@ -186,9 +208,11 @@ describe('Receivables: who owes me money', () => {
     const job: any = globalMemoryOutbox[0];
     expect(job.recipient).toBe('+919840940001');
     expect(job.renderedMessage).toContain('ORD-R1');
-    expect(job.renderedMessage).toContain('upi://pay?pa=recvpress%40okhdfc');
-    expect(job.renderedMessage).toContain('&am=7500.50');
-    expect(job.renderedMessage).not.toContain('&amp;');
+    expect(job.renderedMessage).toContain('IFSC: SBIN0001234');
+    expect(job.renderedMessage).toContain('Account no: 30012345678');
+    expect(job.renderedMessage).toContain('UPI ID: recvpress@okhdfc');
+    expect(job.renderedMessage).not.toContain('upi://');
+    expect(job.renderedMessage).toContain('₹7,500.5');
 
     expect(
       globalMemoryActivities.some((a: any) => a.entityId === custBig && a.action === 'PAYMENT_REMINDER_SENT' && a.tenantId === TENANT_ID)

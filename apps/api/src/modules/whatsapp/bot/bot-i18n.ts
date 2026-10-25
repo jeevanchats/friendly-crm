@@ -181,8 +181,8 @@ export const MESSAGES = {
     ta: 'நன்றி! ✅ கொட்டேஷன் *{quote}* ஒப்புக்கொள்ளப்பட்டது. உங்கள் ஆர்டர் *{order}* உறுதி செய்யப்பட்டது (மொத்தம் {total}). இங்கேயே தகவல் தருவோம்.',
   },
   c_quote_pay_hint: {
-    en: 'To get started, you can pay the advance (or the full amount) by UPI. You can change the amount in your UPI app:',
-    ta: 'தொடங்க, முன்பணத்தை (அல்லது முழுத் தொகையை) UPI மூலம் செலுத்தலாம். தொகையை உங்கள் UPI செயலியில் மாற்றிக்கொள்ளலாம்:',
+    en: 'To get started, you can pay the advance (or the full amount) to our account:',
+    ta: 'தொடங்க, முன்பணத்தை (அல்லது முழுத் தொகையை) எங்கள் கணக்கில் செலுத்தலாம்:',
   },
   c_quote_already: {
     en: 'This quote is already approved. Your order is *{order}*.',
@@ -223,12 +223,10 @@ export const MESSAGES = {
     ta: '*நிலுவைத் தொகை: {total}*',
   },
   c_dues_previous: { en: 'Previous balance', ta: 'முந்தைய நிலுவை' },
-  c_dues_pay: { en: 'Pay', ta: 'செலுத்த' },
-  c_dues_pay_all: { en: 'Pay all {total}', ta: 'முழுவதும் செலுத்த {total}' },
   c_dues_more: { en: '…and {n} more. Call us for the full list.', ta: '…மேலும் {n}. முழு பட்டியலுக்கு எங்களை அழைக்கவும்.' },
-  c_dues_upi_id: {
-    en: "If a link doesn't open, pay to UPI ID *{upi}* and quote the order number.",
-    ta: 'இணைப்பு திறக்கவில்லை என்றால், UPI ID *{upi}* க்கு செலுத்தி ஆர்டர் எண்ணைக் குறிப்பிடவும்.',
+  c_dues_quote_order: {
+    en: 'Please quote the order number when you pay.',
+    ta: 'செலுத்தும்போது ஆர்டர் எண்ணைக் குறிப்பிடவும்.',
   },
   c_dues_no_upi: {
     en: 'Please call us to pay or to ask about your balance.',

@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  // rawBody: webhook signatures (WhatsApp / Razorpay) must be verified against the exact bytes received.
+  // rawBody: webhook signatures (WhatsApp) must be verified against the exact bytes received.
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   const allowedOrigins = process.env.ALLOWED_ORIGINS

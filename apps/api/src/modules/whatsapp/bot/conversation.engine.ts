@@ -5,11 +5,12 @@ import {
   getCustomFieldsForEntity,
   getIndustryTemplate,
   hasPermission,
+  PaymentDetails,
+  paymentDetailsText,
 } from '@friendly-crm/shared';
 import { randomUUID } from 'crypto';
 import { InboundMessage } from './inbound-parser';
 import { SessionStore } from './session-store';
-import { buildUpiLink, isValidUpiId } from '../../payments/upi';
 import {
   MessageKey,
   SUPPORTED_LOCALES,
@@ -58,8 +59,8 @@ export interface CustomerIdentity {
   defaultLanguage: string;
   /** False when the business owner switched customer self-service off. */
   selfServiceEnabled: boolean;
-  /** The business's UPI ID; when set (and valid) the dues summary includes payment links. */
-  upiId?: string | null;
+  /** How this customer can pay the business: its bank account and/or UPI ID, shown as plain text. */
+  payment?: PaymentDetails | null;
 }
 
 /** What a customer may see about their own order: no internal notes, items or custom data. */
@@ -946,14 +947,9 @@ export class ConversationEngine {
       order: done.orderNumber,
       total: fmtMoney(st.quote.grandTotal),
     });
-    // The order starts with nothing paid, so offer the UPI link right away (only if the business set a valid UPI ID).
-    const paise = Math.round(Number(st.quote.grandTotal) * 100);
-    if (who.upiId && isValidUpiId(who.upiId) && Number.isInteger(paise) && paise > 0) {
-      const link = buildUpiLink({ upiId: who.upiId, payeeName: who.tenantName, amountPaise: paise, note: done.orderNumber });
-      return [
-        `${approved}\n\n${t(locale, 'c_quote_pay_hint')}\n${link}\n\n${t(locale, 'c_dues_upi_id', { upi: who.upiId })}`,
-      ];
-    }
+    // The order starts with nothing paid, so show how to pay right away (only if the business set bank or UPI details).
+    const pay = paymentDetailsText(locale, who.payment, { reminder: false });
+    if (pay) return [`${approved}\n\n${t(locale, 'c_quote_pay_hint')}\n${pay}\n${t(locale, 'c_dues_quote_order')}`];
     return [approved];
   }
 
@@ -978,8 +974,8 @@ export class ConversationEngine {
   }
 
   /**
-   * Outstanding balances across THIS customer's orders (the port is already scoped to them), each with a
-   * UPI link built from the business's own UPI ID. Amounts are summed in paise to avoid float drift.
+   * Outstanding balances across THIS customer's orders (the port is already scoped to them), with the business's
+   * bank account and UPI ID as plain text to pay into. Amounts are summed in paise to avoid float drift.
    */
   private async customerDues(who: CustomerIdentity, locale: string): Promise<string[]> {
     const toPaise = (v: unknown) => {
@@ -992,9 +988,6 @@ export class ConversationEngine {
     const previous = toPaise(await this.ports.getCustomerOpeningBalance?.(who));
     if (due.length === 0 && previous === 0) return [t(locale, 'c_dues_none')];
 
-    const upi = who.upiId && isValidUpiId(who.upiId) ? who.upiId : null;
-    const link = (paise: number, note: string) =>
-      buildUpiLink({ upiId: upi!, payeeName: who.tenantName, amountPaise: paise, note });
     const rupees = (paise: number) => fmtMoney(paise / 100);
     const totalPaise = due.reduce((sum, x) => sum + x.paise, 0) + previous;
 
@@ -1003,22 +996,13 @@ export class ConversationEngine {
         ? t(locale, 'c_dues_title', { total: rupees(totalPaise), count: due.length })
         : t(locale, 'c_dues_title_prev', { total: rupees(totalPaise) }),
     ];
-    for (const { o, paise } of due.slice(0, MAX_DUES_LISTED)) {
-      const lines = [`*${o.orderNumber}* · ${rupees(paise)}`];
-      if (upi) lines.push(`${t(locale, 'c_dues_pay')}: ${link(paise, o.orderNumber)}`);
-      blocks.push(lines.join('\n'));
-    }
+    for (const { o, paise } of due.slice(0, MAX_DUES_LISTED)) blocks.push(`*${o.orderNumber}* · ${rupees(paise)}`);
     if (due.length > MAX_DUES_LISTED) blocks.push(t(locale, 'c_dues_more', { n: due.length - MAX_DUES_LISTED }));
-    if (previous > 0) {
-      const lines = [`*${t(locale, 'c_dues_previous')}* · ${rupees(previous)}`];
-      if (upi) lines.push(`${t(locale, 'c_dues_pay')}: ${link(previous, t(locale, 'c_dues_previous'))}`);
-      blocks.push(lines.join('\n'));
-    }
-    if (upi) {
-      if (due.length + (previous > 0 ? 1 : 0) > 1) {
-        blocks.push(`${t(locale, 'c_dues_pay_all', { total: rupees(totalPaise) })}: ${link(totalPaise, 'Dues')}`);
-      }
-      blocks.push(t(locale, 'c_dues_upi_id', { upi }));
+    if (previous > 0) blocks.push(`*${t(locale, 'c_dues_previous')}* · ${rupees(previous)}`);
+    const pay = paymentDetailsText(locale, who.payment, { reminder: false });
+    if (pay) {
+      blocks.push(pay);
+      blocks.push(t(locale, 'c_dues_quote_order'));
     } else {
       blocks.push(t(locale, 'c_dues_no_upi'));
     }

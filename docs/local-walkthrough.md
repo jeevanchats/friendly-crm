@@ -18,7 +18,7 @@ npm run dev -- --env-mode=loose
 - Web app: http://localhost:3000   API: http://localhost:4000/api
 - The first visit to each page compiles it and can take 20-40 seconds. Later visits are instant.
 - Tamil text can look garbled in the console. Run `chcp 65001` first, or ignore it; the web pages are fine.
-- Postgres must be running (database `friendly_crm`). Migrations 0001-0016 are already applied to it.
+- Postgres must be running (database `friendly_crm`). Migrations 0001-0017 are already applied to it.
 
 ## 2. Log in
 
@@ -62,7 +62,7 @@ No leads, quotes, GSTIN or UPI ID are set yet. Most of the walkthrough below use
 | Dues ("Who owes me") | `/dues` | Total, ageing buckets (click to filter), per-customer **Send reminder**, WhatsApp / Call links. Money owed from before Friendly CRM shows as a purple **Before Friendly CRM** bucket; expand a customer and press **Record payment received** to clear it |
 | Invoices | `/invoices` | Issued GST invoices with PDF download and paid / due / credited status, and below them the credit notes issued |
 | Reports | `/reports` | Funnel, pending collections, repeat opportunities. Owner / Manager / Accounts only |
-| Settings | `/settings` | Owner only: legal name, GSTIN, address, UPI ID, automatic reminder schedule |
+| Settings | `/settings` | Owner only: legal name, GSTIN, address, **how customers pay you** (UPI ID, bank account name / bank / branch / account number / IFSC), automatic reminder schedule |
 
 Also check on every screen: the business switcher, the language toggle, sign out, a narrow browser window
 (the bottom bar scrolls sideways), and what happens after you sign out and press Back.
@@ -91,7 +91,7 @@ Owner and Manager can change products; Sales and Accounts can only look and use 
 Do this in **Senthaamarai**. Use a second PowerShell window for the WhatsApp commands.
 
 1. **Settings** (`/settings`): set GSTIN `33AABCS1234A1Z8` (a valid test number), an address, a UPI ID such as
-   `senthaamarai@okhdfc`, and save. The state (33 Tamil Nadu) fills in from the GSTIN.
+   `senthaamarai@okhdfc` and your bank account details (account name, number and IFSC), and save. The state (33 Tamil Nadu) fills in from the GSTIN.
 2. **Customer** (`/customers` → Sri Krishna Sweets → **New Quote**): add an item (for example 500 calendars,
    rate 100, GST 18%, HSN `4910`), save. Note the quote number.
 3. **Customer approves on WhatsApp.** Pretend to be the customer:
@@ -101,7 +101,7 @@ Do this in **Senthaamarai**. Use a second PowerShell window for the WhatsApp com
    node scripts/dev-chat.mjs +919443022222 "quotes"    # lists the open quote
    ```
    Read each reply in the `npm run dev` console under `[DEV MESSAGE to +919443022222]`. Pick the quote, review it,
-   and confirm to approve. The reply includes the new order number and a UPI pay link.
+   and confirm to approve. The reply includes the new order number and how to pay (bank account and UPI ID as text).
    Menu words: **orders**, **quotes**, **dues**, **language**.
 4. **Inbox** (`/inbox`): the new order appears under "Approved, awaiting payment". Ask for a change on a second
    quote ("quotes" → pick → change) to see it under "Quotes with change requests". Press **Revise quote** on that
@@ -118,7 +118,7 @@ Do this in **Senthaamarai**. Use a second PowerShell window for the WhatsApp com
 7. **Issue GST invoice** (same page): fill the HSN if asked, check the place of supply (your own state is assumed
    unless the customer has a GSTIN or state), read the preview (CGST + SGST for same state, IGST otherwise),
    press **Issue invoice**, then **Download PDF**. Open `/invoices` to see it. Try issuing it a second time: it is refused.
-8. **Dues** (`/dues`): the customer's balance with age. Press **Send reminder**; the message with the UPI link
+8. **Dues** (`/dues`): the customer's balance with age. Press **Send reminder**; the message with your bank details and UPI ID
    prints in the console. Pressing it again within 24 hours is refused.
 9. **Automatic reminders**: in Settings turn them on. Reminders only go out 9am-7pm IST, for debts at least
    "first after" days old, and the scheduler wakes every 10 minutes. Your seeded orders are brand new, so
@@ -132,7 +132,7 @@ WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows t
 
 ## 7. Things that are not finished (so you do not report them as bugs)
 
-- **No Razorpay / card payments** (no keys). Payments are UPI links plus staff recording the payment.
+- **There is no payment gateway, by design** (no Razorpay, no cards, no third party, no keys). Customers pay you directly. Set your bank account and UPI ID under **Settings → How customers pay you**; they are shown as plain text in WhatsApp reminders, the dues reply and the quote-approval reply, and printed with a UPI QR code (amount filled in for an invoice's balance) on invoices and quotations. Staff record each payment when it arrives (on the order page or on WhatsApp).
 - **No e-invoicing (IRN/QR), by design.** E-way bills are not generated by the app either: generate it on the government portal (ewaybillgst.gov.in) and upload it on the invoice (see **E-way bill** under the invoice on the order page). Nothing talks to the government.
 - **One invoice in force per order.** Credit notes (own series `CN/2026-27/0001`) reduce an issued invoice. After one cancels an invoice in full, the order page shows it as **Cancelled** with **Issue corrected invoice**: fix the GSTIN, HSN or place of supply first, then issue; the new invoice takes the next number, the order total is restored and any payment already received counts towards it. The cancelled invoice and its credit note stay on record. A credit note lowers the order total and balance; if the invoice was already paid the balance goes negative, meaning the customer is in credit with you (shown on the invoice; the customer list may show it as a negative balance). Refunding that money is done outside the app. Credit notes are not sent to the customer automatically.
 - **A customer can reply STOP** on WhatsApp to switch off the automatic payment reminders (and START to turn them back on); it works at once, without the name check, and every automatic reminder now ends with "Reply STOP to stop these automatic reminders." Try it: `node scripts/dev-chat.mjs +919443022222 "STOP"`, then look at the customer's **GST details** card: *Do not send automatic payment reminders* is ticked. If a number buys from several businesses and none was picked, STOP applies to all of them. Staff can still send a reminder by hand.

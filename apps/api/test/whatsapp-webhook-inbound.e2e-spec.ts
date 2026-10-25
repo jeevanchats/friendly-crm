@@ -248,7 +248,7 @@ describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
     expect(await send('919840555111', '1')).toContain('ORD-SS-7001'); // customers see orders again
   });
 
-  it('PATCH /api/tenant/settings: owner sets the UPI ID (validated, audited); customers then get payment links', async () => {
+  it('PATCH /api/tenant/settings: owner sets the UPI ID and bank account (validated, audited); customers then see how to pay', async () => {
     const url = `${baseUrl}/api/tenant/settings`;
     const hdr = (token: string) => ({
       'Content-Type': 'application/json',
@@ -273,14 +273,24 @@ describe('WhatsApp inbound webhook -> bot (HTTP level)', () => {
     expect(audit?.changes?.before).toEqual({ upiId: null });
     expect(audit?.changes?.after).toEqual({ upiId: 'webhooktest@okhdfc' });
 
-    // the customer (already verified earlier in this file) now gets a payment link in the dues summary
+    // the customer (already verified earlier in this file) now sees the UPI ID, as plain text, in the dues summary
     const dues = await send('919840555111', '3');
     expect(dues).toContain('Pending dues');
-    expect(dues).toContain('upi://pay?pa=webhooktest%40okhdfc');
+    expect(dues).toContain('UPI ID: webhooktest@okhdfc');
+    expect(dues).not.toContain('upi://');
 
-    const cleared = await patch(tokenOwner, { upiId: null });
+    // and the bank account too, once the owner adds it
+    expect((await patch(tokenOwner, { bankAccountName: 'Webhook Test Press', bankAccountNumber: '50200012345678', bankIfsc: 'hdfc0001234' })).status).toBe(200);
+    const withBank = await send('919840555111', '3');
+    expect(withBank).toContain('Account name: Webhook Test Press');
+    expect(withBank).toContain('IFSC: HDFC0001234');
+    expect(withBank).toContain('UPI ID: webhooktest@okhdfc');
+
+    const cleared = await patch(tokenOwner, { upiId: null, bankAccountName: null, bankAccountNumber: null, bankIfsc: null });
     expect((await cleared.json()).upiId).toBeNull();
-    expect(await send('919840555111', '3')).not.toContain('upi://');
+    const none = await send('919840555111', '3');
+    expect(none).not.toContain('IFSC');
+    expect(none).not.toContain('UPI ID');
   });
 
   describe('customer approves a quote on WhatsApp', () => {

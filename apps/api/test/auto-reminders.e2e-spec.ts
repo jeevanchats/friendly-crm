@@ -158,6 +158,10 @@ describe('Automatic payment reminders', () => {
       defaultLanguage: 'en',
       phone: '+919999922222',
       upiId: 'autopress@okhdfc',
+      bankAccountName: 'Auto Press',
+      bankName: 'SBI',
+      bankAccountNumber: '30012345679',
+      bankIfsc: 'SBIN0004321',
       isActive: true,
       autoRemindersEnabled: true,
       reminderAfterDays: 7,
@@ -211,7 +215,9 @@ describe('Automatic payment reminders', () => {
 
     const msg = (globalMemoryOutbox.find((j: any) => j.recipient === a.phone) as any).renderedMessage;
     expect(msg).toContain('ORD-AUTO');
-    expect(msg).toContain('upi://pay?pa=autopress%40okhdfc');
+    expect(msg).toContain('IFSC: SBIN0004321');
+    expect(msg).toContain('UPI ID: autopress@okhdfc');
+    expect(msg).not.toContain('upi://');
 
     // The reminders are recorded as automatic, and delivered by the outbox
     const logged = globalMemoryActivities.filter((x: any) => x.entityId === a.id && x.action === 'PAYMENT_REMINDER_SENT');

@@ -46,6 +46,8 @@ import {
   globalMemoryCreditNotes,
 } from '../crm/memory-store';
 import { CreditNotesService } from './credit-notes.service';
+import { PaymentDetails } from '@friendly-crm/shared';
+import { paymentFromTenantRow } from '../payments/payment-info';
 
 export type PlaceOfSupplySource = 'OVERRIDE' | 'CUSTOMER_GSTIN' | 'CUSTOMER_STATE' | 'DEFAULT_SUPPLIER_STATE';
 
@@ -331,6 +333,17 @@ export class InvoicesService {
       }
       throw err;
     }
+  }
+
+  /** What the business has set to be paid into (bank account and UPI ID), for the "how to pay" block of the PDF. */
+  async getPaymentDetails(tenantId: string): Promise<PaymentDetails> {
+    return this.withStore(tenantId, async (tx) => {
+      if (tx) {
+        const [row] = await tx.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+        return paymentFromTenantRow(row);
+      }
+      return paymentFromTenantRow(globalMemoryTenants.get(tenantId));
+    });
   }
 
   async getById(tenantId: string, invoiceId: string): Promise<InvoiceView> {

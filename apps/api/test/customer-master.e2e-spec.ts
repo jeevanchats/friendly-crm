@@ -215,7 +215,7 @@ describe('Customer master: add, import and opening balances', () => {
       expect(Number(r.totalDue)).toBeGreaterThanOrEqual(12500.5);
     });
 
-    it('reminds a customer about a previous balance with a pay link', async () => {
+    it('reminds a customer about a previous balance, with the UPI ID to pay to', async () => {
       const one = (await get()).customers.find((c: any) => c.name === 'Import One');
       const before = globalMemoryOutbox.length;
       const res = await http(owner, `/receivables/customers/${one.customerId}/remind`, { method: 'POST' });
@@ -223,8 +223,9 @@ describe('Customer master: add, import and opening balances', () => {
       expect(globalMemoryOutbox.length).toBe(before + 1);
       const msg = (globalMemoryOutbox[0] as any).renderedMessage;
       expect(msg).toContain('Previous balance');
-      expect(msg).toContain('upi://pay?pa=masterpress%40okhdfc');
-      expect(msg).toContain('&am=10000.00');
+      expect(msg).toContain('UPI ID: masterpress@okhdfc');
+      expect(msg).toContain('₹10,000');
+      expect(msg).not.toContain('upi://');
     });
 
     it('does not auto-remind an imported balance until the grace period has passed', async () => {

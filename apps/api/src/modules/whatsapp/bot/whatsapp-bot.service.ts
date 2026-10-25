@@ -78,7 +78,20 @@ export class WhatsAppBotService {
     return {
       findStaffByPhone: (phone) => this.auth.findStaffByPhone(phone),
 
-      findCustomerByPhone: (phone) => this.customerIdentity.findByPhone(phone),
+      // Each identity also carries the business's bank account / UPI ID, so the dues and approval replies can show how to pay.
+      findCustomerByPhone: async (phone) => {
+        const found = await this.customerIdentity.findByPhone(phone);
+        return Promise.all(
+          found.map(async (c) => {
+            try {
+              const { upiId, bank } = await this.tenants.getPaymentDetails(c.tenantId);
+              return { ...c, payment: { upiId, bank } };
+            } catch {
+              return c; // no payment details is a safe answer: the reply says to call the business
+            }
+          })
+        );
+      },
 
       // The customer's own STOP / START: tenantId and customerId come from the verified phone lookup, never from text.
       setRemindersOptOut: (who, optedOut) => this.customersService.setRemindersOptOutByCustomer(who.tenantId, who.customerId, optedOut),

@@ -16,6 +16,8 @@ import {
   setIdempotentResult,
 } from '../../common/utils/document-number.util';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
+import { PaymentDetails, completeBank } from '@friendly-crm/shared';
+import { isValidUpiId } from '../payments/upi';
 import { buildReminderMessage } from './reminder-message';
 
 /** Age of an unpaid order since it was placed, or OPENING: money owed from before Friendly CRM (age unknown). */
@@ -189,7 +191,7 @@ export class ReceivablesService {
       customerName: cust.name,
       tenantName: tenant.name,
       tenantPhone: tenant.phone,
-      upiId: tenant.upiId,
+      payment: tenant.payment,
       orders: [
         ...cust.orders.map((o) => ({ orderNumber: o.orderNumber, duePaise: toPaise(o.balanceDue) })),
         ...(toPaise(cust.openingBalance) > 0
@@ -637,22 +639,36 @@ export class ReceivablesService {
     return out;
   }
 
-  private async loadTenant(tenantId: string): Promise<{ name: string; phone: string | null; upiId: string | null; defaultLanguage: string }> {
+  private async loadTenant(tenantId: string): Promise<{ name: string; phone: string | null; payment: PaymentDetails; defaultLanguage: string }> {
+    const paymentOf = (r: any): PaymentDetails => ({
+      upiId: r.upiId && isValidUpiId(r.upiId) ? r.upiId : null,
+      bank: completeBank({ accountName: r.bankAccountName, bankName: r.bankName, accountNumber: r.bankAccountNumber, ifsc: r.bankIfsc, branch: r.bankBranch }),
+    });
     try {
       if (db && typeof db.select === 'function') {
         const [row] = await db
-          .select({ name: tenants.name, phone: tenants.phone, upiId: tenants.upiId, defaultLanguage: tenants.defaultLanguage })
+          .select({
+            name: tenants.name,
+            phone: tenants.phone,
+            upiId: tenants.upiId,
+            bankAccountName: tenants.bankAccountName,
+            bankName: tenants.bankName,
+            bankAccountNumber: tenants.bankAccountNumber,
+            bankIfsc: tenants.bankIfsc,
+            bankBranch: tenants.bankBranch,
+            defaultLanguage: tenants.defaultLanguage,
+          })
           .from(tenants)
           .where(eq(tenants.id, tenantId))
           .limit(1);
-        if (row) return row;
+        if (row) return { name: row.name, phone: row.phone, payment: paymentOf(row), defaultLanguage: row.defaultLanguage };
       }
     } catch {
       // Postgres offline: memory fallback below
     }
     const mem = globalMemoryTenants.get(tenantId) as any;
     if (!mem) throw new NotFoundException(`Tenant ${tenantId} not found`);
-    return { name: mem.name, phone: mem.phone ?? null, upiId: mem.upiId ?? null, defaultLanguage: mem.defaultLanguage ?? 'en' };
+    return { name: mem.name, phone: mem.phone ?? null, payment: paymentOf(mem), defaultLanguage: mem.defaultLanguage ?? 'en' };
   }
 
   private async logReminder(tenantId: string, actorId: string | null, customerId: string, metadata: Record<string, unknown>) {

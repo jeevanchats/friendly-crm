@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { GST_STATES, amountInWords } from '@friendly-crm/shared';
 import type { InvoiceView } from './invoices.service';
+import { PaymentDetails } from '@friendly-crm/shared';
+import { drawPaymentBlock, preparePdfPayment } from '../payments/payment-info';
 
 // pdfkit is a CommonJS module whose root export is the document constructor
 const PDFDocument = require('pdfkit');
@@ -28,8 +30,14 @@ interface Col {
 /** Renders an issued invoice as an A4 GST tax invoice. */
 @Injectable()
 export class InvoicePdfService {
-  generate(inv: InvoiceView): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
+  /**
+   * `payment` (from the business's settings) adds the "how to pay" block with a UPI QR for the balance still due.
+   * It is left out once the invoice is paid or cancelled.
+   */
+  async generate(inv: InvoiceView, details?: PaymentDetails | null): Promise<Buffer> {
+    const owing = inv.payment.status === 'PAID' || inv.payment.status === 'CREDITED' ? 0 : Math.round(Number(inv.payment.balanceDue) * 100);
+    const payment = owing > 0 ? await preparePdfPayment(details, inv.supplier.name, { amountPaise: owing, note: inv.invoiceNumber }) : null;
+    return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: MARGIN, info: { Title: `Tax Invoice ${inv.invoiceNumber}` } });
       const chunks: Buffer[] = [];
       doc.on('data', (c: Buffer) => chunks.push(c));
@@ -179,6 +187,9 @@ export class InvoicePdfService {
           { width: CONTENT_W - 200 }
         );
       }
+
+      // ---- how to pay
+      if (payment) drawPaymentBlock(doc, payment, y, { margin: MARGIN, width: CONTENT_W, bottom: BOTTOM, pageTop: MARGIN });
 
       // ---- footer (last page)
       const fy = PAGE_H - 76;

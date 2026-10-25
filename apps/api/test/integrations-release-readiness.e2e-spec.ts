@@ -5,7 +5,6 @@ import { AuthService } from '../src/modules/auth/auth.service';
 import { DevSmsGateway } from '../src/modules/auth/sms-gateway';
 import { DevNotificationAdapter } from '../src/modules/notifications/adapters/dev-notification.adapter';
 import { DevEmailAdapter } from '../src/modules/notifications/adapters/dev-email.adapter';
-import { DevPaymentGateway } from '../src/modules/payments/adapters/dev-payment.gateway';
 import { TenantNotificationProviderManager } from '../src/modules/notifications/adapters/tenant-provider-manager';
 import {
   globalMemoryTenants,
@@ -258,102 +257,6 @@ describe('Friendly CRM — Phase 8: Integrations and Release Readiness E2E Suite
       const captured = DevEmailAdapter.getLatestEmail('ramesh.murugan@example.com');
       expect(captured).toBeDefined();
       expect(captured?.subject).toContain('Quotation #QT-2026-0001');
-    });
-  });
-
-  describe('5. Payment Gateway Order Creation and Webhook Verification', () => {
-    it('creates online checkout order for user with payment:record permission', async () => {
-      const res = await fetch(`${baseUrl}/api/payments/create-order`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${tokenOwner}`,
-          'x-tenant-id': TENANT_ID,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          orderId,
-          amount: 15000,
-        }),
-      });
-
-      expect(res.status).toBe(201);
-      const json = await res.json();
-      expect(json.success).toBe(true);
-      expect(json.gatewayOrderId).toMatch(/^order_dev_/);
-      expect(json.amount).toBe(15000);
-      expect(json.currency).toBe('INR');
-    });
-
-    it('blocks payment order creation for unprivileged user (PRODUCTION role)', async () => {
-      const res = await fetch(`${baseUrl}/api/payments/create-order`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${tokenProduction}`,
-          'x-tenant-id': TENANT_ID,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          orderId,
-          amount: 5000,
-        }),
-      });
-
-      expect(res.status).toBe(403);
-    });
-
-    it('rejects payment webhook with invalid HMAC signature (401)', async () => {
-      const res = await fetch(`${baseUrl}/api/payments/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-razorpay-signature': 'invalid_hmac_hex_signature',
-        },
-        body: JSON.stringify({
-          event: 'payment.captured',
-          payload: { payment: { entity: { id: 'pay_test_123', amount: 100000 } } },
-        }),
-      });
-
-      expect(res.status).toBe(401);
-    });
-
-    it('verifies valid HMAC signature and processes payment webhook', async () => {
-      const paymentId = `pay_${randomUUID()}`;
-      const payload = {
-        event: 'payment.captured',
-        payload: {
-          payment: {
-            entity: {
-              id: paymentId,
-              order_id: `order_dev_${randomUUID()}`,
-              amount: 1500000, // ₹15,000.00
-              status: 'captured',
-              notes: {
-                orderId,
-                tenantId: TENANT_ID,
-              },
-            },
-          },
-        },
-      };
-
-      const payloadStr = JSON.stringify(payload);
-      const validSignature = DevPaymentGateway.generateValidSignature(payloadStr);
-
-      const res = await fetch(`${baseUrl}/api/payments/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-razorpay-signature': validSignature,
-        },
-        body: payloadStr,
-      });
-
-      expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.success).toBe(true);
-      expect(json.processed).toBe(true);
-      expect(json.paymentId).toBe(paymentId);
     });
   });
 });

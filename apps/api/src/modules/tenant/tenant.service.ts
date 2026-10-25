@@ -13,11 +13,18 @@ import {
 import { globalMemoryTenants, globalMemoryAuditLogs } from '../crm/memory-store';
 import { AuthService } from '../auth/auth.service';
 import { isValidUpiId } from '../payments/upi';
+import { PaymentDetails, completeBank, normalizeAccountNumber, normalizeIfsc } from '@friendly-crm/shared';
 
 export interface TenantSettings {
   customerSelfServiceEnabled: boolean;
   /** The business's UPI ID for customer payment links; null when not set. */
   upiId: string | null;
+  /** The bank account customers can pay into. All null until the owner fills it in; usable only when name, number and IFSC are all set. */
+  bankAccountName: string | null;
+  bankName: string | null;
+  bankAccountNumber: string | null;
+  bankIfsc: string | null;
+  bankBranch: string | null;
   /** Supplier details printed on GST invoices. All null until the owner fills them in. */
   gstNumber: string | null;
   legalName: string | null;
@@ -196,6 +203,32 @@ export class TenantService {
     };
   }
 
+  /**
+   * What a customer is shown to pay: the bank account (when complete) and the UPI ID. Never throws for a business
+   * that has not set them: both are then null.
+   */
+  async getPaymentDetails(tenantId: string): Promise<PaymentDetails & { payeeName: string }> {
+    const s = await this.getSettings(tenantId);
+    const name = ((await this.getTenantName(tenantId)) ?? '').trim();
+    return {
+      upiId: s.upiId && isValidUpiId(s.upiId) ? s.upiId : null,
+      bank: completeBank({ accountName: s.bankAccountName, bankName: s.bankName, accountNumber: s.bankAccountNumber, ifsc: s.bankIfsc, branch: s.bankBranch }),
+      payeeName: (s.legalName ?? '').trim() || name,
+    };
+  }
+
+  private async getTenantName(tenantId: string): Promise<string | null> {
+    try {
+      if (db && typeof db.select === 'function') {
+        const [row] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+        if (row) return row.name;
+      }
+    } catch {
+      // Postgres offline: memory fallback below
+    }
+    return (globalMemoryTenants.get(tenantId) as any)?.name ?? null;
+  }
+
   /** Owner-controlled tenant settings. */
   async getSettings(tenantId: string): Promise<TenantSettings> {
     try {
@@ -204,6 +237,11 @@ export class TenantService {
           .select({
             enabled: tenants.customerSelfServiceEnabled,
             upiId: tenants.upiId,
+            bankAccountName: tenants.bankAccountName,
+            bankName: tenants.bankName,
+            bankAccountNumber: tenants.bankAccountNumber,
+            bankIfsc: tenants.bankIfsc,
+            bankBranch: tenants.bankBranch,
             gstNumber: tenants.gstNumber,
             legalName: tenants.legalName,
             address: tenants.address,
@@ -220,6 +258,11 @@ export class TenantService {
           return {
             customerSelfServiceEnabled: row.enabled,
             upiId: row.upiId ?? null,
+            bankAccountName: row.bankAccountName ?? null,
+            bankName: row.bankName ?? null,
+            bankAccountNumber: row.bankAccountNumber ?? null,
+            bankIfsc: row.bankIfsc ?? null,
+            bankBranch: row.bankBranch ?? null,
             gstNumber: row.gstNumber ?? null,
             legalName: row.legalName ?? null,
             address: row.address ?? null,
@@ -239,6 +282,11 @@ export class TenantService {
     return {
       customerSelfServiceEnabled: mem.customerSelfServiceEnabled !== false,
       upiId: mem.upiId ?? null,
+      bankAccountName: mem.bankAccountName ?? null,
+      bankName: mem.bankName ?? null,
+      bankAccountNumber: mem.bankAccountNumber ?? null,
+      bankIfsc: mem.bankIfsc ?? null,
+      bankBranch: mem.bankBranch ?? null,
       gstNumber: mem.gstNumber ?? null,
       legalName: mem.legalName ?? null,
       address: mem.address ?? null,
@@ -260,6 +308,11 @@ export class TenantService {
     patch: {
       customerSelfServiceEnabled?: boolean;
       upiId?: string | null;
+      bankAccountName?: string | null;
+      bankName?: string | null;
+      bankAccountNumber?: string | null;
+      bankIfsc?: string | null;
+      bankBranch?: string | null;
       gstNumber?: string | null;
       legalName?: string | null;
       address?: string | null;
@@ -291,6 +344,19 @@ export class TenantService {
       if (t.length > max) throw new BadRequestException(`${field} must be at most ${max} characters`);
       return t === '' ? null : t;
     };
+    if (patch.bankAccountName !== undefined) next.bankAccountName = text(patch.bankAccountName, 160, 'bankAccountName');
+    if (patch.bankName !== undefined) next.bankName = text(patch.bankName, 120, 'bankName');
+    if (patch.bankBranch !== undefined) next.bankBranch = text(patch.bankBranch, 120, 'bankBranch');
+    if (patch.bankAccountNumber !== undefined) {
+      const raw = patch.bankAccountNumber === null ? '' : String(patch.bankAccountNumber).trim();
+      if (raw !== '' && !normalizeAccountNumber(raw)) throw new BadRequestException('bankAccountNumber must be 9 to 18 digits');
+      next.bankAccountNumber = raw === '' ? null : normalizeAccountNumber(raw);
+    }
+    if (patch.bankIfsc !== undefined) {
+      const raw = patch.bankIfsc === null ? '' : String(patch.bankIfsc).trim();
+      if (raw !== '' && !normalizeIfsc(raw)) throw new BadRequestException('bankIfsc must look like HDFC0001234 (4 letters, a zero, then 6 letters or digits)');
+      next.bankIfsc = raw === '' ? null : normalizeIfsc(raw);
+    }
     if (patch.legalName !== undefined) next.legalName = text(patch.legalName, 200, 'legalName');
     if (patch.address !== undefined) next.address = text(patch.address, 500, 'address');
     if (patch.gstNumber !== undefined) {
@@ -328,10 +394,16 @@ export class TenantService {
     if (patch.reminderMaxCount !== undefined) next.reminderMaxCount = whole(patch.reminderMaxCount, 1, 10, 'reminderMaxCount');
     if (Object.keys(next).length === 0) {
       throw new BadRequestException(
-        'Nothing to update: send customerSelfServiceEnabled, upiId, gstNumber, legalName, address, stateCode and/or the reminder settings'
+        'Nothing to update: send customerSelfServiceEnabled, upiId, bank details, gstNumber, legalName, address, stateCode and/or the reminder settings'
       );
     }
     const current = await this.getSettings(tenantId);
+    // A bank account is shown to customers, so it must be whole: name, account number and IFSC together, or none.
+    const after = { ...current, ...next };
+    const anyBank = !!(after.bankAccountName || after.bankAccountNumber || after.bankIfsc);
+    if (anyBank && !completeBank({ accountName: after.bankAccountName, bankName: after.bankName, accountNumber: after.bankAccountNumber, ifsc: after.bankIfsc })) {
+      throw new BadRequestException('Bank details need the account name, account number and IFSC together. Fill in all three, or clear them.');
+    }
     const keys = Object.keys(next) as Array<keyof TenantSettings>;
     const beforeChanges: Record<string, unknown> = {};
     const afterChanges: Record<string, unknown> = {};

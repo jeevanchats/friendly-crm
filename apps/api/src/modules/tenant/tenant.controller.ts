@@ -43,6 +43,11 @@ export class TenantController {
     body: {
       customerSelfServiceEnabled?: boolean;
       upiId?: string | null;
+      bankAccountName?: string | null;
+      bankName?: string | null;
+      bankAccountNumber?: string | null;
+      bankIfsc?: string | null;
+      bankBranch?: string | null;
       gstNumber?: string | null;
       legalName?: string | null;
       address?: string | null;
@@ -59,6 +64,11 @@ export class TenantController {
       {
         customerSelfServiceEnabled: body?.customerSelfServiceEnabled,
         upiId: body?.upiId,
+        bankAccountName: body?.bankAccountName,
+        bankName: body?.bankName,
+        bankAccountNumber: body?.bankAccountNumber,
+        bankIfsc: body?.bankIfsc,
+        bankBranch: body?.bankBranch,
         gstNumber: body?.gstNumber,
         legalName: body?.legalName,
         address: body?.address,

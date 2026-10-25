@@ -1,3 +1,4 @@
+import { paymentFromTenantRow, preparePdfPayment } from '../payments/payment-info';
 import {
   Injectable,
   NotFoundException,
@@ -1290,7 +1291,11 @@ export class SalesService {
     const data = await this.getQuotationById(id, tenantId, userRole);
     const t: any = data.tenant;
     const c: any = data.customer;
+    const businessName = (t.legalName || '').trim() || t.name;
+    // No amount in the QR: a quotation is not yet a bill, so the customer types what they are paying in their UPI app.
+    const payment = await preparePdfPayment(paymentFromTenantRow(t), businessName);
     return this.pdfEngine.generateQuotationPdf({
+      payment,
       quoteNumber: data.quote.quoteNumber,
       version: data.quote.version,
       createdAt: data.quote.createdAt,
