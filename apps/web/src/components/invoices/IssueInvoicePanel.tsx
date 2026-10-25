@@ -7,6 +7,7 @@ import { GST_STATES, hasPermission, isValidHsn, TenantRole } from '@friendly-crm
 import { apiFetch } from '../../lib/session';
 import { downloadInvoicePdf } from '../../lib/invoice-pdf';
 import { CreditNotePanel } from './CreditNotePanel';
+import { EwayBillPanel } from './EwayBillPanel';
 
 interface PreparedLine {
   orderItemId: string;
@@ -30,6 +31,7 @@ interface IssuedInvoice {
   invoiceNumber: string;
   issuedAt: string;
   totals: { grandTotal: string };
+  lines?: Array<{ hsnCode: string }>;
   credited?: string;
   netTotal?: string;
   payment: { status: string; customerCredit?: string };
@@ -180,6 +182,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
         </button>
         {message && <p role="alert" className="text-xs font-semibold text-red-700">{message}</p>}
       </section>
+      <EwayBillPanel invoiceId={invoice.id} role={role} lang={lang} amount={Number(invoice.netTotal ?? invoice.totals.grandTotal)} hsnCodes={(invoice.lines ?? []).map((l) => l.hsnCode)} />
       <CreditNotePanel invoiceId={invoice.id} role={role} lang={lang} onChanged={loadExisting} />
       </div>
     );

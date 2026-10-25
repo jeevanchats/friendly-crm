@@ -12,6 +12,7 @@ import {
   index,
   primaryKey,
   customType,
+  date,
 } from 'drizzle-orm/pg-core';
 
 // --- REUSABLE HELPERS ---
@@ -527,6 +528,33 @@ export const creditNoteCounters = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.tenantId, table.financialYear] }),
+  })
+);
+
+/**
+ * An e-way bill generated on the government portal and recorded against an invoice, with the PDF staff downloaded.
+ * The app never calls the government: it only keeps the number, dates, vehicle and file next to the invoice.
+ */
+export const ewayBills = pgTable(
+  'eway_bills',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id).notNull(),
+    ewbNumber: varchar('ewb_number', { length: 12 }).notNull(),
+    generatedOn: date('generated_on', { mode: 'string' }),
+    validUntil: date('valid_until', { mode: 'string' }),
+    vehicleNumber: varchar('vehicle_number', { length: 12 }),
+    fileName: varchar('file_name', { length: 120 }),
+    mimeType: varchar('mime_type', { length: 100 }),
+    sizeBytes: integer('size_bytes'),
+    data: bytea('data'),
+    uploadedById: uuid('uploaded_by_id').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tenantNumberIdx: uniqueIndex('eway_bills_tenant_number_idx').on(table.tenantId, table.ewbNumber),
+    invoiceIdx: index('eway_bills_invoice_idx').on(table.tenantId, table.invoiceId),
   })
 );
 

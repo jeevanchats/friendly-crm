@@ -12,6 +12,7 @@ const PREFIX = process.env.NAME_PREFIX || process.argv[2] || 'ZZRLS';
     const invs = (await sql`select id from invoices where customer_id in ${sql(custs)}`).map((x) => x.id);
     const leads = (await sql`select id from leads where customer_id in ${sql(custs)}`).map((x) => x.id);
     const ids = [...custs, ...orders, ...quotes, ...invs, ...leads];
+    await sql`delete from eway_bills where invoice_id in (select id from invoices where customer_id in ${sql(custs)})`;
     await sql`delete from credit_note_items where credit_note_id in (select id from credit_notes where customer_id in ${sql(custs)})`;
     await sql`delete from credit_notes where customer_id in ${sql(custs)}`;
     await sql`delete from invoices where customer_id in ${sql(custs)}`;

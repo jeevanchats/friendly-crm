@@ -22,3 +22,4 @@ export * from './attachments';
 export * from './quote-suggest';
 export * from './quote-text';
 export * from './credit-note';
+export * from './eway-bill';
