@@ -1,13 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db, sql, quotations, quotationItems, orders, activities, auditLogs } from '@friendly-crm/db';
+import { db, sql, quotations, quotationItems, orders, activities, auditLogs, customers } from '@friendly-crm/db';
 import {
   globalMemoryQuotations,
   globalMemoryQuotationItems,
   globalMemoryOrders,
   globalMemoryActivities,
   globalMemoryAuditLogs,
+  globalMemoryCustomers,
 } from '../crm/memory-store';
 import { SalesService } from './sales.service';
 
@@ -30,6 +31,29 @@ export interface QuoteDecisionContext {
 export type QuoteApproveResult =
   | { ok: true; orderNumber: string; alreadyApproved: boolean }
   | { ok: false; reason: 'NOT_AVAILABLE' | 'EXPIRED' | 'CHANGED' };
+
+/** Back-office view of customer activity on WhatsApp that staff need to act on. */
+export interface QuoteInbox {
+  changeRequests: Array<{
+    quotationId: string;
+    quoteNumber: string;
+    version: number;
+    customerName: string;
+    customerPhone: string;
+    request: string;
+    requestedAt: string;
+    grandTotal: string | null;
+  }>;
+  awaitingPayment: Array<{
+    orderId: string;
+    orderNumber: string;
+    customerName: string;
+    customerPhone: string;
+    totalAmount: string | null;
+    balanceDue: string | null;
+    approvedAt: string;
+  }>;
+}
 
 const toPaise = (v: unknown) => Math.round(Number(v) * 100);
 
@@ -181,6 +205,130 @@ export class CustomerQuoteService {
       },
     });
     return { ok: true, orderNumber: result.orderNumber, alreadyApproved: false };
+  }
+
+  /**
+   * Open customer change requests (quote still SENT, so not yet revised or approved) and orders created by
+   * customer approval that have received no payment yet. Amounts are null unless `showAmounts`.
+   */
+  async inbox(tenantId: string, showAmounts: boolean): Promise<QuoteInbox> {
+    const money = (v: unknown) => (showAmounts ? String(v) : null);
+    const build = (
+      acts: any[],
+      quoteById: Map<string, any>,
+      custById: Map<string, any>,
+      ords: any[]
+    ): QuoteInbox => {
+      const seen = new Set<string>();
+      const changeRequests: QuoteInbox['changeRequests'] = [];
+      for (const a of acts) {
+        const q = quoteById.get(a.entityId);
+        if (!q || q.status !== 'SENT' || seen.has(q.id)) continue;
+        seen.add(q.id); // acts are newest first: keep the latest request per quote
+        const c = custById.get(q.customerId);
+        changeRequests.push({
+          quotationId: q.id,
+          quoteNumber: q.quoteNumber,
+          version: q.version ?? 1,
+          customerName: c?.name ?? 'Customer',
+          customerPhone: c?.whatsappNumber || c?.phone || '',
+          request: String(a.metadata?.request ?? ''),
+          requestedAt: new Date(a.createdAt).toISOString(),
+          grandTotal: money(q.grandTotal),
+        });
+      }
+      const awaitingPayment = ords
+        .filter((o) => Number(o.advanceReceived) === 0 && Number(o.balanceDue) > 0)
+        .map((o) => {
+          const c = custById.get(o.customerId);
+          return {
+            orderId: o.id,
+            orderNumber: o.orderNumber,
+            customerName: c?.name ?? 'Customer',
+            customerPhone: c?.whatsappNumber || c?.phone || '',
+            totalAmount: money(o.totalAmount),
+            balanceDue: money(o.balanceDue),
+            approvedAt: new Date(o.createdAt).toISOString(),
+          };
+        });
+      return { changeRequests, awaitingPayment };
+    };
+
+    try {
+      if (db && typeof db.transaction === 'function') {
+        return await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const acts = await tx
+            .select()
+            .from(activities)
+            .where(
+              and(
+                eq(activities.tenantId, tenantId),
+                eq(activities.entityType, 'QUOTATION'),
+                eq(activities.action, 'QUOTE_CHANGE_REQUESTED')
+              )
+            )
+            .orderBy(desc(activities.createdAt))
+            .limit(200);
+          const qids = [...new Set(acts.map((a: any) => a.entityId))] as string[];
+          const quoteRows = qids.length
+            ? await tx
+                .select()
+                .from(quotations)
+                .where(and(eq(quotations.tenantId, tenantId), inArray(quotations.id, qids)))
+            : [];
+          const approvedQids = (
+            await tx
+              .select({ entityId: auditLogs.entityId })
+              .from(auditLogs)
+              .where(and(eq(auditLogs.tenantId, tenantId), eq(auditLogs.action, 'QUOTE_APPROVED_BY_CUSTOMER')))
+              .orderBy(desc(auditLogs.createdAt))
+              .limit(200)
+          ).map((r: any) => r.entityId) as string[];
+          const orderRows = approvedQids.length
+            ? await tx
+                .select()
+                .from(orders)
+                .where(and(eq(orders.tenantId, tenantId), inArray(orders.quotationId, approvedQids)))
+                .orderBy(desc(orders.createdAt))
+            : [];
+          const custIds = [
+            ...new Set([...quoteRows.map((q: any) => q.customerId), ...orderRows.map((o: any) => o.customerId)]),
+          ] as string[];
+          const custRows = custIds.length
+            ? await tx
+                .select()
+                .from(customers)
+                .where(and(eq(customers.tenantId, tenantId), inArray(customers.id, custIds)))
+            : [];
+          return build(
+            acts,
+            new Map(quoteRows.map((q: any) => [q.id, q])),
+            new Map(custRows.map((c: any) => [c.id, c])),
+            orderRows
+          );
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Postgres offline; utilizing memory fallback for inbox: ${err.message}`);
+    }
+
+    const acts = globalMemoryActivities
+      .filter((a: any) => a.tenantId === tenantId && a.action === 'QUOTE_CHANGE_REQUESTED')
+      .sort((a: any, b: any) => +new Date(b.createdAt) - +new Date(a.createdAt));
+    const approved = new Set(
+      globalMemoryAuditLogs
+        .filter((l: any) => l.tenantId === tenantId && l.action === 'QUOTE_APPROVED_BY_CUSTOMER')
+        .map((l: any) => l.entityId)
+    );
+    return build(
+      acts,
+      new Map(globalMemoryQuotations.filter((q) => q.tenantId === tenantId).map((q) => [q.id, q])),
+      new Map(globalMemoryCustomers.filter((c) => c.tenantId === tenantId).map((c) => [c.id, c])),
+      globalMemoryOrders
+        .filter((o) => o.tenantId === tenantId && o.quotationId && approved.has(o.quotationId))
+        .sort((a, b) => +new Date(b.createdAt ?? 0) - +new Date(a.createdAt ?? 0))
+    );
   }
 
   /** Records what the customer wants changed, on the quote's activity timeline for staff to see. */

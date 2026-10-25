@@ -11,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { SalesService } from './sales.service';
+import { CustomerQuoteService } from './customer-quote.service';
 import { Response } from 'express';
 import {
   AuthGuard,
@@ -27,13 +28,32 @@ import {
   ConvertQuoteToOrderSchema,
   CreateQuotationDto,
   TenantRole,
+  hasPermission,
 } from '@friendly-crm/shared';
 
 @Controller('sales')
 @UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
 @UseInterceptors(TenantRlsInterceptor, AuditInterceptor)
 export class SalesController {
-  constructor(private readonly salesService: SalesService) {}
+  constructor(
+    private readonly salesService: SalesService,
+    private readonly customerQuotes: CustomerQuoteService
+  ) {}
+
+  /**
+   * GET /api/sales/inbox
+   * Customer change requests and approved-but-unpaid orders from WhatsApp. Amounts are hidden from
+   * roles without payment:view.
+   */
+  @Get('inbox')
+  @RequirePermission('quote:view')
+  async getInbox(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined
+  ) {
+    const role = (user?.role || 'READ_ONLY') as TenantRole;
+    return this.customerQuotes.inbox(tenant.id, hasPermission(role, 'payment:view'));
+  }
 
   /**
    * 1. POST /api/sales/quotations
