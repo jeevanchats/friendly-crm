@@ -55,12 +55,12 @@ export function CustomerTimeline({
       case 'QUOTE':
         return <FileCheck className="w-4 h-4 text-blue-500" />;
       default:
-        return <Clock className="w-4 h-4 text-slate-400" />;
+        return <Clock className="w-4 h-4 text-slate-600" />;
     }
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div className="bg-surface rounded-xl border border-slate-200 p-4 shadow-sm">
       <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center space-x-2">
         <Clock className="w-4 h-4 text-emerald-600" />
         <span>Customer Activity Timeline</span>
@@ -69,11 +69,11 @@ export function CustomerTimeline({
       <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
         {events.map((event) => (
           <div key={event.id} className="relative group">
-            <div className="absolute -left-6 top-0.5 flex items-center justify-center w-5 h-5 rounded-full bg-white border border-slate-200 shadow-xs">
+            <div className="absolute -left-6 top-0.5 flex items-center justify-center w-5 h-5 rounded-full bg-surface border border-slate-200 shadow-xs">
               {getIcon(event.type)}
             </div>
 
-            <div className="text-xs text-slate-400 mb-0.5">
+            <div className="text-xs text-slate-600 mb-0.5">
               {event.timestamp} {event.authorName && `• ${event.authorName}`}
             </div>
 

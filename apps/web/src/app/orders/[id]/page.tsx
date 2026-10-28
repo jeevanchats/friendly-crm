@@ -89,21 +89,21 @@ export default function OrderDetailPage() {
   }, [fetchOrderDetail]);
 
   return (
-    <div className="min-h-screen bg-[#F6F8F7] text-[#243B40] pb-24">
+    <div className="min-h-screen bg-surface text-foreground pb-24">
       {/* Toast Notification */}
       {notification && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#243B40] text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center space-x-2 text-xs font-semibold animate-slide-up border border-[#167D79]/40">
-          <CheckCircle2 className="w-4 h-4 text-[#F4B860]" />
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-surface border border-slate-200 text-brand-ink px-4 py-2.5 rounded-2xl shadow-xl flex items-center space-x-2 text-xs font-semibold animate-slide-up border border-brand-ink/40">
+          <CheckCircle2 className="w-4 h-4 text-brand-ink" />
           <span>{notification}</span>
         </div>
       )}
 
       {/* Top Header Bar with Back Nav & Language Toggle */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-2.5 shadow-2xs">
+      <header className="sticky top-0 z-30 bg-surface/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-2.5 shadow-2xs">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <Link
             href="/orders"
-            className="flex items-center space-x-1.5 text-xs font-bold text-[#167D79] hover:text-[#126360] transition-colors"
+            className="flex items-center space-x-1.5 text-xs font-bold text-brand-ink hover:text-[#1CA58E] transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>{locale === 'ta' ? 'அனைத்து ஆர்டர்கள்' : 'Back to Orders'}</span>
@@ -112,7 +112,7 @@ export default function OrderDetailPage() {
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setLocale(locale === 'en' ? 'ta' : 'en')}
-              className="flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-[#167D79]/30 bg-[#167D79]/10 text-[#167D79] font-bold text-xs hover:bg-[#167D79]/20 transition-colors"
+              className="flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-brand-ink/30 bg-action/10 text-brand-ink font-bold text-xs hover:bg-action/20 transition-colors"
               title="Toggle Tamil / English"
             >
               <span>{locale === 'en' ? '🇮🇳 தமிழ்' : '🇬🇧 English'}</span>
@@ -129,8 +129,8 @@ export default function OrderDetailPage() {
             {error}
           </div>
         ) : loading || !orderData ? (
-          <div className="rounded-2xl bg-white p-12 text-center text-xs text-slate-400 space-y-2 border">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-[#167D79]" />
+          <div className="rounded-2xl bg-surface p-12 text-center text-xs text-slate-600 space-y-2 border">
+            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-brand-ink" />
             <p>{locale === 'ta' ? 'ஆர்டர் விவரங்கள் ஏற்றப்படுகின்றன...' : 'Loading order specifications...'}</p>
           </div>
         ) : (

@@ -1,4 +1,5 @@
 'use client';
+import { useDialog } from '../shared/useDialog';
 
 import React, { useState } from 'react';
 import Link from 'next/link';
@@ -70,11 +71,12 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
   const input = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
   const label = 'block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1';
 
+  const dialogRef = useDialog(true, busy ? undefined : onClose);
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={ta ? 'புதிய வாடிக்கையாளர்' : 'Add customer'}>
-      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
+    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={ta ? 'புதிய வாடிக்கையாளர்' : 'Add customer'}>
+      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-extrabold text-[#243B40]">{ta ? 'புதிய வாடிக்கையாளர்' : 'Add customer'}</h2>
+          <h2 className="text-base font-extrabold text-foreground">{ta ? 'புதிய வாடிக்கையாளர்' : 'Add customer'}</h2>
           <button type="button" onClick={onClose} aria-label={ta ? 'மூடு' : 'Close'} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100">
             <X className="h-5 w-5" />
           </button>
@@ -122,7 +124,7 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
             <div>
               <label htmlFor="c-open" className={label}>{ta ? 'தொடக்க நிலுவை (₹)' : 'Opening balance owed (₹)'}</label>
               <input id="c-open" className={input} value={f.openingBalance} onChange={set('openingBalance')} inputMode="decimal" placeholder="0" />
-              <p className="mt-1 text-[11px] text-slate-400">{ta ? 'இந்த செயலிக்கு முன் அவர் தர வேண்டிய தொகை.' : 'What they owed you before Friendly CRM.'}</p>
+              <p className="mt-1 text-[11px] text-slate-600">{ta ? 'இந்த செயலிக்கு முன் அவர் தர வேண்டிய தொகை.' : 'What they owed you before Friendly CRM.'}</p>
             </div>
           )}
           <div>
@@ -138,14 +140,14 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
             ))}
             {existingId && (
               <li>
-                <Link href={`/customers/${existingId}`} className="text-[#167D79] underline">{ta ? 'இருக்கும் வாடிக்கையாளரைத் திற' : 'Open the existing customer'}</Link>
+                <Link href={`/customers/${existingId}`} className="text-brand-ink underline">{ta ? 'இருக்கும் வாடிக்கையாளரைத் திற' : 'Open the existing customer'}</Link>
               </li>
             )}
           </ul>
         )}
 
         <div className="flex gap-2">
-          <button type="submit" disabled={busy} className="rounded-lg bg-[#167D79] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+          <button type="submit" disabled={busy} className="rounded-lg bg-action px-4 py-2 text-sm font-bold text-on-action disabled:opacity-50">
             {busy ? (ta ? 'சேர்க்கிறது…' : 'Adding…') : ta ? 'சேர்' : 'Add customer'}
           </button>
           <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-600">

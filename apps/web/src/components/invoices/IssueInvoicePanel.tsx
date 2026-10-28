@@ -154,13 +154,13 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
   if (invoice && invoice.payment.status !== 'CREDITED') {
     return (
       <div className="space-y-3">
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-2" aria-label={ta ? 'GST விலைப்பட்டியல்' : 'GST invoice'}>
+      <section className="rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs space-y-2" aria-label={ta ? 'GST விலைப்பட்டியல்' : 'GST invoice'}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-extrabold text-[#243B40]">
-            <FileText className="w-4 h-4 text-[#167D79]" />
+          <div className="flex items-center gap-2 text-sm font-extrabold text-foreground">
+            <FileText className="w-4 h-4 text-brand-ink" />
             {invoice.invoiceNumber}
           </div>
-          <span className="rounded-full bg-[#167D79]/10 px-2 py-0.5 text-[10px] font-bold text-[#167D79]">
+          <span className="rounded-full bg-action/10 px-2 py-0.5 text-[10px] font-bold text-brand-ink">
             {invoice.payment.status}
           </span>
         </div>
@@ -177,7 +177,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
             </span>
           )}
         </div>
-        <button type="button" onClick={download} className="inline-flex items-center gap-1.5 rounded-lg bg-[#167D79] px-3 py-1.5 text-xs font-bold text-white">
+        <button type="button" onClick={download} className="inline-flex items-center gap-1.5 rounded-lg bg-action px-3 py-1.5 text-xs font-bold text-on-action">
           <Download className="w-3.5 h-3.5" />
           {ta ? 'PDF பதிவிறக்கு' : 'Download PDF'}
         </button>
@@ -193,7 +193,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
   if (invoice && !open) {
     return (
       <div className="space-y-3">
-        <section className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs" aria-label={ta ? 'ரத்தான GST விலைப்பட்டியல்' : 'Cancelled GST invoice'}>
+        <section className="space-y-2 rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs" aria-label={ta ? 'ரத்தான GST விலைப்பட்டியல்' : 'Cancelled GST invoice'}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm font-extrabold text-slate-500 line-through">
               <FileText className="w-4 h-4" />
@@ -208,12 +208,12 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {canCreate && (
-              <button type="button" onClick={start} className="inline-flex items-center gap-1.5 rounded-lg bg-[#243B40] px-3 py-1.5 text-xs font-bold text-white">
+              <button type="button" onClick={start} className="inline-flex items-center gap-1.5 rounded-lg bg-surface border border-slate-200 px-3 py-1.5 text-xs font-bold text-brand-ink">
                 <FileText className="w-3.5 h-3.5" />
                 {ta ? 'திருத்திய விலைப்பட்டியல் உருவாக்கு' : 'Issue corrected invoice'}
               </button>
             )}
-            <button type="button" onClick={download} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-[#243B40]">
+            <button type="button" onClick={download} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-xs font-bold text-foreground">
               <Download className="w-3.5 h-3.5" />
               {ta ? 'பழைய PDF' : 'Old invoice PDF'}
             </button>
@@ -230,8 +230,8 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
   // ---- not invoiced yet
   if (!open) {
     return (
-      <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 space-y-2">
-        <button type="button" onClick={start} className="inline-flex items-center gap-1.5 rounded-lg bg-[#243B40] px-3 py-1.5 text-xs font-bold text-white">
+      <section className="rounded-2xl border border-dashed border-slate-300 bg-surface p-4 space-y-2">
+        <button type="button" onClick={start} className="inline-flex items-center gap-1.5 rounded-lg bg-surface border border-slate-200 px-3 py-1.5 text-xs font-bold text-brand-ink">
           <FileText className="w-3.5 h-3.5" />
           {ta ? 'GST விலைப்பட்டியல் உருவாக்கு' : 'Issue GST invoice'}
         </button>
@@ -246,9 +246,9 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
   const canIssue = !!prep && !busy && settingsProblems.length === 0 && otherProblems.length === 0 && hsnReady;
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-4" aria-label={ta ? 'GST விலைப்பட்டியல் உருவாக்கு' : 'Issue GST invoice'}>
+    <section className="rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs space-y-4" aria-label={ta ? 'GST விலைப்பட்டியல் உருவாக்கு' : 'Issue GST invoice'}>
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-extrabold text-[#243B40]">{ta ? 'GST விலைப்பட்டியல்' : 'Issue GST invoice'}</h3>
+        <h3 className="text-sm font-extrabold text-foreground">{ta ? 'GST விலைப்பட்டியல்' : 'Issue GST invoice'}</h3>
         <button type="button" onClick={() => setOpen(false)} className="text-xs font-semibold text-slate-500">{ta ? 'மூடு' : 'Cancel'}</button>
       </div>
 
@@ -260,7 +260,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
         </p>
       )}
 
-      {!prep && busy && <p className="text-xs text-slate-400"><RefreshCw className="inline w-3 h-3 animate-spin" /> {ta ? 'ஏற்றுகிறது…' : 'Checking…'}</p>}
+      {!prep && busy && <p className="text-xs text-slate-600"><RefreshCw className="inline w-3 h-3 animate-spin" /> {ta ? 'ஏற்றுகிறது…' : 'Checking…'}</p>}
 
       {(settingsProblems.length > 0 || otherProblems.length > 0) && (
         <ul role="alert" className="space-y-1 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">
@@ -269,7 +269,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
           ))}
           {settingsProblems.length > 0 && (
             <li>
-              <Link href="/settings" className="text-[#167D79] underline">{ta ? 'அமைப்புகளைத் திற' : 'Open Settings'}</Link>
+              <Link href="/settings" className="text-brand-ink underline">{ta ? 'அமைப்புகளைத் திற' : 'Open Settings'}</Link>
             </li>
           )}
         </ul>
@@ -281,7 +281,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{ta ? 'HSN / SAC குறியீடு' : 'HSN / SAC code per item'}</div>
             {prep.lines.map((l) => (
               <div key={l.orderItemId} className="flex flex-wrap items-center gap-2">
-                <div className="min-w-0 flex-1 truncate text-xs font-semibold text-[#243B40]">{l.itemName}</div>
+                <div className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">{l.itemName}</div>
                 <input
                   inputMode="numeric"
                   aria-label={`HSN for ${l.itemName}`}
@@ -348,8 +348,8 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
                   <dd className="text-right font-semibold">{rupees(prep.preview.roundOff)}</dd>
                 </>
               )}
-              <dt className="font-bold text-[#243B40]">{ta ? 'மொத்தம்' : 'Total'}</dt>
-              <dd className="text-right font-extrabold text-[#243B40]">{rupees(prep.preview.grandTotal)}</dd>
+              <dt className="font-bold text-foreground">{ta ? 'மொத்தம்' : 'Total'}</dt>
+              <dd className="text-right font-extrabold text-foreground">{rupees(prep.preview.grandTotal)}</dd>
             </dl>
           )}
 
@@ -362,7 +362,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
             type="button"
             disabled={!canIssue}
             onClick={issue}
-            className="rounded-lg bg-[#167D79] px-4 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-action px-4 py-2 text-xs font-bold text-on-action disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? (ta ? 'காத்திருக்கவும்…' : 'Working…') : ta ? 'விலைப்பட்டியல் வெளியிடு' : 'Issue invoice'}
           </button>

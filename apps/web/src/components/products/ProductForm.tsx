@@ -1,4 +1,5 @@
 'use client';
+import { useDialog } from '../shared/useDialog';
 
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
@@ -82,11 +83,12 @@ export function ProductForm({
   const label = 'block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1';
   const title = product ? (ta ? 'பொருளைத் திருத்து' : 'Edit product') : ta ? 'புதிய பொருள்' : 'Add product';
 
+  const dialogRef = useDialog(true, busy ? undefined : onClose);
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
+    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
+      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-extrabold text-[#243B40]">{title}</h2>
+          <h2 className="text-base font-extrabold text-foreground">{title}</h2>
           <button type="button" onClick={onClose} aria-label={ta ? 'மூடு' : 'Close'} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100">
             <X className="h-5 w-5" />
           </button>
@@ -140,7 +142,7 @@ export function ProductForm({
           </ul>
         )}
         <div className="flex gap-2">
-          <button type="submit" disabled={busy} className="rounded-lg bg-[#167D79] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+          <button type="submit" disabled={busy} className="rounded-lg bg-action px-4 py-2 text-sm font-bold text-on-action disabled:opacity-50">
             {busy ? (ta ? 'சேமிக்கிறது…' : 'Saving…') : ta ? 'சேமி' : 'Save'}
           </button>
           <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-600">

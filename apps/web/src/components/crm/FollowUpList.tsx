@@ -53,7 +53,7 @@ export function FollowUpList({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div className="bg-surface rounded-xl border border-slate-200 p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-slate-800 flex items-center space-x-2">
           <Clock className="w-4 h-4 text-emerald-600" />
@@ -71,7 +71,7 @@ export function FollowUpList({
               <div className="flex items-center space-x-2">
                 <span className="font-semibold text-sm text-slate-900">{task.leadName}</span>
                 {getPriorityBadge(task.priority)}
-                <span className="text-xs text-slate-400">Due {task.dueTime}</span>
+                <span className="text-xs text-slate-600">Due {task.dueTime}</span>
               </div>
               <p className="text-xs text-slate-600 mt-1">{task.title}</p>
             </div>
@@ -96,7 +96,7 @@ export function FollowUpList({
               <button
                 onClick={() => onComplete?.(task.id)}
                 aria-label="Mark done"
-                className="p-1.5 text-slate-400 hover:text-emerald-600 rounded-lg"
+                className="p-1.5 text-slate-600 hover:text-emerald-600 rounded-lg"
               >
                 <CheckCircle className="w-4 h-4" />
               </button>

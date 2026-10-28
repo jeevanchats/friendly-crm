@@ -1,4 +1,5 @@
 'use client';
+import { useLocale } from '../../components/shared/LocaleProvider';
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -50,7 +51,7 @@ export default function InboxPage() {
   const { active } = useAuth();
   const tenantId = active!.tenantId;
   const canRevise = hasPermission(active!.role, 'quote:update');
-  const [lang, setLang] = useState<'en' | 'ta'>('en');
+  const [lang, setLang] = useLocale();
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +85,7 @@ export default function InboxPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-extrabold text-[#243B40]">{ta ? 'வாடிக்கையாளர் செய்திகள்' : 'Customer inbox'}</h1>
+          <h1 className="text-xl font-extrabold text-foreground">{ta ? 'வாடிக்கையாளர் செய்திகள்' : 'Customer inbox'}</h1>
           <p className="text-xs text-slate-500">
             {ta
               ? 'WhatsApp வழியாக வாடிக்கையாளர்கள் கேட்ட மாற்றங்களும், பணம் வராத ஆர்டர்களும்.'
@@ -95,7 +96,7 @@ export default function InboxPage() {
           <button
             type="button"
             onClick={() => setLang(ta ? 'en' : 'ta')}
-            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600"
+            className="rounded-lg border border-slate-200 bg-surface px-2.5 py-1 text-xs font-bold text-slate-600"
           >
             {ta ? 'EN' : 'தமிழ்'}
           </button>
@@ -103,7 +104,7 @@ export default function InboxPage() {
             type="button"
             onClick={load}
             aria-label={ta ? 'புதுப்பி' : 'Refresh'}
-            className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600"
+            className="rounded-lg border border-slate-200 bg-surface p-1.5 text-slate-600"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -117,7 +118,7 @@ export default function InboxPage() {
       )}
 
       {!error && loading && !inbox && (
-        <div className="rounded-2xl bg-white p-10 text-center text-sm font-semibold text-slate-400">
+        <div className="rounded-2xl bg-surface p-10 text-center text-sm font-semibold text-slate-600">
           {ta ? 'ஏற்றுகிறது…' : 'Loading…'}
         </div>
       )}
@@ -125,42 +126,42 @@ export default function InboxPage() {
       {inbox && (
         <>
           <section aria-labelledby="changes-h" className="space-y-3">
-            <h2 id="changes-h" className="flex items-center gap-2 text-sm font-extrabold text-[#243B40]">
-              <MessageSquare className="w-4 h-4 text-[#167D79]" />
+            <h2 id="changes-h" className="flex items-center gap-2 text-sm font-extrabold text-foreground">
+              <MessageSquare className="w-4 h-4 text-brand-ink" />
               {ta ? 'மாற்றம் கேட்ட விலைப்புள்ளிகள்' : 'Quotes with change requests'}
-              <span className="rounded-full bg-[#167D79]/10 px-2 py-0.5 text-xs text-[#167D79]">
+              <span className="rounded-full bg-action/10 px-2 py-0.5 text-xs text-brand-ink">
                 {inbox.changeRequests.length}
               </span>
             </h2>
             {inbox.changeRequests.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-400">
+              <p className="rounded-2xl border border-dashed border-slate-200 bg-surface p-6 text-center text-xs text-slate-600">
                 {ta ? 'நிலுவையில் மாற்றக் கோரிக்கைகள் இல்லை.' : 'No open change requests.'}
               </p>
             ) : (
               inbox.changeRequests.map((c) => (
-                <article key={c.quotationId} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-2">
+                <article key={c.quotationId} className="rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-bold text-[#243B40]">
-                      {c.customerName} <span className="font-medium text-slate-400">· {c.quoteNumber} v{c.version}</span>
+                    <div className="text-sm font-bold text-foreground">
+                      {c.customerName} <span className="font-medium text-slate-600">· {c.quoteNumber} v{c.version}</span>
                     </div>
-                    <div className="text-xs text-slate-400">{ago(c.requestedAt)}</div>
+                    <div className="text-xs text-slate-600">{ago(c.requestedAt)}</div>
                   </div>
                   <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 whitespace-pre-wrap break-words">{c.request}</p>
                   <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
                     {c.grandTotal !== null && <span className="text-slate-600">{rupees(c.grandTotal)}</span>}
-                    <Link href={`/q/${c.quotationId}/pdf`} className="text-[#167D79] hover:underline">
+                    <Link href={`/q/${c.quotationId}/pdf`} className="text-brand-ink hover:underline">
                       {ta ? 'விலைப்புள்ளி' : 'View quote'}
                     </Link>
                     {canRevise && (
                       <Link
                         href={`/quotations/revise?quoteId=${c.quotationId}`}
-                        className="rounded-lg bg-[#167D79] px-2.5 py-1 text-white hover:bg-[#126360]"
+                        className="rounded-lg bg-action px-2.5 py-1 text-on-action hover:bg-action/85"
                       >
                         {ta ? 'திருத்தி அனுப்பு' : 'Revise quote'}
                       </Link>
                     )}
                     {c.customerPhone && (
-                      <a href={waLink(c.customerPhone)} target="_blank" rel="noopener noreferrer" className="text-[#167D79] hover:underline">
+                      <a href={waLink(c.customerPhone)} target="_blank" rel="noopener noreferrer" className="text-brand-ink hover:underline">
                         WhatsApp
                       </a>
                     )}
@@ -171,25 +172,25 @@ export default function InboxPage() {
           </section>
 
           <section aria-labelledby="pay-h" className="space-y-3">
-            <h2 id="pay-h" className="flex items-center gap-2 text-sm font-extrabold text-[#243B40]">
-              <IndianRupee className="w-4 h-4 text-[#167D79]" />
+            <h2 id="pay-h" className="flex items-center gap-2 text-sm font-extrabold text-foreground">
+              <IndianRupee className="w-4 h-4 text-brand-ink" />
               {ta ? 'பணம் வராத ஆர்டர்கள்' : 'Approved, awaiting payment'}
-              <span className="rounded-full bg-[#167D79]/10 px-2 py-0.5 text-xs text-[#167D79]">
+              <span className="rounded-full bg-action/10 px-2 py-0.5 text-xs text-brand-ink">
                 {inbox.awaitingPayment.length}
               </span>
             </h2>
             {inbox.awaitingPayment.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-400">
+              <p className="rounded-2xl border border-dashed border-slate-200 bg-surface p-6 text-center text-xs text-slate-600">
                 {ta ? 'பணம் வராத ஆர்டர்கள் இல்லை.' : 'Nothing waiting for payment.'}
               </p>
             ) : (
               inbox.awaitingPayment.map((o) => (
-                <article key={o.orderId} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-2">
+                <article key={o.orderId} className="rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-bold text-[#243B40]">
-                      {o.customerName} <span className="font-medium text-slate-400">· {o.orderNumber}</span>
+                    <div className="text-sm font-bold text-foreground">
+                      {o.customerName} <span className="font-medium text-slate-600">· {o.orderNumber}</span>
                     </div>
-                    <div className="text-xs text-slate-400">{ago(o.approvedAt)}</div>
+                    <div className="text-xs text-slate-600">{ago(o.approvedAt)}</div>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
                     {o.balanceDue !== null && (
@@ -197,15 +198,15 @@ export default function InboxPage() {
                         {ta ? 'நிலுவை' : 'Due'} {rupees(o.balanceDue)}
                       </span>
                     )}
-                    <Link href={`/orders/${o.orderId}`} className="text-[#167D79] hover:underline">
+                    <Link href={`/orders/${o.orderId}`} className="text-brand-ink hover:underline">
                       {ta ? 'ஆர்டர்' : 'Open order'}
                     </Link>
                     {o.customerPhone && (
                       <>
-                        <a href={waLink(o.customerPhone)} target="_blank" rel="noopener noreferrer" className="text-[#167D79] hover:underline">
+                        <a href={waLink(o.customerPhone)} target="_blank" rel="noopener noreferrer" className="text-brand-ink hover:underline">
                           WhatsApp
                         </a>
-                        <a href={`tel:${o.customerPhone}`} className="inline-flex items-center gap-1 text-[#167D79] hover:underline">
+                        <a href={`tel:${o.customerPhone}`} className="inline-flex items-center gap-1 text-brand-ink hover:underline">
                           <Phone className="w-3 h-3" />
                           {ta ? 'அழை' : 'Call'}
                         </a>

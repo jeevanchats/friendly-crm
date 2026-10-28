@@ -47,14 +47,14 @@ function NewQuotation() {
 
   if (!allowed) {
     return (
-      <p role="alert" className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">
+      <p role="alert" className="rounded-2xl border border-slate-200 bg-surface p-8 text-center text-sm font-semibold text-slate-500">
         Your role cannot create quotations.
       </p>
     );
   }
   if (!customerId) {
     return (
-      <p role="alert" className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">
+      <p role="alert" className="rounded-2xl border border-slate-200 bg-surface p-8 text-center text-sm font-semibold text-slate-500">
         Open a customer and press “New Quote”.
       </p>
     );
@@ -63,7 +63,7 @@ function NewQuotation() {
     return <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center text-sm font-semibold text-red-700">{error}</p>;
   }
   if (!customer) {
-    return <p className="rounded-2xl bg-white p-10 text-center text-sm text-slate-400">Loading…</p>;
+    return <p className="rounded-2xl bg-surface p-10 text-center text-sm text-slate-600">Loading…</p>;
   }
   return (
     <div className="space-y-4">
@@ -89,7 +89,7 @@ export default function NewQuotationPage() {
       <Link href="/customers" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
         <ArrowLeft className="h-4 w-4" /> Customers
       </Link>
-      <Suspense fallback={<p className="p-10 text-center text-sm text-slate-400">Loading…</p>}>
+      <Suspense fallback={<p className="p-10 text-center text-sm text-slate-600">Loading…</p>}>
         <NewQuotation />
       </Suspense>
     </div>

@@ -58,7 +58,7 @@ export function QuotationEditor() {
   const taxTotal = Math.round(grandTotal - items.reduce((acc, it) => acc + it.quantity * it.unitPrice * (1 - (it.discountPercent || 0) / 100), 0));
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
+    <div className="bg-surface rounded-xl border border-slate-200 p-4 shadow-sm space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
         <div>
           <h2 className="text-base font-semibold text-slate-800 flex items-center space-x-2">
@@ -97,7 +97,7 @@ export function QuotationEditor() {
               placeholder="Item name / description"
               value={item.description || ''}
               onChange={(e) => updateItem(index, 'description', e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded bg-white"
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded bg-surface"
             />
 
             <div className="grid grid-cols-4 gap-2">
@@ -107,7 +107,7 @@ export function QuotationEditor() {
                   type="number"
                   value={item.quantity}
                   onChange={(e) => updateItem(index, 'quantity', Number(e.target.value))}
-                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-surface"
                 />
               </div>
 
@@ -117,7 +117,7 @@ export function QuotationEditor() {
                   type="number"
                   value={item.unitPrice}
                   onChange={(e) => updateItem(index, 'unitPrice', Number(e.target.value))}
-                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-surface"
                 />
               </div>
 
@@ -127,7 +127,7 @@ export function QuotationEditor() {
                   type="number"
                   value={item.discountPercent}
                   onChange={(e) => updateItem(index, 'discountPercent', Number(e.target.value))}
-                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-surface"
                 />
               </div>
 
@@ -137,7 +137,7 @@ export function QuotationEditor() {
                   type="number"
                   value={item.taxPercent}
                   onChange={(e) => updateItem(index, 'taxPercent', Number(e.target.value))}
-                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-white"
+                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded bg-surface"
                 />
               </div>
             </div>

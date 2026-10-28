@@ -60,13 +60,13 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
 
   const Icon = item.kind === 'VOICE' ? Mic : isImage ? ImageIcon : FileText;
   return (
-    <li className="rounded-xl bg-white p-3 text-sm">
+    <li className="rounded-xl bg-surface p-3 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2">
-          <Icon className="h-4 w-4 shrink-0 text-[#167D79]" />
-          <span className="min-w-0 truncate font-medium text-[#243B40]">
+          <Icon className="h-4 w-4 shrink-0 text-brand-ink" />
+          <span className="min-w-0 truncate font-medium text-foreground">
             {item.kind === 'VOICE' ? 'Voice note' : item.fileName}
-            <span className="ml-1.5 text-xs font-normal text-slate-400">
+            <span className="ml-1.5 text-xs font-normal text-slate-600">
               {item.kind === 'VOICE' && item.durationSeconds != null ? `${formatClock(item.durationSeconds)} · ` : ''}
               {formatSize(item.sizeBytes)}
             </span>
@@ -74,7 +74,7 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {(item.kind === 'VOICE' || isImage) && !url && (
-            <button type="button" onClick={show} disabled={busy} className="inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-[#167D79] px-3 text-xs font-bold text-white disabled:opacity-50">
+            <button type="button" onClick={show} disabled={busy} className="inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-action px-3 text-xs font-bold text-on-action disabled:opacity-50">
               <Play className="h-3.5 w-3.5" /> {busy ? '…' : item.kind === 'VOICE' ? 'Play' : 'View'}
             </button>
           )}
@@ -82,7 +82,7 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
             <Download className="h-4 w-4" />
           </button>
           {canRemove && (
-            <button type="button" onClick={remove} aria-label={`Remove ${item.fileName}`} className="rounded-lg p-2 text-slate-400 hover:text-red-600">
+            <button type="button" onClick={remove} aria-label={`Remove ${item.fileName}`} className="rounded-lg p-2 text-slate-600 hover:text-red-600">
               <Trash2 className="h-4 w-4" />
             </button>
           )}
@@ -198,28 +198,28 @@ export function EnquiryAttachments({
   const titles = new Set((items ?? []).map((i) => i.leadTitle).filter(Boolean));
 
   return (
-    <section className="space-y-2 rounded-2xl border border-[#167D79]/30 bg-[#F6F8F7] p-4" aria-label="Enquiry attachments">
+    <section className="space-y-2 rounded-2xl border border-brand-ink/30 bg-surface p-4" aria-label="Enquiry attachments">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-[#243B40]">Customer’s requirement{titles.size === 1 ? `: ${[...titles][0]}` : ''}</h2>
+        <h2 className="text-sm font-bold text-foreground">Customer’s requirement{titles.size === 1 ? `: ${[...titles][0]}` : ''}</h2>
         {canAdd && targetLead && !adding && (
-          <button type="button" onClick={() => setAdding(true)} className="text-xs font-bold text-[#167D79]">
+          <button type="button" onClick={() => setAdding(true)} className="text-xs font-bold text-brand-ink">
             ＋ Add
           </button>
         )}
       </div>
-      {items === null && !error && <p className="text-xs text-slate-400">Loading…</p>}
+      {items === null && !error && <p className="text-xs text-slate-600">Loading…</p>}
       {canRead && (
         <button
           type="button"
           onClick={readEnquiry}
           disabled={reading}
-          className="w-full min-h-[44px] rounded-xl bg-[#243B40] text-sm font-bold text-white disabled:opacity-50"
+          className="w-full min-h-[44px] rounded-xl bg-surface border border-slate-200 text-sm font-bold text-brand-ink disabled:opacity-50"
         >
           {reading ? 'Reading the notes, files and voice note…' : '✨ Read enquiry and fill the quote'}
         </button>
       )}
       {readNote && (
-        <div className="rounded-lg bg-white p-3 text-xs text-[#243B40]">
+        <div className="rounded-lg bg-surface p-3 text-xs text-foreground">
           <p className="font-semibold">
             {readNote.count > 0
               ? `${readNote.count} line${readNote.count === 1 ? '' : 's'} added to the quote below. Check each one and fill what is marked missing.`
@@ -251,11 +251,11 @@ export function EnquiryAttachments({
               type="button"
               onClick={upload}
               disabled={saving || (!draft.voice && draft.files.length === 0)}
-              className="min-h-[42px] flex-1 rounded-xl bg-[#167D79] text-sm font-bold text-white disabled:opacity-50"
+              className="min-h-[42px] flex-1 rounded-xl bg-action text-sm font-bold text-on-action disabled:opacity-50"
             >
               {saving ? 'Uploading…' : 'Upload'}
             </button>
-            <button type="button" onClick={() => { setAdding(false); setDraft({ voice: null, files: [] }); }} disabled={saving} className="min-h-[42px] rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#243B40]">
+            <button type="button" onClick={() => { setAdding(false); setDraft({ voice: null, files: [] }); }} disabled={saving} className="min-h-[42px] rounded-xl border border-slate-200 bg-surface px-4 text-sm font-semibold text-foreground">
               Cancel
             </button>
           </div>

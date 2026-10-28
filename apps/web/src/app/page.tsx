@@ -1,4 +1,5 @@
 'use client';
+import { useLocale } from '../components/shared/LocaleProvider';
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { HomeDashboard } from '../components/dashboard/HomeDashboard';
@@ -8,7 +9,7 @@ import { apiFetch } from '../lib/session';
 export default function HomePage() {
   const { user, active } = useAuth();
   const tenantId = active!.tenantId;
-  const [lang] = useState<'en' | 'ta'>('en');
+  const [lang] = useLocale();
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,14 +42,14 @@ export default function HomePage() {
     return (
       <div className="py-12 text-center text-sm">
         {loading ? (
-          <span className="text-slate-400">Loading…</span>
+          <span className="text-slate-600">Loading…</span>
         ) : (
           <div role="alert" className="mx-auto max-w-sm space-y-3">
             <p className="font-semibold text-red-700">{error}</p>
             <button
               type="button"
               onClick={fetchDashboard}
-              className="min-h-[44px] rounded-xl bg-[#167D79] px-4 font-bold text-white hover:bg-[#126360] transition-colors"
+              className="min-h-[44px] rounded-xl bg-action px-4 font-bold text-on-action hover:bg-action/85 transition-colors"
             >
               Try again
             </button>

@@ -1,4 +1,5 @@
 'use client';
+import { useLocale } from '../../components/shared/LocaleProvider';
 
 import React, { useState, useEffect } from 'react';
 import { ReportsDashboard } from '@/components/reports/ReportsDashboard';
@@ -11,7 +12,7 @@ export default function ReportsPage() {
   const { active } = useAuth();
   const tenantId = active!.tenantId;
   const role: TenantRole = active!.role; // decided by the server from the user's membership
-  const [lang, setLang] = useState<'en' | 'ta'>('en');
+  const [lang, setLang] = useLocale();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,16 +57,16 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       {/* Top Banner: Role Selector & Security Context */}
-      <div className="rounded-2xl bg-white p-4 shadow-xs border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-2xl bg-surface p-4 shadow-xs border border-slate-200 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-xl bg-[#167D79]/10 text-[#167D79] flex items-center justify-center font-bold">
+          <div className="h-9 w-9 rounded-xl bg-action/10 text-brand-ink flex items-center justify-center font-bold">
             <BarChart3 className="w-5 h-5" />
           </div>
           <div>
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               {lang === 'ta' ? 'உங்கள் பொறுப்பு' : `Signed in as ${role}`}
             </div>
-            <div className="text-sm font-extrabold text-[#243B40]">
+            <div className="text-sm font-extrabold text-foreground">
               {lang === 'ta' ? 'அறிக்கை அணுகல் கட்டுப்பாடு' : 'Reports & Insights Guard'}
             </div>
           </div>
@@ -92,8 +93,8 @@ export default function ReportsPage() {
 
       {/* Loading State */}
       {canViewReports && loading && (
-        <div className="rounded-2xl bg-white p-12 text-center text-slate-400 space-y-3">
-          <RefreshCw className="w-8 h-8 mx-auto animate-spin text-[#167D79]" />
+        <div className="rounded-2xl bg-surface p-12 text-center text-slate-600 space-y-3">
+          <RefreshCw className="w-8 h-8 mx-auto animate-spin text-brand-ink" />
           <p className="text-sm font-semibold">
             {lang === 'ta' ? 'அறிக்கைகள் தயாராகின்றன...' : 'Loading business reports & conversion metrics...'}
           </p>

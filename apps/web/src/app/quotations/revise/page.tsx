@@ -68,16 +68,16 @@ function ReviseQuotation() {
   }, [quoteId, allowed, active!.tenantId]);
 
   if (!allowed) {
-    return <p role="alert" className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">Your role cannot revise quotations.</p>;
+    return <p role="alert" className="rounded-2xl border border-slate-200 bg-surface p-8 text-center text-sm font-semibold text-slate-500">Your role cannot revise quotations.</p>;
   }
   if (!quoteId) {
-    return <p role="alert" className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">Open a change request in the Inbox and press “Revise quote”.</p>;
+    return <p role="alert" className="rounded-2xl border border-slate-200 bg-surface p-8 text-center text-sm font-semibold text-slate-500">Open a change request in the Inbox and press “Revise quote”.</p>;
   }
   if (error) {
     return <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center text-sm font-semibold text-red-700">{error}</p>;
   }
   if (!loaded) {
-    return <p className="rounded-2xl bg-white p-10 text-center text-sm text-slate-400">Loading…</p>;
+    return <p className="rounded-2xl bg-surface p-10 text-center text-sm text-slate-600">Loading…</p>;
   }
   return <FastQuotationBuilder customer={loaded.customer} industry={active!.industryKey} revise={loaded.seed} />;
 }
@@ -88,7 +88,7 @@ export default function ReviseQuotationPage() {
       <Link href="/inbox" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
         <ArrowLeft className="h-4 w-4" /> Inbox
       </Link>
-      <Suspense fallback={<p className="p-10 text-center text-sm text-slate-400">Loading…</p>}>
+      <Suspense fallback={<p className="p-10 text-center text-sm text-slate-600">Loading…</p>}>
         <ReviseQuotation />
       </Suspense>
     </div>

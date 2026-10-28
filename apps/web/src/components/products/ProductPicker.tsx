@@ -108,7 +108,7 @@ export function ProductPicker({ value, onText, onPick, placeholder, className, i
         className={className}
       />
       {open && items.length > 0 && (
-        <ul id={listId} role="listbox" className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+        <ul id={listId} role="listbox" className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 bg-surface shadow-lg">
           {items.map((p, i) => (
             <li
               key={p.id}
@@ -119,9 +119,9 @@ export function ProductPicker({ value, onText, onPick, placeholder, className, i
                 choose(p);
               }}
               onMouseEnter={() => setHighlight(i)}
-              className={`cursor-pointer px-3 py-2 text-sm ${i === highlight ? 'bg-[#167D79]/10' : ''}`}
+              className={`cursor-pointer px-3 py-2 text-sm ${i === highlight ? 'bg-action/10' : ''}`}
             >
-              <div className="font-semibold text-[#243B40]">{p.name}</div>
+              <div className="font-semibold text-foreground">{p.name}</div>
               <div className="text-[11px] text-slate-500">
                 {[p.code, p.hsnCode && `HSN ${p.hsnCode}`, `₹${Number(p.unitPrice).toLocaleString('en-IN')} / ${p.unit}`, `GST ${Number(p.taxPercent)}%`].filter(Boolean).join(' · ')}
               </div>

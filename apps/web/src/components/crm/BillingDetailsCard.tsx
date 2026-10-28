@@ -57,11 +57,11 @@ export function BillingDetailsCard({ customerId, role, initial, lang = 'en' }: P
   const label = 'block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1';
 
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm border border-slate-200 space-y-2" aria-label={ta ? 'GST விவரங்கள்' : 'GST details'}>
+    <section className="rounded-2xl bg-surface p-4 shadow-sm border border-slate-200 space-y-2" aria-label={ta ? 'GST விவரங்கள்' : 'GST details'}>
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-[#243B40]">{ta ? 'GST விவரங்கள்' : 'GST details'}</h3>
+        <h3 className="text-sm font-bold text-foreground">{ta ? 'GST விவரங்கள்' : 'GST details'}</h3>
         {canEdit && !editing && (
-          <button type="button" onClick={() => setEditing(true)} className="text-xs font-bold text-[#167D79]">{ta ? 'திருத்து' : 'Edit'}</button>
+          <button type="button" onClick={() => setEditing(true)} className="text-xs font-bold text-brand-ink">{ta ? 'திருத்து' : 'Edit'}</button>
         )}
       </div>
 
@@ -91,7 +91,7 @@ export function BillingDetailsCard({ customerId, role, initial, lang = 'en' }: P
                 <option key={code} value={code}>{code} - {name}</option>
               ))}
             </select>
-            {gState && <p className="mt-1 text-[11px] text-slate-400">{ta ? 'GSTIN-இலிருந்து எடுக்கப்பட்டது.' : 'Taken from the GSTIN.'}</p>}
+            {gState && <p className="mt-1 text-[11px] text-slate-600">{ta ? 'GSTIN-இலிருந்து எடுக்கப்பட்டது.' : 'Taken from the GSTIN.'}</p>}
           </div>
           <div>
             <label htmlFor="b-addr" className={label}>{ta ? 'முகவரி' : 'Billing address'}</label>
@@ -103,7 +103,7 @@ export function BillingDetailsCard({ customerId, role, initial, lang = 'en' }: P
           </label>
           {error && <p role="alert" className="text-xs font-semibold text-red-700">{error}</p>}
           <div className="flex gap-2">
-            <button type="submit" disabled={busy || gProblem} className="rounded-lg bg-[#167D79] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">{busy ? '…' : ta ? 'சேமி' : 'Save'}</button>
+            <button type="submit" disabled={busy || gProblem} className="rounded-lg bg-action px-3 py-1.5 text-xs font-bold text-on-action disabled:opacity-50">{busy ? '…' : ta ? 'சேமி' : 'Save'}</button>
             <button type="button" onClick={() => { setEditing(false); setError(null); }} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-600">{ta ? 'ரத்து' : 'Cancel'}</button>
           </div>
         </form>

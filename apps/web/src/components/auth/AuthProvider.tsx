@@ -34,7 +34,8 @@ interface AuthContextValue {
   memberships: Membership[];
   /** The business the user is working in, with the role the SERVER derived from their membership. */
   active: ActiveBusiness | null;
-  requestOtp: (phone: string) => Promise<void>;
+  /** Resolves to the code itself only in local development (the API's dev SMS gateway); otherwise undefined. */
+  requestOtp: (phone: string) => Promise<string | undefined>;
   verifyOtp: (phone: string, code: string) => Promise<void>;
   switchBusiness: (tenantId: string) => void;
   logout: () => Promise<void>;
@@ -171,6 +172,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ phone, countryCode: '+91' }),
     });
     if (!res.ok) throw new Error(await readError(res, 'Could not send the code. Please try again.'));
+    const body = await res.json().catch(() => null);
+    return typeof body?.devCode === 'string' ? body.devCode : undefined;
   }, []);
 
   const verifyOtp = useCallback(
@@ -230,12 +233,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={value}>
       {waiting ? (
-        <div className="min-h-screen flex items-center justify-center bg-[#F6F8F7] text-sm font-semibold text-slate-500" role="status">
+        <div className="min-h-screen flex items-center justify-center bg-surface text-sm font-semibold text-slate-500" role="status">
           Loading…
         </div>
       ) : noBusiness ? (
-        <main className="min-h-screen flex items-center justify-center bg-[#F6F8F7] px-4 text-[#243B40]">
-          <div className="max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-5 text-center">
+        <main className="min-h-screen flex items-center justify-center bg-surface px-4 text-foreground">
+          <div className="max-w-sm rounded-2xl bg-surface border border-slate-200 shadow-sm p-5 text-center">
             <h1 className="text-lg font-black">No business linked</h1>
             <p className="mt-2 text-sm text-slate-600">
               This mobile number ({user?.phone}) isn&apos;t a member of any business yet. Ask the business owner to add you,
@@ -244,7 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               onClick={() => logout()}
-              className="mt-4 min-h-[48px] w-full rounded-xl bg-[#167D79] font-bold text-white hover:bg-[#126360] transition-colors"
+              className="mt-4 min-h-[48px] w-full rounded-xl bg-action font-bold text-on-action hover:bg-action/85 transition-colors"
             >
               Sign out
             </button>

@@ -144,7 +144,7 @@ export default function ImportCustomersPage() {
 
   if (!canImport) {
     return (
-      <p role="alert" className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">
+      <p role="alert" className="rounded-2xl border border-slate-200 bg-surface p-8 text-center text-sm font-semibold text-slate-500">
         Your role cannot add customers.
       </p>
     );
@@ -169,8 +169,8 @@ export default function ImportCustomersPage() {
           <tbody className="divide-y divide-slate-100">
             {shown(r).map((x) => (
               <tr key={x.row} className="align-top">
-                <td className="px-3 py-2 text-slate-400">{x.row}</td>
-                <td className="px-3 py-2 font-semibold text-[#243B40]">{x.name || '—'}</td>
+                <td className="px-3 py-2 text-slate-600">{x.row}</td>
+                <td className="px-3 py-2 font-semibold text-foreground">{x.name || '—'}</td>
                 <td className="px-3 py-2">{x.phone || '—'}</td>
                 <td className="px-3 py-2">
                   <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[x.status]}`}>{STATUS_LABEL[x.status]}</span>
@@ -192,7 +192,7 @@ export default function ImportCustomersPage() {
         <ArrowLeft className="h-4 w-4" /> Customers
       </Link>
       <div>
-        <h1 className="text-xl font-extrabold text-[#243B40]">Import customers</h1>
+        <h1 className="text-xl font-extrabold text-foreground">Import customers</h1>
         <p className="text-xs text-slate-500">
           Bring your existing customer list into <strong>{active!.tenantName}</strong>. Nothing is saved until you check the list and press Import.
         </p>
@@ -208,8 +208,8 @@ export default function ImportCustomersPage() {
             {done.errors > 0 && <li><strong>{done.errors}</strong> rows had problems and were not imported</li>}
           </ul>
           <div className="flex flex-wrap gap-2">
-            <Link href="/customers" className="rounded-lg bg-[#167D79] px-4 py-2 text-xs font-bold text-white">View customers</Link>
-            {done.openingBalanceTotal > 0 && <Link href="/dues" className="rounded-lg border border-[#167D79] px-4 py-2 text-xs font-bold text-[#167D79]">See who owes you</Link>}
+            <Link href="/customers" className="rounded-lg bg-action px-4 py-2 text-xs font-bold text-on-action">View customers</Link>
+            {done.openingBalanceTotal > 0 && <Link href="/dues" className="rounded-lg border border-brand-ink px-4 py-2 text-xs font-bold text-brand-ink">See who owes you</Link>}
             {done.errors > 0 && (
               <button type="button" onClick={() => download('customers-with-problems.csv', problemsCsv(done))} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700">
                 <Download className="h-3.5 w-3.5" /> Download rows with problems
@@ -221,13 +221,13 @@ export default function ImportCustomersPage() {
         </section>
       ) : (
         <>
-          <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
-            <h2 className="text-sm font-extrabold text-[#243B40]">1. Choose your file</h2>
+          <section className="space-y-3 rounded-2xl border border-slate-200 bg-surface p-5">
+            <h2 className="text-sm font-extrabold text-foreground">1. Choose your file</h2>
             <p className="text-xs text-slate-500">
               A CSV file (in Excel: <em>Save As → CSV UTF-8</em>), or copy the rows from Excel and paste them below. The first row must be the column names.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-[#243B40] px-3 py-2 text-xs font-bold text-white">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-surface border border-slate-200 px-3 py-2 text-xs font-bold text-brand-ink">
                 <Upload className="h-3.5 w-3.5" /> Choose CSV file
                 <input type="file" accept=".csv,.tsv,.txt,text/csv" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
               </label>
@@ -251,8 +251,8 @@ export default function ImportCustomersPage() {
           </section>
 
           {text.trim() && (
-            <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
-              <h2 className="text-sm font-extrabold text-[#243B40]">2. Check the columns</h2>
+            <section className="space-y-3 rounded-2xl border border-slate-200 bg-surface p-5">
+              <h2 className="text-sm font-extrabold text-foreground">2. Check the columns</h2>
               {missing.length > 0 ? (
                 <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">
                   We could not find a <strong>{missing.map((m) => (m === 'name' ? 'Name' : 'Phone')).join(' and ')}</strong> column. Rename the column in your file (for example “Name”, “Mobile”) or use the template.
@@ -264,14 +264,14 @@ export default function ImportCustomersPage() {
                 {CUSTOMER_FIELDS.map((f) => {
                   const idx = sheet.mapping[f.field];
                   return (
-                    <li key={f.field} className={idx === undefined ? 'text-slate-400' : 'font-semibold text-[#243B40]'}>
+                    <li key={f.field} className={idx === undefined ? 'text-slate-600' : 'font-semibold text-foreground'}>
                       {idx === undefined ? '○' : '✓'} {f.label}
                       {idx !== undefined && <span className="font-normal text-slate-500"> ← “{headerRow[idx]}”</span>}
                     </li>
                   );
                 })}
               </ul>
-              {sheet.ignoredHeaders.length > 0 && <p className="text-[11px] text-slate-400">Ignored columns: {sheet.ignoredHeaders.join(', ')}</p>}
+              {sheet.ignoredHeaders.length > 0 && <p className="text-[11px] text-slate-600">Ignored columns: {sheet.ignoredHeaders.join(', ')}</p>}
               {hasBalanceColumn && !canBalance && (
                 <p role="alert" className="rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">
                   Your role cannot import opening balances. Remove that column, or ask the owner or accounts to import this file.
@@ -288,7 +288,7 @@ export default function ImportCustomersPage() {
                 type="button"
                 disabled={missing.length > 0 || sheet.rows.length === 0 || busy !== null}
                 onClick={check}
-                className="rounded-lg bg-[#167D79] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg bg-action px-4 py-2 text-sm font-bold text-on-action disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy === 'check' ? 'Checking…' : 'Check the list'}
               </button>
@@ -298,8 +298,8 @@ export default function ImportCustomersPage() {
           {error && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>}
 
           {preview && (
-            <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5" aria-label="Check results">
-              <h2 className="text-sm font-extrabold text-[#243B40]">3. Review and import</h2>
+            <section className="space-y-3 rounded-2xl border border-slate-200 bg-surface p-5" aria-label="Check results">
+              <h2 className="text-sm font-extrabold text-foreground">3. Review and import</h2>
               <div className="flex flex-wrap gap-2 text-xs font-bold">
                 <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-800">{preview.created} to add</span>
                 {preview.updated > 0 && <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-800">{preview.updated} to update</span>}
@@ -313,7 +313,7 @@ export default function ImportCustomersPage() {
                 type="button"
                 disabled={busy !== null || preview.created + preview.updated === 0}
                 onClick={doImport}
-                className="rounded-lg bg-[#243B40] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg bg-surface border border-slate-200 px-4 py-2 text-sm font-bold text-brand-ink disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy === 'import' ? 'Importing…' : `Import ${preview.created + preview.updated} customers`}
               </button>

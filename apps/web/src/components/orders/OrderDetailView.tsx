@@ -104,12 +104,12 @@ export function OrderDetailView({
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 pb-24 text-[#243B40]">
+    <div className="mx-auto max-w-4xl space-y-6 pb-24 text-foreground">
       {/* 1. TOP HEADER BAR */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white p-5 shadow-sm border border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-surface p-5 shadow-sm border border-slate-200">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#167D79]">
+            <span className="text-xs font-bold uppercase tracking-wider text-brand-ink">
               {order.orderNumber}
             </span>
             <span
@@ -129,14 +129,14 @@ export function OrderDetailView({
           <button
             type="button"
             onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}
-            className="min-h-[42px] rounded-xl bg-[#F4B860]/25 px-3.5 text-xs font-bold text-[#243B40]"
+            className="min-h-[42px] rounded-xl bg-action/25 px-3.5 text-xs font-bold text-foreground"
           >
             {lang === 'en' ? 'தமிழ்' : 'English'}
           </button>
           <button
             type="button"
             onClick={() => window.print()}
-            className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-3.5 text-xs font-semibold hover:bg-slate-50"
+            className="min-h-[42px] rounded-xl border border-slate-300 bg-surface px-3.5 text-xs font-semibold hover:bg-slate-50"
           >
             {lang === 'ta' ? 'ஜாப் கார்டு பிரிண்ட் (Print Job Card)' : 'Print Job Card'}
           </button>
@@ -144,8 +144,8 @@ export function OrderDetailView({
       </div>
 
       {/* 2. VISUAL PRODUCTION PIPELINE STEPPER */}
-      <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200">
-        <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+      <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-600">
           {lang === 'ta' ? 'உற்பத்தி மற்றும் டெலிவரி நிலை' : 'Production & Delivery Pipeline'}
         </h2>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-6">
@@ -160,10 +160,10 @@ export function OrderDetailView({
                 onClick={() => handleStageSelect(stage.id)}
                 className={`flex min-h-[54px] flex-col justify-center rounded-xl p-2.5 text-left transition-all border ${
                   isCurrent
-                    ? 'border-[#167D79] bg-[#167D79] text-white shadow-md'
+                    ? 'border-brand-ink bg-action text-on-action shadow-md'
                     : isCompleted
                     ? 'border-emerald-200 bg-emerald-50/70 text-emerald-900'
-                    : 'border-slate-200 bg-[#F6F8F7] text-slate-600'
+                    : 'border-slate-200 bg-surface text-slate-600'
                 }`}
               >
                 <span className="text-[10px] font-bold uppercase opacity-75">
@@ -180,9 +180,9 @@ export function OrderDetailView({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left Column: Industry Job Card Specifications (7 cols) */}
         <div className="space-y-6 lg:col-span-7">
-          <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200 space-y-4">
+          <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[#243B40]">
+              <h2 className="text-sm font-bold text-foreground">
                 {lang === 'ta' ? 'ஜாப் கார்டு விவரங்கள் (Job Card Specs)' : 'Job Card & Work Specifications'}
               </h2>
               {canUpdateStage && (
@@ -190,7 +190,7 @@ export function OrderDetailView({
                   type="button"
                   onClick={handleSaveJobSpecs}
                   disabled={savingSpecs}
-                  className="rounded-lg bg-[#167D79] px-3 py-1.5 text-xs font-semibold text-white print:hidden"
+                  className="rounded-lg bg-action px-3 py-1.5 text-xs font-semibold text-on-action print:hidden"
                 >
                   {savingSpecs
                     ? lang === 'ta' ? 'சேமிக்கிறது...' : 'Saving...'
@@ -209,21 +209,21 @@ export function OrderDetailView({
           </div>
 
           {/* Order Line Items Table */}
-          <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200">
-            <h2 className="mb-3 text-sm font-bold text-[#243B40]">
+          <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200">
+            <h2 className="mb-3 text-sm font-bold text-foreground">
               {lang === 'ta' ? 'ஆர்டர் பொருட்கள் (Order Items)' : 'Order Line Items'}
             </h2>
             <div className="divide-y divide-slate-100">
               {order.items?.map((item: any) => (
                 <div key={item.id} className="flex items-center justify-between py-3 text-sm">
                   <div>
-                    <p className="font-semibold text-[#243B40]">{item.itemName}</p>
+                    <p className="font-semibold text-foreground">{item.itemName}</p>
                     {item.description && (
                       <p className="text-xs text-slate-500">{item.description}</p>
                     )}
                   </div>
                   <div className="text-right">
-                    <span className="rounded-md bg-[#F6F8F7] px-2.5 py-1 text-xs font-bold text-[#167D79]">
+                    <span className="rounded-md bg-surface px-2.5 py-1 text-xs font-bold text-brand-ink">
                       {item.quantity} {item.unit}
                     </span>
                     {canViewPayments && (
@@ -240,20 +240,20 @@ export function OrderDetailView({
         <div className="space-y-6 lg:col-span-5">
           {/* Role-Gated Financial & Payment Receipts Box */}
           {canViewPayments && (
-            <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200 space-y-4">
-              <h2 className="text-sm font-bold text-[#243B40]">
+            <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200 space-y-4">
+              <h2 className="text-sm font-bold text-foreground">
                 {lang === 'ta' ? 'பணம் மற்றும் பாக்கி விவரம்' : 'Collections & Payment History'}
               </h2>
 
-              <div className="grid grid-cols-3 rounded-xl bg-[#243B40] p-3.5 text-center text-white">
+              <div className="grid grid-cols-3 rounded-xl bg-surface border border-slate-200 p-3.5 text-center text-brand-ink">
                 <div>
-                  <span className="block text-[10px] uppercase text-slate-300">
+                  <span className="block text-[10px] uppercase text-slate-600">
                     {lang === 'ta' ? 'மொத்தம்' : 'Order Total'}
                   </span>
                   <span className="text-sm font-bold">₹{order.totalAmount ?? '—'}</span>
                 </div>
                 <div>
-                  <span className="block text-[10px] uppercase text-slate-300">
+                  <span className="block text-[10px] uppercase text-slate-600">
                     {lang === 'ta' ? 'வரவு' : 'Paid'}
                   </span>
                   <span className="text-sm font-bold text-emerald-400">
@@ -261,27 +261,27 @@ export function OrderDetailView({
                   </span>
                 </div>
                 <div>
-                  <span className="block text-[10px] uppercase text-slate-300">
+                  <span className="block text-[10px] uppercase text-slate-600">
                     {lang === 'ta' ? 'பாக்கி' : 'Balance Due'}
                   </span>
-                  <span className="text-sm font-bold text-[#F4B860]">₹{order.balanceDue ?? '—'}</span>
+                  <span className="text-sm font-bold text-brand-ink">₹{order.balanceDue ?? '—'}</span>
                 </div>
               </div>
 
               {/* Payment Receipts List */}
               <div className="space-y-2">
                 {order.payments?.length === 0 ? (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-600">
                     {lang === 'ta' ? 'இதுவரை பணம் பதிவு செய்யப்படவில்லை' : 'No payments recorded yet.'}
                   </p>
                 ) : (
                   order.payments?.map((p: any) => (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between rounded-lg bg-[#F6F8F7] px-3 py-2 text-xs"
+                      className="flex items-center justify-between rounded-lg bg-surface px-3 py-2 text-xs"
                     >
                       <div>
-                        <span className="font-bold text-[#243B40]">{p.receiptNumber}</span>
+                        <span className="font-bold text-foreground">{p.receiptNumber}</span>
                         <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold">
                           {p.mode}
                         </span>
@@ -295,8 +295,8 @@ export function OrderDetailView({
           )}
 
           {/* Repeat-Order & Relationship Follow-up Card (Section 5 Final Workflow Step) */}
-          <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200 print:hidden">
-            <h2 className="text-sm font-bold text-[#243B40]">
+          <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200 print:hidden">
+            <h2 className="text-sm font-bold text-foreground">
               {lang === 'ta' ? 'மறு ஆர்டர் நினைவூட்டல் (Repeat Order)' : 'Schedule Repeat-Order Follow-Up'}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
@@ -314,7 +314,7 @@ export function OrderDetailView({
                   key={btn.days}
                   type="button"
                   onClick={() => handleScheduleRepeatFollowUp(btn.days)}
-                  className="min-h-[40px] rounded-lg border border-[#167D79]/30 bg-[#F6F8F7] text-xs font-semibold text-[#167D79] hover:bg-[#167D79] hover:text-white"
+                  className="min-h-[44px] rounded-lg border border-brand-ink/30 bg-surface text-xs font-semibold text-brand-ink hover:bg-action hover:text-brand-ink"
                 >
                   {btn[lang]}
                 </button>
@@ -323,15 +323,15 @@ export function OrderDetailView({
           </div>
 
           {/* Immutable Activity Audit Log (Section 5 & 6 Requirement) */}
-          <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200 print:hidden">
-            <h2 className="mb-3 text-sm font-bold text-[#243B40]">
+          <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200 print:hidden">
+            <h2 className="mb-3 text-sm font-bold text-foreground">
               {lang === 'ta' ? 'ஆர்டர் வரலாறு (Activity Trail)' : 'Audit Trail & History'}
             </h2>
-            <div className="space-y-3 border-l-2 border-[#167D79]/30 pl-3">
+            <div className="space-y-3 border-l-2 border-brand-ink/30 pl-3">
               {order.timeline?.map((log: any) => (
                 <div key={log.id} className="text-xs">
-                  <p className="font-semibold text-[#243B40]">{log.action.replace(/_/g, ' ')}</p>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="font-semibold text-foreground">{log.action.replace(/_/g, ' ')}</p>
+                  <p className="text-[11px] text-slate-600">
                     {log.actorName || 'System'} • {new Date(log.createdAt).toLocaleString()}
                   </p>
                 </div>

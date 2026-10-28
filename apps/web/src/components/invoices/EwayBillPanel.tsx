@@ -136,13 +136,13 @@ export function EwayBillPanel({
   if (bills.length === 0 && !needed && !canAdd) return null;
 
   return (
-    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs" aria-label={ta ? 'இ-வே பில்' : 'E-way bill'}>
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs" aria-label={ta ? 'இ-வே பில்' : 'E-way bill'}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="flex items-center gap-1.5 text-sm font-extrabold text-[#243B40]">
-          <Truck className="h-4 w-4 text-[#167D79]" /> {ta ? 'இ-வே பில்' : 'E-way bill'}
+        <h3 className="flex items-center gap-1.5 text-sm font-extrabold text-foreground">
+          <Truck className="h-4 w-4 text-brand-ink" /> {ta ? 'இ-வே பில்' : 'E-way bill'}
         </h3>
         {canAdd && !open && (
-          <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-[#243B40] px-3 py-1.5 text-xs font-bold text-white">
+          <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1 rounded-lg bg-surface border border-slate-200 px-3 py-1.5 text-xs font-bold text-brand-ink">
             <Plus className="h-3.5 w-3.5" /> {ta ? 'பதிவேற்று' : 'Upload'}
           </button>
         )}
@@ -153,7 +153,7 @@ export function EwayBillPanel({
           {ta
             ? 'இந்த பொருட்களின் மதிப்பு ₹50,000 ஐ விட அதிகம், பொதுவாக இ-வே பில் தேவை. அரசு இணையதளத்தில் உருவாக்கி இங்கே பதிவேற்றவும்.'
             : 'This invoice is for goods worth more than ₹50,000, which normally need an e-way bill. Generate it on the government portal, then upload it here.'}{' '}
-          <a href={EWAY_BILL_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="text-[#167D79] underline">
+          <a href={EWAY_BILL_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="text-brand-ink underline">
             ewaybillgst.gov.in
           </a>
         </p>
@@ -164,9 +164,9 @@ export function EwayBillPanel({
           {bills.map((b) => {
             const expired = !!b.validUntil && b.validUntil < today();
             return (
-              <li key={b.id} className="rounded-lg bg-[#F6F8F7] px-3 py-2 text-xs">
+              <li key={b.id} className="rounded-lg bg-surface px-3 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-[#243B40]">{spaced(b.ewbNumber)}</span>
+                  <span className="font-bold text-foreground">{spaced(b.ewbNumber)}</span>
                   <span className="flex items-center gap-2">
                     {b.hasFile && (
                       <button
@@ -176,13 +176,13 @@ export function EwayBillPanel({
                           const msg = await downloadAuthedFile(`/api/eway-bills/${b.id}/file`, b.fileName ?? `eway-bill-${b.ewbNumber}.pdf`);
                           if (msg) setError(msg);
                         }}
-                        className="text-[#167D79]"
+                        className="text-brand-ink"
                       >
                         <Download className="h-3.5 w-3.5" />
                       </button>
                     )}
                     {canAdd && (
-                      <button type="button" aria-label={`Remove e-way bill ${b.ewbNumber}`} onClick={() => remove(b)} className="text-slate-400 hover:text-red-600">
+                      <button type="button" aria-label={`Remove e-way bill ${b.ewbNumber}`} onClick={() => remove(b)} className="text-slate-600 hover:text-red-600">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -200,13 +200,13 @@ export function EwayBillPanel({
           })}
         </ul>
       )}
-      {bills.length === 0 && !needed && <p className="text-xs text-slate-400">{ta ? 'இன்னும் இல்லை.' : 'None recorded for this invoice.'}</p>}
+      {bills.length === 0 && !needed && <p className="text-xs text-slate-600">{ta ? 'இன்னும் இல்லை.' : 'None recorded for this invoice.'}</p>}
 
       {open && (
         <div className="space-y-2.5 border-t border-slate-100 pt-3">
           <p className="text-[11px] text-slate-500">
             {ta ? 'அரசு இணையதளத்தில் இ-வே பில் உருவாக்கி, அதன் எண்ணையும் PDF ஐயும் இங்கே சேர்க்கவும்.' : 'Generate the e-way bill on the government portal, then add its number and the PDF you downloaded.'}{' '}
-            <a href={EWAY_BILL_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#167D79] underline">
+            <a href={EWAY_BILL_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-ink underline">
               ewaybillgst.gov.in
             </a>
           </p>
@@ -217,37 +217,37 @@ export function EwayBillPanel({
               value={number}
               onChange={(e) => setNumber(e.target.value.replace(/[^\d\s-]/g, '').slice(0, 16))}
               placeholder="3510 0123 4567"
-              className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-[#243B40]"
+              className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-foreground"
             />
             {number && !numberOk && <span className="font-normal text-amber-700">{ta ? '12 இலக்கங்கள் தேவை.' : 'It has exactly 12 digits.'}</span>}
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[11px] font-semibold text-slate-500">
               {ta ? 'உருவாக்கிய தேதி' : 'Generated on'}
-              <input type="date" value={generatedOn} onChange={(e) => setGeneratedOn(e.target.value)} className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-[#243B40]" />
+              <input type="date" value={generatedOn} onChange={(e) => setGeneratedOn(e.target.value)} className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-foreground" />
             </label>
             <label className="text-[11px] font-semibold text-slate-500">
               {ta ? 'செல்லுபடி தேதி' : 'Valid until'}
-              <input type="date" value={validUntil} min={generatedOn || undefined} onChange={(e) => setValidUntil(e.target.value)} className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-[#243B40]" />
+              <input type="date" value={validUntil} min={generatedOn || undefined} onChange={(e) => setValidUntil(e.target.value)} className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-foreground" />
             </label>
           </div>
           {!datesOk && <p className="text-[11px] font-semibold text-amber-700">{ta ? 'செல்லுபடி தேதி முன்பு இருக்க முடியாது.' : 'Valid-until cannot be before the generated date.'}</p>}
           <label className="block text-[11px] font-semibold text-slate-500">
             {ta ? 'வாகன எண் (விருப்பம்)' : 'Vehicle number (optional)'}
-            <input value={vehicle} onChange={(e) => setVehicle(e.target.value.toUpperCase().slice(0, 16))} placeholder="TN38AB1234" className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-[#243B40]" />
+            <input value={vehicle} onChange={(e) => setVehicle(e.target.value.toUpperCase().slice(0, 16))} placeholder="TN38AB1234" className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 px-2 text-sm font-normal text-foreground" />
             {!vehicleOk && <span className="font-normal text-amber-700">{ta ? 'எண் சரியாக இல்லை.' : 'This does not look like a vehicle number.'}</span>}
           </label>
-          <label className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-[#243B40]">
-            <Paperclip className="h-4 w-4 text-[#167D79]" />
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-surface px-3 text-sm font-semibold text-foreground">
+            <Paperclip className="h-4 w-4 text-brand-ink" />
             <span className="min-w-0 truncate">{file ? file.name : ta ? 'PDF / புகைப்படம் இணை' : 'Attach the PDF or photo'}</span>
             <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => pickFile(e.target.files?.[0] ?? null)} />
           </label>
           {error && <p role="alert" className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">{error}</p>}
           <div className="flex gap-2">
-            <button type="button" onClick={save} disabled={busy || !numberOk || !vehicleOk || !datesOk} className="min-h-[44px] flex-1 rounded-xl bg-[#167D79] text-sm font-bold text-white disabled:opacity-50">
+            <button type="button" onClick={save} disabled={busy || !numberOk || !vehicleOk || !datesOk} className="min-h-[44px] flex-1 rounded-xl bg-action text-sm font-bold text-on-action disabled:opacity-50">
               {busy ? (ta ? 'சேமிக்கிறது…' : 'Saving…') : ta ? 'சேமி' : 'Save e-way bill'}
             </button>
-            <button type="button" onClick={() => { setOpen(false); setError(null); }} disabled={busy} className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#243B40]">
+            <button type="button" onClick={() => { setOpen(false); setError(null); }} disabled={busy} className="min-h-[44px] rounded-xl border border-slate-200 bg-surface px-4 text-sm font-semibold text-foreground">
               {ta ? 'மூடு' : 'Close'}
             </button>
           </div>

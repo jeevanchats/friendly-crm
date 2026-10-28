@@ -1,4 +1,4 @@
-const CACHE_NAME = 'friendly-crm-v2';
+const CACHE_NAME = 'friendly-crm-v3-theme';
 
 // Pre-cached essential static assets for app shell
 const PRECACHE_ASSETS = [
@@ -59,7 +59,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME) {
+          if (key.startsWith('friendly-crm-') && key !== CACHE_NAME) {
             return caches.delete(key);
           }
         })
@@ -85,6 +85,8 @@ self.addEventListener('fetch', (event) => {
   if (!event.request.url.startsWith('http')) return;
 
   const requestUrl = new URL(event.request.url);
+  // Development assets reuse URLs: cached JS/CSS can mix incompatible theme versions.
+  if (self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1') return;
   const isSameOrigin = requestUrl.origin === self.location.origin;
 
   // 1. Authenticated APIs: Network-only, NEVER cache, NEVER return homepage HTML on failure

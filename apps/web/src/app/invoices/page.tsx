@@ -1,4 +1,5 @@
 'use client';
+import { useLocale } from '../../components/shared/LocaleProvider';
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -41,7 +42,7 @@ const STATUS_STYLE: Record<InvoiceRow['status'], string> = {
 export default function InvoicesPage() {
   const { active } = useAuth();
   const tenantId = active!.tenantId;
-  const [lang, setLang] = useState<'en' | 'ta'>('en');
+  const [lang, setLang] = useLocale();
   const ta = lang === 'ta';
   const [rows, setRows] = useState<InvoiceRow[] | null>(null);
   const [notes, setNotes] = useState<CreditNoteRow[]>([]);
@@ -75,22 +76,22 @@ export default function InvoicesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-extrabold text-[#243B40]">{ta ? 'GST விலைப்பட்டியல்கள்' : 'GST invoices'}</h1>
+          <h1 className="text-xl font-extrabold text-foreground">{ta ? 'GST விலைப்பட்டியல்கள்' : 'GST invoices'}</h1>
           <p className="text-xs text-slate-500">{ta ? 'ஆர்டர் பக்கத்திலிருந்து விலைப்பட்டியல் உருவாக்கலாம்.' : 'Issue an invoice from an order’s page.'}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setLang(ta ? 'en' : 'ta')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600">{ta ? 'EN' : 'தமிழ்'}</button>
-          <button type="button" onClick={load} aria-label={ta ? 'புதுப்பி' : 'Refresh'} className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600">
+          <button type="button" onClick={() => setLang(ta ? 'en' : 'ta')} className="rounded-lg border border-slate-200 bg-surface px-2.5 py-1 text-xs font-bold text-slate-600">{ta ? 'EN' : 'தமிழ்'}</button>
+          <button type="button" onClick={load} aria-label={ta ? 'புதுப்பி' : 'Refresh'} className="rounded-lg border border-slate-200 bg-surface p-1.5 text-slate-600">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
       {error && <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm font-semibold text-red-700">{error}</div>}
-      {!error && loading && !rows && <div className="rounded-2xl bg-white p-10 text-center text-sm text-slate-400">{ta ? 'ஏற்றுகிறது…' : 'Loading…'}</div>}
+      {!error && loading && !rows && <div className="rounded-2xl bg-surface p-10 text-center text-sm text-slate-600">{ta ? 'ஏற்றுகிறது…' : 'Loading…'}</div>}
 
       {rows && rows.length === 0 && (
-        <p className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-400">
+        <p className="rounded-2xl border border-dashed border-slate-200 bg-surface p-8 text-center text-sm text-slate-600">
           {ta ? 'இன்னும் விலைப்பட்டியல் எதுவும் இல்லை.' : 'No invoices issued yet.'}
         </p>
       )}
@@ -98,15 +99,15 @@ export default function InvoicesPage() {
       {rows && rows.length > 0 && (
         <ul className="space-y-2">
           {rows.map((r) => (
-            <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+            <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs">
               <div className="min-w-0">
-                <div className="text-sm font-bold text-[#243B40]">{r.invoiceNumber}</div>
+                <div className="text-sm font-bold text-foreground">{r.invoiceNumber}</div>
                 <div className="truncate text-xs text-slate-500">
                   {r.customerName} · {new Date(r.issuedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-sm font-extrabold text-[#243B40]">{rupees(r.grandTotal)}</div>
+                <div className="text-sm font-extrabold text-foreground">{rupees(r.grandTotal)}</div>
                 <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[r.status]}`}>
                   {r.status === 'CREDITED'
                     ? ta ? 'கிரெடிட் செய்யப்பட்டது' : 'Credited in full'
@@ -117,14 +118,14 @@ export default function InvoicesPage() {
                 )}
               </div>
               <div className="flex w-full items-center gap-3 text-xs font-semibold">
-                <Link href={`/orders/${r.orderId}`} className="text-[#167D79] hover:underline">{ta ? 'ஆர்டர்' : 'Open order'}</Link>
+                <Link href={`/orders/${r.orderId}`} className="text-brand-ink hover:underline">{ta ? 'ஆர்டர்' : 'Open order'}</Link>
                 <button
                   type="button"
                   onClick={async () => {
                     const msg = await downloadInvoicePdf(r.id, r.invoiceNumber);
                     if (msg) setError(msg);
                   }}
-                  className="inline-flex items-center gap-1 text-[#167D79] hover:underline"
+                  className="inline-flex items-center gap-1 text-brand-ink hover:underline"
                 >
                   <Download className="w-3 h-3" /> PDF
                 </button>
@@ -136,25 +137,25 @@ export default function InvoicesPage() {
 
       {notes.length > 0 && (
         <div className="space-y-2 pt-2">
-          <h2 className="text-sm font-extrabold text-[#243B40]">{ta ? 'கிரெடிட் நோட்கள்' : 'Credit notes'}</h2>
+          <h2 className="text-sm font-extrabold text-foreground">{ta ? 'கிரெடிட் நோட்கள்' : 'Credit notes'}</h2>
           <ul className="space-y-2">
             {notes.map((n) => (
-              <li key={n.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+              <li key={n.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs">
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-[#243B40]">{n.creditNoteNumber}</div>
+                  <div className="text-sm font-bold text-foreground">{n.creditNoteNumber}</div>
                   <div className="truncate text-xs text-slate-500">
                     {n.customerName} · {new Date(n.issuedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} · {n.reasonLabel} · {ta ? 'விலைப்பட்டியல்' : 'against'} {n.invoiceNumber}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="text-sm font-extrabold text-[#243B40]">- {rupees(n.grandTotal)}</div>
+                  <div className="text-sm font-extrabold text-foreground">- {rupees(n.grandTotal)}</div>
                   <button
                     type="button"
                     onClick={async () => {
                       const msg = await downloadCreditNotePdf(n.id, n.creditNoteNumber);
                       if (msg) setError(msg);
                     }}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#167D79] hover:underline"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-ink hover:underline"
                   >
                     <Download className="w-3 h-3" /> PDF
                   </button>

@@ -38,7 +38,7 @@ export function MobileBottomNav({
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 px-2 pt-1 pb-safe shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-surface/95 backdrop-blur-md border-t border-slate-200/80 px-2 pt-1 pb-safe shadow-lg">
       <div className="flex items-center justify-around max-w-lg mx-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -50,7 +50,7 @@ export function MobileBottomNav({
                 key={item.id}
                 onClick={onQuickAction}
                 aria-label="Quick Add Lead"
-                className="group relative flex items-center justify-center w-13 h-13 -mt-6 bg-brand-teal text-white rounded-full shadow-soft-teal hover:bg-brand-teal-light active:scale-95 transition-all ring-4 ring-white"
+                className="group relative flex items-center justify-center w-13 h-13 -mt-6 bg-brand-teal text-brand-ink rounded-full shadow-soft-teal hover:bg-brand-teal-light active:scale-95 transition-all ring-4 ring-white"
               >
                 <Icon className="w-6 h-6 stroke-[2.5]" />
                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-brand-gold rounded-full ring-2 ring-white" />
@@ -64,7 +64,7 @@ export function MobileBottomNav({
               onClick={() => onTabChange(item.id)}
               className={`flex flex-col items-center justify-center w-16 py-1.5 text-[11px] font-medium transition-colors ${
                 isActive
-                  ? 'text-brand-teal font-bold'
+                  ? 'text-brand-ink font-bold'
                   : 'text-brand-slate-light hover:text-brand-slate'
               }`}
             >

@@ -180,11 +180,11 @@ export function CreditNotePanel({
   const canIssue = !busy && hasInput && !!preview && !previewError && !needsNote;
 
   return (
-    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs" aria-label={ta ? 'கிரெடிட் நோட்' : 'Credit notes'}>
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-surface p-4 shadow-xs" aria-label={ta ? 'கிரெடிட் நோட்' : 'Credit notes'}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-extrabold text-[#243B40]">{ta ? 'கிரெடிட் நோட்கள்' : 'Credit notes'}</h3>
+        <h3 className="text-sm font-extrabold text-foreground">{ta ? 'கிரெடிட் நோட்கள்' : 'Credit notes'}</h3>
         {canCreate && !open && !nothingLeft && (
-          <button type="button" onClick={() => { setOpen(true); setDone(null); }} className="inline-flex items-center gap-1.5 rounded-lg bg-[#243B40] px-3 py-1.5 text-xs font-bold text-white">
+          <button type="button" onClick={() => { setOpen(true); setDone(null); }} className="inline-flex items-center gap-1.5 rounded-lg bg-surface border border-slate-200 px-3 py-1.5 text-xs font-bold text-brand-ink">
             <FilePlus2 className="h-3.5 w-3.5" /> {ta ? 'கிரெடிட் நோட் உருவாக்கு' : 'Issue credit note'}
           </button>
         )}
@@ -198,26 +198,26 @@ export function CreditNotePanel({
               {ta ? 'வாடிக்கையாளருக்கு' : 'The customer is now in credit by'} {rupees(Math.abs(Number(done.balanceAfter)))}.
             </span>
           )}
-          <button type="button" onClick={() => downloadCreditNotePdf(done.id, done.number)} className="mt-1 inline-flex items-center gap-1 text-[#167D79] underline">
+          <button type="button" onClick={() => downloadCreditNotePdf(done.id, done.number)} className="mt-1 inline-flex items-center gap-1 text-brand-ink underline">
             <Download className="h-3 w-3" /> PDF
           </button>
         </div>
       )}
 
-      {prep.creditNotes.length === 0 && !open && <p className="text-xs text-slate-400">{ta ? 'இன்னும் இல்லை.' : 'None issued against this invoice.'}</p>}
+      {prep.creditNotes.length === 0 && !open && <p className="text-xs text-slate-600">{ta ? 'இன்னும் இல்லை.' : 'None issued against this invoice.'}</p>}
       {prep.creditNotes.length > 0 && (
         <ul className="space-y-1.5">
           {prep.creditNotes.map((n) => (
-            <li key={n.id} className="flex items-center justify-between gap-2 rounded-lg bg-[#F6F8F7] px-3 py-2 text-xs">
+            <li key={n.id} className="flex items-center justify-between gap-2 rounded-lg bg-surface px-3 py-2 text-xs">
               <span className="min-w-0">
-                <span className="font-bold text-[#243B40]">{n.creditNoteNumber}</span>
+                <span className="font-bold text-foreground">{n.creditNoteNumber}</span>
                 <span className="ml-2 text-slate-500">
                   {new Date(n.issuedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} · {n.reasonLabel}
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className="font-bold text-[#243B40]">- {rupees(n.grandTotal)}</span>
-                <button type="button" onClick={() => downloadCreditNotePdf(n.id, n.creditNoteNumber)} aria-label={`Download ${n.creditNoteNumber}`} className="text-[#167D79]">
+                <span className="font-bold text-foreground">- {rupees(n.grandTotal)}</span>
+                <button type="button" onClick={() => downloadCreditNotePdf(n.id, n.creditNoteNumber)} aria-label={`Download ${n.creditNoteNumber}`} className="text-brand-ink">
                   <Download className="h-3.5 w-3.5" />
                 </button>
               </span>
@@ -240,7 +240,7 @@ export function CreditNotePanel({
                 key={k}
                 type="button"
                 onClick={() => setMode(k)}
-                className={`min-h-[40px] rounded-lg text-xs font-bold ${mode === k ? 'bg-[#167D79] text-white' : 'border border-slate-200 bg-white text-[#243B40]'}`}
+                className={`min-h-[44px] rounded-lg text-xs font-bold ${mode === k ? 'bg-action text-on-action' : 'border border-slate-200 bg-surface text-foreground'}`}
               >
                 {label}
               </button>
@@ -255,8 +255,8 @@ export function CreditNotePanel({
                   : 'For each item give the quantity returned, or an amount to reduce it by (before GST). One or the other per item.'}
               </p>
               {prep.lines.map((l) => (
-                <div key={l.lineNo} className="rounded-xl bg-[#F6F8F7] p-3">
-                  <div className="text-xs font-bold text-[#243B40]">{l.itemName}</div>
+                <div key={l.lineNo} className="rounded-xl bg-surface p-3">
+                  <div className="text-xs font-bold text-foreground">{l.itemName}</div>
                   <div className="text-[11px] text-slate-500">
                     {ta ? 'மீதம்' : 'Left to credit'}: {l.remainingQuantity} {l.unit} · {rupees(l.remainingTaxableValue)} {ta ? '(GST க்கு முன்)' : 'before GST'}
                   </div>
@@ -268,7 +268,7 @@ export function CreditNotePanel({
                         value={entries[l.lineNo]?.qty ?? ''}
                         onChange={(e) => setEntry(l.lineNo, 'qty', e.target.value)}
                         disabled={Number(l.remainingQuantity) <= 0}
-                        className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-[#243B40] disabled:bg-slate-100"
+                        className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-surface px-2 text-sm font-normal text-foreground disabled:bg-slate-100"
                       />
                     </label>
                     <label className="text-[11px] font-semibold text-slate-500">
@@ -278,7 +278,7 @@ export function CreditNotePanel({
                         value={entries[l.lineNo]?.amt ?? ''}
                         onChange={(e) => setEntry(l.lineNo, 'amt', e.target.value)}
                         disabled={Number(l.remainingTaxableValue) <= 0}
-                        className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-[#243B40] disabled:bg-slate-100"
+                        className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-surface px-2 text-sm font-normal text-foreground disabled:bg-slate-100"
                       />
                     </label>
                   </div>
@@ -298,7 +298,7 @@ export function CreditNotePanel({
               <select
                 value={mode === 'FULL' && reason === 'SALES_RETURN' ? 'CANCELLATION' : reason}
                 onChange={(e) => setReason(e.target.value as CreditNoteReason)}
-                className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-[#243B40]"
+                className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-surface px-2 text-sm font-normal text-foreground"
               >
                 {CREDIT_NOTE_REASONS.map((r) => (
                   <option key={r} value={r}>{CREDIT_NOTE_REASON_LABELS[r]}</option>
@@ -311,30 +311,30 @@ export function CreditNotePanel({
                 value={note}
                 maxLength={300}
                 onChange={(e) => setNote(e.target.value)}
-                className="mt-0.5 min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-[#243B40]"
+                className="mt-0.5 min-h-[44px] w-full rounded-lg border border-slate-300 bg-surface px-2 text-sm font-normal text-foreground"
               />
             </label>
           </div>
 
           {previewError && <p role="alert" className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">{previewError}</p>}
           {preview && !previewError && (
-            <div className="rounded-xl bg-[#243B40] p-3 text-xs text-white">
-              <div className="flex justify-between text-slate-300"><span>{ta ? 'GST க்கு முன்' : 'Taxable value'}</span><span>{rupees(preview.totals.taxableValue)}</span></div>
+            <div className="rounded-xl bg-surface border border-slate-200 p-3 text-xs text-brand-ink">
+              <div className="flex justify-between text-slate-600"><span>{ta ? 'GST க்கு முன்' : 'Taxable value'}</span><span>{rupees(preview.totals.taxableValue)}</span></div>
               {Number(preview.totals.igst) > 0 ? (
-                <div className="flex justify-between text-slate-300"><span>IGST</span><span>{rupees(preview.totals.igst)}</span></div>
+                <div className="flex justify-between text-slate-600"><span>IGST</span><span>{rupees(preview.totals.igst)}</span></div>
               ) : (
                 <>
-                  <div className="flex justify-between text-slate-300"><span>CGST</span><span>{rupees(preview.totals.cgst)}</span></div>
-                  <div className="flex justify-between text-slate-300"><span>SGST</span><span>{rupees(preview.totals.sgst)}</span></div>
+                  <div className="flex justify-between text-slate-600"><span>CGST</span><span>{rupees(preview.totals.cgst)}</span></div>
+                  <div className="flex justify-between text-slate-600"><span>SGST</span><span>{rupees(preview.totals.sgst)}</span></div>
                 </>
               )}
-              {Number(preview.totals.roundOff) !== 0 && <div className="flex justify-between text-slate-300"><span>{ta ? 'ரவுண்ட் ஆஃப்' : 'Round off'}</span><span>{rupees(preview.totals.roundOff)}</span></div>}
-              <div className="mt-1 flex justify-between border-t border-slate-600 pt-1.5 text-sm font-bold text-[#F4B860]">
+              {Number(preview.totals.roundOff) !== 0 && <div className="flex justify-between text-slate-600"><span>{ta ? 'ரவுண்ட் ஆஃப்' : 'Round off'}</span><span>{rupees(preview.totals.roundOff)}</span></div>}
+              <div className="mt-1 flex justify-between border-t border-slate-600 pt-1.5 text-sm font-bold text-brand-ink">
                 <span>{ta ? 'கடன் தொகை' : 'Credit note total'}</span>
                 <span>{rupees(preview.totals.grandTotal)}</span>
               </div>
               {preview.orderBalanceAfter !== undefined && (
-                <p className="mt-1.5 text-[11px] text-slate-300">
+                <p className="mt-1.5 text-[11px] text-slate-600">
                   {Number(preview.orderBalanceAfter) < 0
                     ? `${ta ? 'வாடிக்கையாளருக்கு கிரெடிட்' : 'Customer will be in credit by'} ${rupees(Math.abs(Number(preview.orderBalanceAfter)))}`
                     : `${ta ? 'ஆர்டரில் நிலுவை' : 'Order balance after'}: ${rupees(preview.orderBalanceAfter)}`}
@@ -346,16 +346,16 @@ export function CreditNotePanel({
           {submitError && <p role="alert" className="rounded-lg bg-red-50 p-2.5 text-xs font-semibold text-red-700">{submitError}</p>}
 
           <div className="flex gap-2">
-            <button type="button" onClick={issue} disabled={!canIssue} className="min-h-[44px] flex-1 rounded-xl bg-[#167D79] text-sm font-bold text-white disabled:opacity-50">
+            <button type="button" onClick={issue} disabled={!canIssue} className="min-h-[44px] flex-1 rounded-xl bg-action text-sm font-bold text-on-action disabled:opacity-50">
               {busy ? (
                 <RefreshCw className="mx-auto h-4 w-4 animate-spin" />
               ) : mode === 'FULL' ? (ta ? 'ரத்து செய்து கிரெடிட் நோட் உருவாக்கு' : 'Cancel invoice and issue credit note') : ta ? 'கிரெடிட் நோட் உருவாக்கு' : 'Issue credit note'}
             </button>
-            <button type="button" onClick={() => { setOpen(false); setSubmitError(null); }} disabled={busy} className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#243B40]">
+            <button type="button" onClick={() => { setOpen(false); setSubmitError(null); }} disabled={busy} className="min-h-[44px] rounded-xl border border-slate-200 bg-surface px-4 text-sm font-semibold text-foreground">
               {ta ? 'மூடு' : 'Close'}
             </button>
           </div>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-slate-600">
             {ta ? 'உருவாக்கிய கிரெடிட் நோட்டை மாற்றவோ நீக்கவோ முடியாது.' : 'An issued credit note cannot be edited or deleted.'}
           </p>
         </div>

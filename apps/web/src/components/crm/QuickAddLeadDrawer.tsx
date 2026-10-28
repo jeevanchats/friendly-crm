@@ -1,4 +1,5 @@
 'use client';
+import { useDialog } from '../shared/useDialog';
 
 import React, { useEffect, useRef, useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
@@ -100,6 +101,7 @@ export function QuickAddLeadDrawer({
     if (locale) setLang(locale);
   }, [locale]);
 
+  const dialogRef = useDialog(isOpen, loading ? undefined : onClose);
   if (!isOpen) return null;
 
   // Sample text in this business's own trade, so a furniture shop is not shown calendars and a printer is not shown cots.
@@ -209,16 +211,16 @@ export function QuickAddLeadDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#243B40]/60 backdrop-blur-xs transition-opacity">
-      <div className="w-full max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-white p-5 shadow-2xl border-t sm:border border-slate-200 animate-slide-up">
+    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-[#0F1417]/60 backdrop-blur-xs transition-opacity" role="dialog" aria-modal="true" aria-label="New enquiry">
+      <div className="w-full max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl bg-surface p-5 shadow-2xl border-t sm:border border-slate-200 animate-slide-up">
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Header + Tamil/English Switcher */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
-              <h2 className="text-base font-bold text-[#243B40]">
+              <h2 className="text-base font-bold text-foreground">
                 {lang === 'ta' ? 'புதிய விசாரணை (Quick Add)' : 'New Enquiry (Quick Add)'}
               </h2>
-              <span className="text-[11px] font-semibold text-[#167D79] capitalize">
+              <span className="text-[11px] font-semibold text-brand-ink capitalize">
                 {industry} {lang === 'ta' ? 'தொழில் துறை' : 'Industry'}
               </span>
             </div>
@@ -227,7 +229,7 @@ export function QuickAddLeadDrawer({
               <button
                 type="button"
                 onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}
-                className="rounded-lg bg-[#F4B860]/25 px-2.5 py-1 text-xs font-semibold text-[#243B40] hover:bg-[#F4B860]/40 transition-colors"
+                className="rounded-lg bg-action/25 px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-action/40 transition-colors"
               >
                 {lang === 'en' ? 'தமிழ்' : 'English'}
               </button>
@@ -236,7 +238,9 @@ export function QuickAddLeadDrawer({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="p-1 text-slate-400 hover:text-[#243B40] rounded-lg hover:bg-slate-100"
+                  disabled={loading}
+                  aria-label="Close enquiry"
+                  className="p-1 text-slate-600 hover:text-foreground rounded-lg hover:bg-slate-100"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -261,8 +265,8 @@ export function QuickAddLeadDrawer({
                   onClick={() => setSource(item.id as any)}
                   className={`min-h-[44px] rounded-lg text-xs font-semibold transition-all ${
                     source === item.id
-                      ? 'bg-[#167D79] text-white shadow-sm'
-                      : 'bg-[#F6F8F7] text-[#243B40] border border-slate-200'
+                      ? 'bg-action text-on-action shadow-sm'
+                      : 'bg-surface text-foreground border border-slate-200'
                   }`}
                 >
                   {item[lang]}
@@ -274,19 +278,19 @@ export function QuickAddLeadDrawer({
           {/* Core Customer & Enquiry Inputs */}
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-sm font-medium text-[#243B40]">
+              <label htmlFor="enquiry-field-1" className="mb-1 block text-sm font-medium text-foreground">
                 {lang === 'ta' ? 'மொபைல் எண் (WhatsApp) *' : 'Mobile Number (WhatsApp) *'}
               </label>
-              <input
+              <input id="enquiry-field-1"
                 type="tel"
                 required
                 placeholder="98765 43210"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-base font-medium text-[#243B40] focus:border-[#167D79] focus:outline-none"
+                className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-base font-medium text-foreground focus:border-brand-ink focus:outline-none"
               />
               {lookup.state === 'checking' && (
-                <p className="mt-1 text-[11px] text-slate-400">{lang === 'ta' ? 'வாடிக்கையாளர் பட்டியலில் தேடுகிறது…' : 'Checking your customer list…'}</p>
+                <p className="mt-1 text-[11px] text-slate-600">{lang === 'ta' ? 'வாடிக்கையாளர் பட்டியலில் தேடுகிறது…' : 'Checking your customer list…'}</p>
               )}
               {lookup.state === 'invalid' && (
                 <p role="alert" className="mt-1 text-[11px] font-semibold text-red-700">
@@ -325,45 +329,45 @@ export function QuickAddLeadDrawer({
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-[#243B40]">
+              <label htmlFor="enquiry-field-2" className="mb-1 block text-sm font-medium text-foreground">
                 {lang === 'ta' ? 'வாடிக்கையாளர் பெயர் *' : 'Customer / Contact Name *'}
               </label>
-              <input
+              <input id="enquiry-field-2"
                 type="text"
                 required
                 placeholder={examples.customer[lang]}
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 readOnly={lookup.state === 'found'}
-                className={`min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none ${lookup.state === 'found' ? 'bg-slate-100' : ''}`}
+                className={`min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-foreground focus:border-brand-ink focus:outline-none ${lookup.state === 'found' ? 'bg-slate-100' : ''}`}
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-[#243B40]">
+              <label htmlFor="enquiry-field-3" className="mb-1 block text-sm font-medium text-foreground">
                 {lang === 'ta' ? 'நிறுவனம் / கடை பெயர்' : 'Company / Store Name'}
               </label>
-              <input
+              <input id="enquiry-field-3"
                 type="text"
                 placeholder={examples.company[lang]}
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 readOnly={lookup.state === 'found'}
-                className={`min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none ${lookup.state === 'found' ? 'bg-slate-100' : ''}`}
+                className={`min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-foreground focus:border-brand-ink focus:outline-none ${lookup.state === 'found' ? 'bg-slate-100' : ''}`}
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-[#243B40]">
+              <label htmlFor="enquiry-field-4" className="mb-1 block text-sm font-medium text-foreground">
                 {lang === 'ta' ? 'தேவை / ஆர்டர் விவரம் *' : 'Enquiry Summary *'}
               </label>
-              <input
+              <input id="enquiry-field-4"
                 type="text"
                 required
                 placeholder={examples.enquiry[lang]}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
+                className="min-h-[48px] w-full rounded-lg border border-slate-300 px-3.5 text-sm text-foreground focus:border-brand-ink focus:outline-none"
               />
             </div>
           </div>
@@ -397,8 +401,8 @@ export function QuickAddLeadDrawer({
                   onClick={() => setFollowUpPreset(chip.id as any)}
                   className={`min-h-[42px] rounded-lg text-xs font-semibold ${
                     followUpPreset === chip.id
-                      ? 'bg-[#F4B860] text-[#243B40]'
-                      : 'bg-[#F6F8F7] text-slate-600 border border-slate-200'
+                      ? 'bg-action text-on-action'
+                      : 'bg-surface text-slate-600 border border-slate-200'
                   }`}
                 >
                   {chip[lang]}
@@ -417,7 +421,7 @@ export function QuickAddLeadDrawer({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 min-h-[48px] rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-[#243B40] hover:bg-slate-100 transition-colors"
+                className="flex-1 min-h-[48px] rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-foreground hover:bg-slate-100 transition-colors"
               >
                 {lang === 'ta' ? 'ரத்து' : 'Cancel'}
               </button>
@@ -425,7 +429,7 @@ export function QuickAddLeadDrawer({
             <button
               type="submit"
               disabled={loading || lookup.state === 'checking' || lookup.state === 'invalid'}
-              className="flex-1 min-h-[48px] rounded-xl bg-[#167D79] font-semibold text-white shadow-md hover:bg-[#126461] disabled:opacity-50 transition-colors"
+              className="flex-1 min-h-[48px] rounded-xl bg-action font-semibold text-on-action shadow-md hover:bg-action/85 disabled:opacity-50 transition-colors"
             >
               {loading
                 ? lang === 'ta' ? 'சேமிக்கிறது...' : 'Saving...'

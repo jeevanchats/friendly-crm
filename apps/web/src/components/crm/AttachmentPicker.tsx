@@ -209,7 +209,7 @@ export function AttachmentPicker({
   };
 
   return (
-    <div className="space-y-3 rounded-xl border border-slate-200 bg-[#F6F8F7] p-3">
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-surface p-3">
       {/* Voice note */}
       <div>
         <p className="mb-1.5 text-xs font-semibold uppercase text-slate-500">{T.voice[lang]}</p>
@@ -219,7 +219,7 @@ export function AttachmentPicker({
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-600" />
               {T.recording[lang]} {formatClock(elapsed)}
             </span>
-            <button type="button" onClick={stop} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-bold text-white">
+            <button type="button" onClick={stop} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-bold text-white">
               <Square className="h-3.5 w-3.5" /> {T.stop[lang]}
             </button>
           </div>
@@ -233,7 +233,7 @@ export function AttachmentPicker({
               disabled={disabled}
               aria-label={T.again[lang]}
               title={T.again[lang]}
-              className="rounded-lg p-2 text-slate-500 hover:bg-white"
+              className="rounded-lg p-2 text-slate-500 hover:bg-surface"
             >
               <RotateCcw className="h-4 w-4" />
             </button>
@@ -243,9 +243,9 @@ export function AttachmentPicker({
             type="button"
             onClick={start}
             disabled={disabled || !canRecord}
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 text-sm font-semibold text-[#243B40] disabled:opacity-50"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-surface px-3.5 text-sm font-semibold text-foreground disabled:opacity-50"
           >
-            <Mic className="h-4 w-4 text-[#167D79]" /> {T.record[lang]}
+            <Mic className="h-4 w-4 text-brand-ink" /> {T.record[lang]}
           </button>
         )}
         {!canRecord && !value.voice && <p className="mt-1 text-[11px] text-slate-500">{T.noMic[lang]}</p>}
@@ -258,7 +258,7 @@ export function AttachmentPicker({
               disabled={disabled}
               value={value.voice.transcript}
               onChange={(e) => onChange({ ...value, voice: { ...value.voice!, transcript: e.target.value } })}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#243B40] focus:border-[#167D79] focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm text-foreground focus:border-brand-ink focus:outline-none"
             />
             {!value.voice.transcript.trim() && <p className="mt-1 text-[11px] text-amber-700">{T.saidHint[lang]}</p>}
           </div>
@@ -268,8 +268,8 @@ export function AttachmentPicker({
       {/* Files */}
       <div>
         <p className="mb-1.5 text-xs font-semibold uppercase text-slate-500">{T.files[lang]}</p>
-        <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 text-sm font-semibold text-[#243B40]">
-          <Paperclip className="h-4 w-4 text-[#167D79]" /> {T.attach[lang]}
+        <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-surface px-3.5 text-sm font-semibold text-foreground">
+          <Paperclip className="h-4 w-4 text-brand-ink" /> {T.attach[lang]}
           <input
             type="file"
             multiple
@@ -285,16 +285,16 @@ export function AttachmentPicker({
         {value.files.length > 0 && (
           <ul className="mt-2 space-y-1.5">
             {value.files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs">
-                <span className="min-w-0 truncate font-medium text-[#243B40]">
-                  {f.name} <span className="text-slate-400">· {formatSize(f.size)}</span>
+              <li key={`${f.name}-${i}`} className="flex items-center justify-between rounded-lg bg-surface px-3 py-2 text-xs">
+                <span className="min-w-0 truncate font-medium text-foreground">
+                  {f.name} <span className="text-slate-600">· {formatSize(f.size)}</span>
                 </span>
                 <button
                   type="button"
                   disabled={disabled}
                   onClick={() => onChange({ ...value, files: value.files.filter((_, j) => j !== i) })}
                   aria-label={`Remove ${f.name}`}
-                  className="ml-2 rounded p-1 text-slate-400 hover:text-red-600"
+                  className="ml-2 rounded p-1 text-slate-600 hover:text-red-600"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>

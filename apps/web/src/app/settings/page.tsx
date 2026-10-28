@@ -1,4 +1,5 @@
 'use client';
+import { useLocale } from '../../components/shared/LocaleProvider';
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { GST_STATES, hasPermission, isValidGstin, normalizeAccountNumber, normalizeGstin, normalizeIfsc, stateCodeFromGstin } from '@friendly-crm/shared';
@@ -27,7 +28,7 @@ export default function SettingsPage() {
   const { active } = useAuth();
   const tenantId = active!.tenantId;
   const allowed = hasPermission(active!.role, 'settings:manage');
-  const [lang, setLang] = useState<'en' | 'ta'>('en');
+  const [lang, setLang] = useLocale();
   const ta = lang === 'ta';
 
   const [loaded, setLoaded] = useState<Settings | null>(null);
@@ -132,7 +133,7 @@ export default function SettingsPage() {
 
   if (!allowed) {
     return (
-      <div role="alert" className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">
+      <div role="alert" className="rounded-2xl border border-slate-200 bg-surface p-8 text-center text-sm font-semibold text-slate-500">
         {ta ? 'அமைப்புகளை உரிமையாளர் மட்டுமே மாற்ற முடியும்.' : 'Only the business owner can change settings.'}
       </div>
     );
@@ -145,24 +146,24 @@ export default function SettingsPage() {
     <div className="space-y-5 max-w-xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-extrabold text-[#243B40]">{ta ? 'வணிக அமைப்புகள்' : 'Business settings'}</h1>
+          <h1 className="text-xl font-extrabold text-foreground">{ta ? 'வணிக அமைப்புகள்' : 'Business settings'}</h1>
           <p className="text-xs text-slate-500">
             {ta ? 'இவை GST விலைப்பட்டியல்களிலும் பணம் செலுத்தும் விவரங்களிலும் அச்சாகும்.' : 'These print on GST invoices and show customers how to pay.'}
           </p>
         </div>
-        <button type="button" onClick={() => setLang(ta ? 'en' : 'ta')} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600">
+        <button type="button" onClick={() => setLang(ta ? 'en' : 'ta')} className="rounded-lg border border-slate-200 bg-surface px-2.5 py-1 text-xs font-bold text-slate-600">
           {ta ? 'EN' : 'தமிழ்'}
         </button>
       </div>
 
-      {!loaded && !error && <div className="rounded-2xl bg-white p-8 text-center text-sm text-slate-400">{ta ? 'ஏற்றுகிறது…' : 'Loading…'}</div>}
+      {!loaded && !error && <div className="rounded-2xl bg-surface p-8 text-center text-sm text-slate-600">{ta ? 'ஏற்றுகிறது…' : 'Loading…'}</div>}
 
       {loaded && (
-        <form onSubmit={save} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
+        <form onSubmit={save} className="space-y-4 rounded-2xl border border-slate-200 bg-surface p-5 shadow-xs">
           <div>
             <label htmlFor="legalName" className={label}>{ta ? 'சட்டப்பூர்வ பெயர்' : 'Legal name'}</label>
             <input id="legalName" className={field} value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder={active!.tenantName} maxLength={200} />
-            <p className="mt-1 text-[11px] text-slate-400">{ta ? 'காலியாக இருந்தால் வணிகப் பெயர் பயன்படுத்தப்படும்.' : 'Leave blank to use the business name.'}</p>
+            <p className="mt-1 text-[11px] text-slate-600">{ta ? 'காலியாக இருந்தால் வணிகப் பெயர் பயன்படுத்தப்படும்.' : 'Leave blank to use the business name.'}</p>
           </div>
           <div>
             <label htmlFor="gstin" className={label}>GSTIN</label>
@@ -178,7 +179,7 @@ export default function SettingsPage() {
             />
             {gstProblem && <p className="mt-1 text-[11px] font-semibold text-red-600">{ta ? 'GSTIN சரியாக இல்லை. 15 எழுத்துகளைச் சரிபார்க்கவும்.' : 'This GSTIN is not valid. Check all 15 characters.'}</p>}
             {derivedState && <p className="mt-1 text-[11px] text-emerald-700">{ta ? 'மாநிலம்' : 'State'}: {derivedState} - {GST_STATES[derivedState]}</p>}
-            {!gstTrim && <p className="mt-1 text-[11px] text-slate-400">{ta ? 'GSTIN இல்லாமல் GST விலைப்பட்டியல் வெளியிட முடியாது.' : 'GST invoices cannot be issued without a GSTIN.'}</p>}
+            {!gstTrim && <p className="mt-1 text-[11px] text-slate-600">{ta ? 'GSTIN இல்லாமல் GST விலைப்பட்டியல் வெளியிட முடியாது.' : 'GST invoices cannot be issued without a GSTIN.'}</p>}
           </div>
           <div>
             <label htmlFor="address" className={label}>{ta ? 'முகவரி' : 'Address'}</label>
@@ -188,7 +189,7 @@ export default function SettingsPage() {
             <legend className="px-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               {ta ? 'பணம் பெறும் விவரங்கள்' : 'How customers pay you'}
             </legend>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-600">
               {ta
                 ? 'வாடிக்கையாளர்கள் உங்கள் கணக்கில் நேரடியாக செலுத்துவார்கள். இவை விலைப்பட்டியல், கொட்டேஷன் மற்றும் WhatsApp நினைவூட்டல்களில் காட்டப்படும். UPI ID-யிலிருந்து QR குறியீடும் உருவாக்கப்படும். பணம் வந்ததும் நீங்களே பதிவு செய்ய வேண்டும்.'
                 : 'Customers pay you directly. These show on invoices, quotations and WhatsApp reminders, and a UPI QR code is made from your UPI ID. You record each payment when it arrives.'}
@@ -237,10 +238,10 @@ export default function SettingsPage() {
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1" checked={autoOn} onChange={(e) => setAutoOn(e.target.checked)} />
               <span>
-                <span className="font-semibold text-[#243B40]">
+                <span className="font-semibold text-foreground">
                   {ta ? 'நிலுவை உள்ள வாடிக்கையாளர்களுக்கு WhatsApp நினைவூட்டல் தானாக அனுப்பு' : 'Send WhatsApp reminders to customers who owe money'}
                 </span>
-                <span className="block text-[11px] text-slate-400">
+                <span className="block text-[11px] text-slate-600">
                   {ta ? 'காலை 9 முதல் மாலை 7 மணி வரை மட்டும். வாடிக்கையாளர் பக்கத்தில் ஒருவரை விலக்கலாம்.' : 'Only between 9am and 7pm. You can exclude a customer on their page.'}
                 </span>
               </span>
@@ -263,7 +264,7 @@ export default function SettingsPage() {
 
           {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</p>}
           {saved && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">{ta ? 'சேமிக்கப்பட்டது.' : 'Saved.'}</p>}
-          <button type="submit" disabled={busy || gstProblem || ifscProblem || accountProblem || bankIncomplete} className="rounded-lg bg-[#167D79] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+          <button type="submit" disabled={busy || gstProblem || ifscProblem || accountProblem || bankIncomplete} className="rounded-lg bg-action px-4 py-2 text-sm font-bold text-on-action disabled:opacity-50">
             {busy ? (ta ? 'சேமிக்கிறது…' : 'Saving…') : ta ? 'சேமி' : 'Save'}
           </button>
         </form>
