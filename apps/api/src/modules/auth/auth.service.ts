@@ -139,7 +139,7 @@ export class AuthService {
   /**
    * Request OTP with rate limits, cryptographic code generation, and secure dispatch
    */
-  async requestOtp(dto: RequestOtpDto): Promise<{ success: boolean; message: string }> {
+  async requestOtp(dto: RequestOtpDto): Promise<{ success: boolean; message: string; devCode?: string }> {
     const phone = this.normalizePhone(dto.phone);
     const now = Date.now();
 
@@ -207,9 +207,17 @@ export class AuthService {
     // 4. Dispatch via SMS Gateway
     await this.devSmsGateway.sendOtp(phone, code);
 
+    // Local development only (same rule as the dev gateway's console line): hand the code back so the login page
+    // can show it. Never in production or tests.
+    const showDevCode =
+      process.env.ENABLE_DEV_SMS_GATEWAY === 'true' &&
+      process.env.NODE_ENV !== 'production' &&
+      process.env.NODE_ENV !== 'test';
+
     return {
       success: true,
       message: 'OTP has been dispatched via SMS',
+      ...(showDevCode ? { devCode: code } : {}),
     };
   }
 
