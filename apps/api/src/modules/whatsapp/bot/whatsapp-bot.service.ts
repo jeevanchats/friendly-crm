@@ -7,7 +7,8 @@ import { TenantNotificationProviderManager } from '../../notifications/adapters/
 import { webhookDeduplication } from '../../notifications/webhook-verification.util';
 import { BotPorts, BotSession, ConversationEngine, OrderSummary } from './conversation.engine';
 import { InboundMessage, parseInboundMessages } from './inbound-parser';
-import { InMemorySessionStore } from './session-store';
+import { DurableSessionStore, InMemorySessionStore, SessionStore } from './session-store';
+import { postgresSessionTable } from './session-table';
 import { CustomerIdentityService } from './customer-identity.service';
 import { TenantService } from '../../tenant/tenant.service';
 import { CustomerQuoteService } from '../../sales/customer-quote.service';
@@ -32,7 +33,16 @@ export class WhatsAppBotService {
     private readonly customerQuotes: CustomerQuoteService,
     private readonly customersService: CustomersService
   ) {
-    this.engine = new ConversationEngine(this.buildPorts(), new InMemorySessionStore<BotSession>());
+    this.engine = new ConversationEngine(this.buildPorts(), this.buildSessionStore());
+  }
+
+  /**
+   * Postgres in real use, so a restart or a second API instance does not drop conversations. Tests keep to process
+   * memory: a conversation left in the database by one run would otherwise leak into the next.
+   */
+  private buildSessionStore(): SessionStore<BotSession> {
+    if (process.env.NODE_ENV === 'test') return new InMemorySessionStore<BotSession>();
+    return new DurableSessionStore<BotSession>(postgresSessionTable, (m) => this.logger.warn(m));
   }
 
   /** Processes every inbound message in a verified webhook body. Never throws. */

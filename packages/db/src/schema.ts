@@ -641,3 +641,25 @@ export const notificationOutbox = pgTable(
     statusOutboxIdx: index('notification_outbox_status_idx').on(table.status),
   })
 );
+
+// ==========================================
+// WHATSAPP BOT CONVERSATION STATE
+// ==========================================
+
+/**
+ * One row per WhatsApp sender whose conversation with the bot is in progress. Lives in Postgres so a restart or a
+ * second API instance does not drop people mid-flow. No tenant_id or RLS: a sender is a phone number, and the same
+ * number can be staff in one business and a customer in another.
+ */
+export const botSessions = pgTable(
+  'bot_sessions',
+  {
+    key: varchar('key', { length: 64 }).primaryKey(),
+    value: jsonb('value').$type<Record<string, unknown>>().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    expiresIdx: index('bot_sessions_expires_idx').on(table.expiresAt),
+  })
+);
