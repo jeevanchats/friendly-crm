@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { QuickAddLeadDrawer } from '../crm/QuickAddLeadDrawer';
-import { ChevronDown, Check, Building2, Layers, LogOut, Home, Users, ShoppingBag, Wallet, Package, Inbox, FileText, BarChart3, Settings, MoreHorizontal, Plus, Target } from 'lucide-react';
+import { ChevronDown, Check, Building2, Layers, LogOut, Home, Users, ShoppingBag, Wallet, Package, Inbox, FileText, BarChart3, Settings, MoreHorizontal, Plus, Target, CalendarDays } from 'lucide-react';
 import { IndustryKey, INDUSTRY_TEMPLATES, hasPermission } from '@friendly-crm/shared';
 import { useAuth } from '../auth/AuthProvider';
 import { apiFetch } from '../../lib/session';
@@ -88,6 +88,9 @@ export function AppShell({
     { href: '/orders', labelEn: 'Orders', labelTa: 'ஆர்டர்கள்', icon: ShoppingBag },
     ...(hasPermission(userRole, 'lead:view')
       ? [{ href: '/leads', labelEn: 'Leads', labelTa: 'விசாரணைகள்', icon: Target }]
+      : []),
+    ...(hasPermission(userRole, 'task:view')
+      ? [{ href: '/followups', labelEn: 'Follow-ups', labelTa: 'பின்தொடர்தல்', icon: CalendarDays }]
       : []),
     ...(hasPermission(userRole, 'payment:view')
       ? [{ href: '/dues', labelEn: 'Dues', labelTa: 'நிலுவை', icon: Wallet }]

@@ -3,9 +3,10 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Logger,
 } from '@nestjs/common';
-import { sql, eq, ne, and, lte, asc, desc, inArray } from 'drizzle-orm';
+import { sql, eq, ne, and, lte, gte, lt, asc, desc, inArray } from 'drizzle-orm';
 import { db, tasks, leads, quotations, orders, customers, activities, auditLogs } from '@friendly-crm/db';
 import { TenantRole, hasPermission } from '@friendly-crm/shared';
 import { filterAndSanitizeActivities } from '../../common';
@@ -226,6 +227,77 @@ export class DashboardService {
         };
       }),
     };
+  }
+
+  /**
+   * Follow-up calendar: tasks due in [from, to), with the customer's name and phone.
+   * Salespersons see only their own tasks; everyone else with task:view sees the whole business.
+   */
+  async listTasks(
+    tenantId: string,
+    userId: string,
+    userRole: TenantRole,
+    range: { from: Date; to: Date; status?: 'PENDING' | 'COMPLETED' | 'CANCELLED' }
+  ) {
+    const isScopedToUser = userRole === 'SALESPERSON';
+    try {
+      if (typeof db?.transaction === 'function') {
+        return await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const rows = await tx
+            .select({
+              id: tasks.id,
+              title: tasks.title,
+              type: tasks.type,
+              dueAt: tasks.dueAt,
+              status: tasks.status,
+              outcomeNote: tasks.outcomeNote,
+              assignedToId: tasks.assignedToId,
+              leadId: tasks.leadId,
+              customerId: tasks.customerId,
+              customerName: customers.name,
+              customerPhone: customers.phone,
+            })
+            .from(tasks)
+            .leftJoin(customers, eq(tasks.customerId, customers.id))
+            .where(
+              and(
+                eq(tasks.tenantId, tenantId),
+                gte(tasks.dueAt, range.from),
+                lt(tasks.dueAt, range.to),
+                range.status ? eq(tasks.status, range.status) : undefined,
+                isScopedToUser ? eq(tasks.assignedToId, userId) : undefined
+              )
+            )
+            .orderBy(asc(tasks.dueAt))
+            .limit(500);
+          return { data: rows };
+        });
+      }
+    } catch (err: any) {
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      this.logger.warn(`Postgres offline; utilizing memory fallback for listTasks: ${err.message}`);
+    }
+
+    const data = globalMemoryTasks
+      .filter((t) => {
+        const due = +new Date(t.dueAt);
+        return (
+          t.tenantId === tenantId &&
+          due >= +range.from &&
+          due < +range.to &&
+          (!range.status || t.status === range.status) &&
+          (!isScopedToUser || t.assignedToId === userId)
+        );
+      })
+      .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt))
+      .map((t) => {
+        const cust = globalMemoryCustomers.find((c) => c.id === t.customerId);
+        return { ...t, customerName: cust?.name ?? null, customerPhone: cust?.phone ?? null };
+      });
+    return { data };
   }
 
   /**

@@ -172,6 +172,39 @@ export class CrmController {
   }
 
   /**
+   * 5b. GET /api/crm/tasks?from=&to=&status=
+   * Follow-up calendar: tasks due in the window (defaults to the next 31 days)
+   */
+  @Get('tasks')
+  @RequirePermission('task:view')
+  async listTasks(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string; role?: string } | undefined,
+    @Query('from') fromRaw?: string,
+    @Query('to') toRaw?: string,
+    @Query('status') status?: string
+  ) {
+    const from = fromRaw ? new Date(fromRaw) : new Date();
+    const to = toRaw ? new Date(toRaw) : new Date(from.getTime() + 31 * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(+from) || Number.isNaN(+to) || to <= from) {
+      throw new BadRequestException('from and to must be valid dates, with to after from.');
+    }
+    if (to.getTime() - from.getTime() > 95 * 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('Ask for at most 95 days at a time.');
+    }
+    const wanted = status?.toUpperCase();
+    if (wanted && !['PENDING', 'COMPLETED', 'CANCELLED'].includes(wanted)) {
+      throw new BadRequestException('status must be PENDING, COMPLETED or CANCELLED.');
+    }
+    return this.dashboardService.listTasks(
+      tenant.id,
+      user?.id || '',
+      (user?.role || 'READ_ONLY') as TenantRole,
+      { from, to, status: wanted as 'PENDING' | 'COMPLETED' | 'CANCELLED' | undefined }
+    );
+  }
+
+  /**
    * 6. PATCH /api/crm/tasks/:id/complete
    * 1-Tap Complete Task with outcome note & real-time KPI update
    */
