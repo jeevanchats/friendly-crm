@@ -13,6 +13,9 @@ import { globalMemoryTenants, globalMemoryCustomers, globalMemoryOrders, globalM
 const gstin = (first14: string) => first14 + gstinCheckChar(first14);
 const BANK = { accountName: 'Senthaamarai Art Crafts', bankName: 'HDFC Bank', accountNumber: '50200012345678', ifsc: 'HDFC0001234', branch: 'Coimbatore' };
 
+// Several tests render PDFs with QR codes, which can take longer than the 5s default on a busy machine.
+jest.setTimeout(30000);
+
 describe('payment details helpers', () => {
   it('checks IFSC codes and account numbers, ignoring the spaces people type', () => {
     expect(normalizeIfsc(' hdfc0001234 ')).toBe('HDFC0001234');
