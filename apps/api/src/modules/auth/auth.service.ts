@@ -700,6 +700,24 @@ export class AuthService {
     });
   }
 
+  /** In-memory team of one business (the fallback used when Postgres is offline, and in tests). */
+  public listMemoryTeam(tenantId: string) {
+    return Array.from(this.memoryMemberships.values())
+      .filter((m) => m.tenantId === tenantId)
+      .map((m) => ({ membership: m, user: this.memoryUsers.get(m.userId) }))
+      .filter((r): r is { membership: typeof r.membership; user: NonNullable<typeof r.user> } => !!r.user);
+  }
+
+  public findMemoryUserByPhone(phone: string) {
+    return Array.from(this.memoryUsers.values()).find((u) => u.phone === phone) ?? null;
+  }
+
+  public updateMemoryMembership(tenantId: string, userId: string, patch: { role?: TenantRole; isActive?: boolean }) {
+    const m = this.memoryMemberships.get(`${tenantId}:${userId}`);
+    if (m) Object.assign(m, patch);
+    return m ?? null;
+  }
+
   /**
    * Register a user (used in seed & testing)
    */

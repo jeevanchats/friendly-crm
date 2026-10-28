@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { QuickAddLeadDrawer } from '../crm/QuickAddLeadDrawer';
-import { ChevronDown, Check, Building2, Layers, LogOut, Home, Users, ShoppingBag, Wallet, Package, Inbox, FileText, BarChart3, Settings, MoreHorizontal, Plus, Target, CalendarDays } from 'lucide-react';
+import { ChevronDown, Check, Building2, Layers, LogOut, Home, Users, ShoppingBag, Wallet, Package, Inbox, FileText, BarChart3, Settings, MoreHorizontal, Plus, Target, CalendarDays, UserCog } from 'lucide-react';
 import { IndustryKey, INDUSTRY_TEMPLATES, hasPermission } from '@friendly-crm/shared';
 import { useAuth } from '../auth/AuthProvider';
 import { apiFetch } from '../../lib/session';
@@ -106,6 +106,9 @@ export function AppShell({
       : []),
     ...(canViewReports
       ? [{ href: '/reports', labelEn: 'Reports', labelTa: 'அறிக்கைகள்', icon: BarChart3 }]
+      : []),
+    ...(hasPermission(userRole, 'settings:manage')
+      ? [{ href: '/team', labelEn: 'Team', labelTa: 'குழு', icon: UserCog }]
       : []),
     ...(hasPermission(userRole, 'settings:manage')
       ? [{ href: '/settings', labelEn: 'Settings', labelTa: 'அமைப்புகள்', icon: Settings }]
