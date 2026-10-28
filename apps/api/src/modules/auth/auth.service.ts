@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   HttpException,
+  ServiceUnavailableException,
   HttpStatus,
   Logger,
 } from '@nestjs/common';
@@ -117,6 +118,28 @@ export class AuthService {
   constructor(private readonly devSmsGateway: DevSmsGateway) {}
 
   /**
+   * The in-memory stores stand in for Postgres in tests, and in local development only when ALLOW_MEMORY_FALLBACK=true.
+   * Anywhere else (production, and development by default) a database error must surface: quietly falling back to memory
+   * is what once let sessions stop working against a real Postgres while every check still looked fine, and an OTP that
+   * could not be marked used in the database must not be accepted again.
+   */
+  private memoryFallbackAllowed(): boolean {
+    if (process.env.NODE_ENV === 'test') return true;
+    return process.env.NODE_ENV !== 'production' && process.env.ALLOW_MEMORY_FALLBACK === 'true';
+  }
+
+  /** Call from a catch around a database operation: rethrows as 503 unless the memory fallback is allowed. */
+  private dbFailed(operation: string, err: any): void {
+    if (!this.memoryFallbackAllowed()) {
+      this.logger.error(`Postgres failed during ${operation}: ${err?.message ?? err}`);
+      throw new ServiceUnavailableException('Sign-in is temporarily unavailable. Please try again in a moment.');
+    }
+    if (process.env.NODE_ENV !== 'test') {
+      this.logger.warn(`Postgres offline; using the in-memory store for ${operation}: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
    * Normalizes Indian and global mobile numbers to E.164 (+91XXXXXXXXXX)
    */
   public normalizePhone(rawPhone: string): string {
@@ -184,21 +207,23 @@ export class AuthService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; persisting OTP to secure memory store: ${err.message}`);
+      this.dbFailed('saving the OTP', err);
     }
 
     // Mirror to memory store for test/offline resilience
-    const phoneOtps = this.memoryOtps.get(phone) || [];
-    phoneOtps.push({
-      id: randomUUID(),
-      phone,
-      codeHash,
-      attempts: 0,
-      maxAttempts: 3,
-      expiresAt,
-      consumedAt: null,
-    });
-    this.memoryOtps.set(phone, phoneOtps);
+    if (this.memoryFallbackAllowed()) {
+      const phoneOtps = this.memoryOtps.get(phone) || [];
+      phoneOtps.push({
+        id: randomUUID(),
+        phone,
+        codeHash,
+        attempts: 0,
+        maxAttempts: 3,
+        expiresAt,
+        consumedAt: null,
+      });
+      this.memoryOtps.set(phone, phoneOtps);
+    }
 
     // Update rate limit history
     recentRequests.push(now);
@@ -253,7 +278,7 @@ export class AuthService {
         }
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; reading OTP from memory store: ${err.message}`);
+      this.dbFailed('reading the OTP', err);
     }
 
     if (!otpRecord) {
@@ -289,8 +314,8 @@ export class AuthService {
             .update(otpVerifications)
             .set({ attempts: updatedAttempts })
             .where(eq(otpVerifications.id, otpRecord.id));
-        } catch {
-          // Ignore error
+        } catch (err: any) {
+          this.dbFailed('counting the OTP attempt', err);
         }
       }
 
@@ -311,8 +336,8 @@ export class AuthService {
           .update(otpVerifications)
           .set({ consumedAt: now })
           .where(eq(otpVerifications.id, otpRecord.id));
-      } catch {
-        // Ignore error
+      } catch (err: any) {
+        this.dbFailed('marking the OTP used', err);
       }
     }
 
@@ -335,8 +360,8 @@ export class AuthService {
           userRecord = inserted[0];
         }
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      this.dbFailed('finding the user', err);
     }
 
     if (!userRecord) {
@@ -394,18 +419,20 @@ export class AuthService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; persisting session to memory: ${err.message}`);
+      this.dbFailed('saving the session', err);
     }
 
     // Mirror to memory
-    this.memorySessions.set(tokenHash, {
-      id: sessionId,
-      userId: userRecord.id,
-      tokenHash,
-      expiresAt: sessionExpiresAt,
-      revokedAt: null,
-      lastActiveAt: now,
-    });
+    if (this.memoryFallbackAllowed()) {
+      this.memorySessions.set(tokenHash, {
+        id: sessionId,
+        userId: userRecord.id,
+        tokenHash,
+        expiresAt: sessionExpiresAt,
+        revokedAt: null,
+        lastActiveAt: now,
+      });
+    }
 
     return {
       token: rawToken,
@@ -462,8 +489,8 @@ export class AuthService {
             .where(eq(sessions.id, sessionRecord.id));
         }
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      this.dbFailed('checking the session', err);
     }
 
     if (!sessionRecord) {
@@ -508,8 +535,8 @@ export class AuthService {
           .set({ revokedAt: now })
           .where(eq(sessions.tokenHash, tokenHash));
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      this.dbFailed('signing out', err);
     }
 
     const memSession = this.memorySessions.get(tokenHash);
@@ -562,8 +589,8 @@ export class AuthService {
           };
         }
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      this.dbFailed('checking the membership', err);
     }
 
     // Check memory store
@@ -602,8 +629,8 @@ export class AuthService {
           industryKey: r.industry_key,
         }));
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      this.dbFailed('listing memberships', err);
     }
 
     return Array.from(this.memoryMemberships.values())
@@ -649,7 +676,7 @@ export class AuthService {
         }));
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; staff phone lookup using memory store: ${err.message}`);
+      this.dbFailed('looking up staff by phone', err);
     }
 
     const user = Array.from(this.memoryUsers.values()).find((u) => u.phone === phone);
