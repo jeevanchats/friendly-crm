@@ -2,6 +2,12 @@
   "printing": {
     "key": "printing",
     "name": { "en": "Printing & Packaging", "ta": "அச்சகம் மற்றும் பேக்கேஜிங்" },
+    "examples": {
+      "enquiry": { "en": "e.g., 1000 wall calendars, matt lamination", "ta": "எ.கா. 1000 சுவர் காலண்டர்கள், மேட் லேமினேஷன்" },
+      "customer": { "en": "e.g., Sri Krishna Sweets", "ta": "எ.கா. ஸ்ரீ கிருஷ்ணா ஸ்வீட்ஸ்" },
+      "company": { "en": "e.g., Sri Krishna Sweets & Bakery", "ta": "எ.கா. ஸ்ரீ கிருஷ்ணா ஸ்வீட்ஸ் & பேக்கரி" },
+      "product": { "name": "Wall Calendar 12 sheet", "description": "300 GSM art board, matt lamination", "hsnCode": "4910", "unit": "Nos", "unitPrice": "85", "taxPercent": "12" }
+    },
     "orderStages": [
       { "id": "ARTWORK_PENDING", "label": { "en": "Artwork Approval", "ta": "டிசைன் ஒப்புதல்" }, "color": "#F4B860" },
       { "id": "PLATE_CTP", "label": { "en": "Plate / CTP Ready", "ta": "பிளேட் தயார்" }, "color": "#3B82F6" },
@@ -86,6 +92,12 @@
   "furniture": {
     "key": "furniture",
     "name": { "en": "Furniture & Interiors", "ta": "பர்னிச்சர் மற்றும் இன்டீரியர்ஸ்" },
+    "examples": {
+      "enquiry": { "en": "e.g., Teak king-size cot with 2 side tables", "ta": "எ.கா. தேக்கு கிங் சைஸ் கட்டில், 2 சைடு டேபிள்" },
+      "customer": { "en": "e.g., Karthik Residence", "ta": "எ.கா. கார்த்திக் இல்லம்" },
+      "company": { "en": "e.g., Karthik Interiors", "ta": "எ.கா. கார்த்திக் இன்டீரியர்ஸ்" },
+      "product": { "name": "Teak King Cot 78x72 in", "description": "Burma teak, polish finish", "hsnCode": "9403", "unit": "Nos", "unitPrice": "42000", "taxPercent": "18" }
+    },
     "orderStages": [
       { "id": "MEASUREMENT_CONFIRMED", "label": { "en": "Measurement & Material Confirmed", "ta": "அளவு & மரம் உறுதி" }, "color": "#F4B860" },
       { "id": "CARPENTRY_WORK", "label": { "en": "Carpentry / Fabrication", "ta": "தச்சு வேலை" }, "color": "#3B82F6" },
@@ -140,6 +152,12 @@
   "textiles": {
     "key": "textiles",
     "name": { "en": "Textiles & Garments", "ta": "ஜவுளி மற்றும் ஆடைகள்" },
+    "examples": {
+      "enquiry": { "en": "e.g., 500 men's cotton shirts, 40s combed", "ta": "எ.கா. 500 ஆண்கள் காட்டன் சட்டைகள், 40s கோம்டு" },
+      "customer": { "en": "e.g., Chennai Silks Mart", "ta": "எ.கா. சென்னை சில்க்ஸ் மார்ட்" },
+      "company": { "en": "e.g., Chennai Silks Mart Pvt Ltd", "ta": "எ.கா. சென்னை சில்க்ஸ் மார்ட் பிரைவேட் லிமிடெட்" },
+      "product": { "name": "Men's Cotton Shirt", "description": "40s combed cotton, full sleeve", "hsnCode": "6205", "unit": "Nos", "unitPrice": "450", "taxPercent": "5" }
+    },
     "orderStages": [
       { "id": "SAMPLE_APPROVED", "label": { "en": "Sample Approved", "ta": "சாம்பிள் ஒப்புதல்" }, "color": "#F4B860" },
       { "id": "LOT_ALLOCATED", "label": { "en": "Stock / Loom Allocated", "ta": "ஸ்டாக் ஒதுக்கீடு" }, "color": "#3B82F6" },
@@ -186,6 +204,12 @@
   "trading": {
     "key": "trading",
     "name": { "en": "Retail, Industrial & Trading", "ta": "வர்த்தகம் மற்றும் விநியோகம்" },
+    "examples": {
+      "enquiry": { "en": "e.g., 2 tons MS flat bar 25x5 mm, delivered", "ta": "எ.கா. 2 டன் MS ஃபிளாட் பார் 25x5 மிமீ, டெலிவரியுடன்" },
+      "customer": { "en": "e.g., Apex Fabrication Works", "ta": "எ.கா. அபெக்ஸ் ஃபேப்ரிகேஷன் வொர்க்ஸ்" },
+      "company": { "en": "e.g., Apex Fabrication Works", "ta": "எ.கா. அபெக்ஸ் ஃபேப்ரிகேஷன் வொர்க்ஸ்" },
+      "product": { "name": "MS Flat Bar 25x5 mm", "description": "IS 2062 grade, 6 m length", "hsnCode": "7214", "unit": "Kg", "unitPrice": "62", "taxPercent": "18" }
+    },
     "orderStages": [
       { "id": "ORDER_CONFIRMED", "label": { "en": "Order Confirmed", "ta": "ஆர்டர் உறுதி" }, "color": "#F4B860" },
       { "id": "MATERIAL_PICKING", "label": { "en": "Godown Picking & Weighing", "ta": "குடோன் எடை & தயார்" }, "color": "#3B82F6" },

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { OrderFilters } from '../../components/orders/OrderFilters';
 import { OrderDataTable } from '../../components/orders/OrderDataTable';
 import { Order } from '../../types/orders';
+import { apiFetch } from '../../lib/session';
 
 export function OrderList() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -19,7 +20,7 @@ export function OrderList() {
         ...(statusFilter && { status: statusFilter }),
       });
 
-      const response = await fetch(`/api/orders?${queryParams}`);
+      const response = await apiFetch(`/api/orders?${queryParams}`);
       if (!response.ok) throw new Error('Network response was not ok');
       
       const { data } = await response.json();

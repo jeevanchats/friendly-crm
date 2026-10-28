@@ -23,8 +23,9 @@ import {
   tenants,
   sql,
 } from '@friendly-crm/db';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gt } from 'drizzle-orm';
 import { DevSmsGateway } from './sms-gateway';
+import { globalMemoryTenants } from '../crm/memory-store';
 
 export interface ValidatedUserSession {
   user: {
@@ -47,6 +48,16 @@ export interface UserTenantMembership {
   isActive: boolean;
   tenantName: string;
   industryKey: string;
+}
+
+export interface StaffMembershipByPhone {
+  userId: string;
+  fullName: string;
+  preferredLanguage: string;
+  tenantId: string;
+  tenantName: string;
+  industryKey: string;
+  role: TenantRole;
 }
 
 @Injectable()
@@ -128,7 +139,7 @@ export class AuthService {
   /**
    * Request OTP with rate limits, cryptographic code generation, and secure dispatch
    */
-  async requestOtp(dto: RequestOtpDto): Promise<{ success: boolean; message: string }> {
+  async requestOtp(dto: RequestOtpDto): Promise<{ success: boolean; message: string; devCode?: string }> {
     const phone = this.normalizePhone(dto.phone);
     const now = Date.now();
 
@@ -196,9 +207,17 @@ export class AuthService {
     // 4. Dispatch via SMS Gateway
     await this.devSmsGateway.sendOtp(phone, code);
 
+    // Local development only (same rule as the dev gateway's console line): hand the code back so the login page
+    // can show it. Never in production or tests.
+    const showDevCode =
+      process.env.ENABLE_DEV_SMS_GATEWAY === 'true' &&
+      process.env.NODE_ENV !== 'production' &&
+      process.env.NODE_ENV !== 'test';
+
     return {
       success: true,
       message: 'OTP has been dispatched via SMS',
+      ...(showDevCode ? { devCode: code } : {}),
     };
   }
 
@@ -222,7 +241,7 @@ export class AuthService {
             and(
               eq(otpVerifications.phone, phone),
               sql`${otpVerifications.consumedAt} IS NULL`,
-              sql`${otpVerifications.expiresAt} > ${now}`
+              gt(otpVerifications.expiresAt, now)
             )
           )
           .orderBy(desc(otpVerifications.createdAt))
@@ -427,7 +446,7 @@ export class AuthService {
             and(
               eq(sessions.tokenHash, tokenHash),
               sql`${sessions.revokedAt} IS NULL`,
-              sql`${sessions.expiresAt} > ${now}`
+              gt(sessions.expiresAt, now)
             )
           )
           .limit(1);
@@ -509,22 +528,27 @@ export class AuthService {
     tenantId: string
   ): Promise<UserTenantMembership | null> {
     try {
-      if (db && typeof db.select === 'function') {
-        const records = await db
-          .select({
-            membership: memberships,
-            tenant: tenants,
-          })
-          .from(memberships)
-          .innerJoin(tenants, eq(memberships.tenantId, tenants.id))
-          .where(
-            and(
-              eq(memberships.userId, userId),
-              eq(memberships.tenantId, tenantId),
-              eq(memberships.isActive, true)
+      if (db && typeof db.transaction === 'function') {
+        // `memberships` is row-level-secured by business. The business being asked about is known here, so set it
+        // for this one query; without it the restricted database role sees no rows and every request is refused.
+        const records = await db.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          return tx
+            .select({
+              membership: memberships,
+              tenant: tenants,
+            })
+            .from(memberships)
+            .innerJoin(tenants, eq(memberships.tenantId, tenants.id))
+            .where(
+              and(
+                eq(memberships.userId, userId),
+                eq(memberships.tenantId, tenantId),
+                eq(memberships.isActive, true)
+              )
             )
-          )
-          .limit(1);
+            .limit(1);
+        });
 
         if (records.length > 0) {
           const { membership, tenant } = records[0];
@@ -564,23 +588,18 @@ export class AuthService {
    */
   async getUserMemberships(userId: string): Promise<UserTenantMembership[]> {
     try {
-      if (db && typeof db.select === 'function') {
-        const records = await db
-          .select({
-            membership: memberships,
-            tenant: tenants,
-          })
-          .from(memberships)
-          .innerJoin(tenants, eq(memberships.tenantId, tenants.id))
-          .where(eq(memberships.userId, userId));
-
-        return records.map(({ membership, tenant }) => ({
-          tenantId: membership.tenantId,
-          userId: membership.userId,
-          role: membership.role as TenantRole,
-          isActive: membership.isActive,
-          tenantName: tenant.name,
-          industryKey: tenant.industryKey,
+      if (db && typeof db.execute === 'function') {
+        // Across businesses by nature, so it goes through a narrow SECURITY DEFINER function (migration 0011)
+        // that returns only this user's own rows; the restricted database role cannot list `memberships` itself.
+        const result: any = await db.execute(sql`SELECT * FROM list_user_memberships(${userId})`);
+        const rows: any[] = Array.isArray(result) ? result : result?.rows ?? [];
+        return rows.map((r) => ({
+          tenantId: r.tenant_id,
+          userId: r.user_id,
+          role: r.role as TenantRole,
+          isActive: r.is_active,
+          tenantName: r.tenant_name,
+          industryKey: r.industry_key,
         }));
       }
     } catch {
@@ -597,6 +616,69 @@ export class AuthService {
         tenantName: 'Tenant ' + m.tenantId.slice(0, 8),
         industryKey: 'printing',
       }));
+  }
+
+  /**
+   * Cross-tenant lookup of active staff memberships for ONE phone number (WhatsApp bot).
+   * Uses the SECURITY DEFINER function lookup_staff_by_phone (migration 0003) because
+   * `memberships` is protected by FORCE ROW LEVEL SECURITY and cannot be listed across
+   * tenants by the restricted runtime role. The in-memory fallback is used ONLY when the
+   * database is unreachable, so a membership revoked in Postgres can never be resurrected
+   * from a stale memory map.
+   */
+  async findStaffByPhone(rawPhone: string): Promise<StaffMembershipByPhone[]> {
+    let phone: string;
+    try {
+      phone = this.normalizePhone(rawPhone);
+    } catch {
+      return [];
+    }
+
+    try {
+      if (db && typeof db.execute === 'function') {
+        const result: any = await db.execute(sql`SELECT * FROM lookup_staff_by_phone(${phone})`);
+        const rows: any[] = Array.isArray(result) ? result : result?.rows ?? [];
+        return rows.map((r) => ({
+          userId: r.user_id,
+          fullName: r.full_name,
+          preferredLanguage: r.preferred_language || 'en',
+          tenantId: r.tenant_id,
+          tenantName: r.tenant_name,
+          industryKey: r.industry_key,
+          role: r.role as TenantRole,
+        }));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Postgres offline; staff phone lookup using memory store: ${err.message}`);
+    }
+
+    const user = Array.from(this.memoryUsers.values()).find((u) => u.phone === phone);
+    if (!user) return [];
+    return Array.from(this.memoryMemberships.values())
+      .filter((m) => m.userId === user.id && m.isActive)
+      .map((m) => {
+        const tenant = globalMemoryTenants.get(m.tenantId);
+        return {
+          userId: user.id,
+          fullName: user.fullName,
+          preferredLanguage: 'en',
+          tenantId: m.tenantId,
+          tenantName: tenant?.name ?? 'Tenant ' + m.tenantId.slice(0, 8),
+          industryKey: tenant?.industryKey ?? 'printing',
+          role: m.role,
+        };
+      });
+  }
+
+  /** Persists a user's preferred language (best effort). */
+  async setPreferredLanguage(userId: string, locale: string): Promise<void> {
+    try {
+      if (db && typeof db.update === 'function') {
+        await db.update(users).set({ preferredLanguage: locale }).where(eq(users.id, userId));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not persist preferred language: ${err.message}`);
+    }
   }
 
   /**

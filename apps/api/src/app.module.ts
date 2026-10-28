@@ -6,8 +6,10 @@ import { SalesModule } from './modules/sales/sales.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
-import { PaymentsModule } from './modules/payments/payments.module';
 import { HealthModule } from './modules/health/health.module';
+import { ReceivablesModule } from './modules/receivables/receivables.module';
+import { InvoicesModule } from './modules/invoices/invoices.module';
+import { ProductsModule } from './modules/products/products.module';
 
 @Module({
   imports: [
@@ -18,8 +20,10 @@ import { HealthModule } from './modules/health/health.module';
     OrdersModule,
     WorkflowModule,
     NotificationsModule,
-    PaymentsModule,
     HealthModule,
+    ReceivablesModule,
+    InvoicesModule,
+    ProductsModule,
   ],
 })
 export class AppModule {}

@@ -1,14 +1,18 @@
+import { paymentFromTenantRow, preparePdfPayment } from '../payments/payment-info';
 import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
+  HttpException,
   Logger,
   Optional,
 } from '@nestjs/common';
-import { sql, eq, and, desc } from 'drizzle-orm';
+import { sql, eq, and, desc, inArray } from 'drizzle-orm';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service';
 import { PdfEngineService } from './pdf/pdf-engine.service';
+import { QuoteLinkService } from './quote-link.service';
 import {
   db,
   quotations,
@@ -20,6 +24,7 @@ import {
   activities,
   customers,
   tenants,
+  tasks,
 } from '@friendly-crm/db';
 import { getIndustryTemplate, IndustryKey, TenantRole, hasPermission } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
@@ -34,6 +39,7 @@ import {
   globalMemoryActivities,
   globalMemoryTenants,
   globalMemoryPayments,
+  globalMemoryTasks,
 } from '../crm/memory-store';
 import {
   getNextDbDocumentNumber,
@@ -48,6 +54,7 @@ export interface QuoteLineItemInput {
   description?: string;
   quantity: number;
   unit?: string;
+  hsnCode?: string | null;
   unitPrice: number;
   taxPercent?: number;
 }
@@ -68,8 +75,18 @@ export class SalesService {
 
   constructor(
     @Optional() private readonly notificationOutboxService?: NotificationOutboxService,
-    @Optional() private readonly pdfEngine: PdfEngineService = new PdfEngineService()
+    @Optional() private readonly pdfEngine: PdfEngineService = new PdfEngineService(),
+    @Optional() private readonly quoteLinks?: QuoteLinkService
   ) {}
+
+  /**
+   * Template values for the PDF line of the quote message. The link is a signed public address the customer can open
+   * without logging in; when the server is not set up to make one, the line is left out rather than showing a broken link.
+   */
+  private pdfParams(tenantId: string, quoteId: string): { pdfLine: string } {
+    const url = this.quoteLinks?.buildUrl(tenantId, quoteId);
+    return { pdfLine: url ? `\n\nDownload PDF: ${url}` : '' };
+  }
 
   /**
    * Helper to retrieve active database transaction from TenantRlsInterceptor or default db client
@@ -136,6 +153,7 @@ export class SalesService {
         description: item.description || null,
         quantity: this.roundMoney(qty),
         unit: item.unit || 'Nos',
+        hsnCode: item.hsnCode || null,
         unitPrice: this.roundMoney(rate),
         taxPercent: this.roundMoney(taxRate),
         lineTotal: this.roundMoney(lineTotal),
@@ -209,6 +227,8 @@ export class SalesService {
               throw new NotFoundException('Lead not found in this tenant organization');
             }
           }
+          // A quote made from the customer's page (no enquiry named) still answers their open enquiry, if they have one
+          const linkedLeadId: string | null = dto.leadId || (await this.findOpenEnquiryDb(tx, tenantId, dto.customerId));
 
           const quoteNumber = await getNextDbDocumentNumber(tx, quotations, quotations.quoteNumber, 'QT', tenantId);
 
@@ -219,7 +239,7 @@ export class SalesService {
               quoteNumber,
               version: 1,
               customerId: dto.customerId,
-              leadId: dto.leadId || null,
+              leadId: linkedLeadId,
               status: 'SENT',
               subTotal: this.roundMoney(subTotal),
               taxTotal: this.roundMoney(taxTotal),
@@ -237,12 +257,15 @@ export class SalesService {
             .returning();
 
           // Advance linked Lead to QUOTED stage automatically
-          if (dto.leadId) {
+          if (linkedLeadId) {
             await tx
               .update(leads)
               .set({ stage: 'QUOTED', estimatedValue: this.roundMoney(grandTotal) })
-              .where(and(eq(leads.id, dto.leadId), eq(leads.tenantId, tenantId)));
+              .where(and(eq(leads.id, linkedLeadId), eq(leads.tenantId, tenantId)));
           }
+
+          // "Send quote" is done; the next job is to follow up on it
+          await this.afterQuoteMadeDb(tx, tenantId, userId, quote, customer, linkedLeadId);
 
           await tx.insert(activities).values({
             tenantId,
@@ -253,7 +276,12 @@ export class SalesService {
             metadata: { quoteNumber, grandTotal: quote.grandTotal },
           });
 
-          const result = { ...quote, items: insertedItems };
+          const result = {
+            ...quote,
+            items: insertedItems,
+            pdfUrl: this.quoteLinks?.buildUrl(tenantId, quote.id) ?? null,
+            customerNotified: !!(this.notificationOutboxService && customer?.phone),
+          };
           if (key) {
             setIdempotentResult(tenantId, 'create-quotation', key, result);
           }
@@ -268,7 +296,7 @@ export class SalesService {
                 quoteNumber: quote.quoteNumber,
                 version: quote.version,
                 grandTotal: quote.grandTotal,
-                pdfUrl: `/q/${quote.id}/pdf`,
+                ...this.pdfParams(tenantId, quote.id),
               },
             }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue quotation notification: ${notifErr.message}`));
           }
@@ -277,7 +305,7 @@ export class SalesService {
         });
       }
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for createQuotation: ${err.message}`);
@@ -291,8 +319,9 @@ export class SalesService {
       throw new NotFoundException('Customer not found in this tenant organization');
     }
 
-    if (dto.leadId) {
-      const lead = globalMemoryLeads.find((l) => l.id === dto.leadId && l.tenantId === tenantId);
+    const linkedLeadId: string | null = dto.leadId || this.findOpenEnquiryMemory(tenantId, dto.customerId);
+    if (linkedLeadId) {
+      const lead = globalMemoryLeads.find((l) => l.id === linkedLeadId && l.tenantId === tenantId);
       if (!lead) {
         throw new NotFoundException('Lead not found in this tenant organization');
       }
@@ -308,7 +337,7 @@ export class SalesService {
       quoteNumber,
       version: 1,
       customerId: dto.customerId,
-      leadId: dto.leadId || null,
+      leadId: linkedLeadId,
       status: 'SENT',
       subTotal: this.roundMoney(subTotal),
       taxTotal: this.roundMoney(taxTotal),
@@ -328,6 +357,7 @@ export class SalesService {
       quotationId: quoteId,
     }));
     globalMemoryQuotationItems.push(...items);
+    this.afterQuoteMadeMemory(tenantId, userId, quote, customer, linkedLeadId);
 
     globalMemoryActivities.unshift({
       id: randomUUID(),
@@ -340,7 +370,12 @@ export class SalesService {
       createdAt: new Date(),
     });
 
-    const result = { ...quote, items };
+    const result = {
+      ...quote,
+      items,
+      pdfUrl: this.quoteLinks?.buildUrl(tenantId, quote.id) ?? null,
+      customerNotified: !!(this.notificationOutboxService && customer?.phone),
+    };
     if (key) {
       setIdempotentResult(tenantId, 'create-quotation', key, result);
     }
@@ -355,7 +390,7 @@ export class SalesService {
           quoteNumber: quote.quoteNumber,
           version: quote.version,
           grandTotal: quote.grandTotal,
-          pdfUrl: `/q/${quote.id}/pdf`,
+          ...this.pdfParams(tenantId, quote.id),
         },
       }).catch((notifErr: any) => this.logger.warn(`Failed to enqueue quotation notification: ${notifErr.message}`));
     }
@@ -390,6 +425,7 @@ export class SalesService {
             .limit(1);
 
           if (!prevQuote) throw new NotFoundException('Original quotation not found in this tenant');
+          this.assertRevisable(prevQuote);
 
           // Mark previous version as superseded
           await tx
@@ -413,6 +449,8 @@ export class SalesService {
               taxTotal: this.roundMoney(taxTotal),
               discountTotal: this.roundMoney(discount),
               grandTotal: this.roundMoney(grandTotal),
+              // The customer has a fresh validity window from the day the new version is sent
+              validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
               termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
               customData: dto.customData || prevQuote.customData,
             })
@@ -432,11 +470,19 @@ export class SalesService {
             metadata: { previousQuoteId: prevQuote.id, grandTotal: revisedQuote.grandTotal },
           });
 
-          return { ...revisedQuote, items: insertedItems };
+          const [customer] = await tx
+            .select()
+            .from(customers)
+            .where(and(eq(customers.id, prevQuote.customerId), eq(customers.tenantId, tenantId)))
+            .limit(1);
+          const customerNotified = this.notifyRevision(tenantId, customer, revisedQuote, prevQuote);
+          if (customer) await this.rescheduleQuoteFollowUpDb(tx, tenantId, userId, revisedQuote, customer, prevQuote.leadId ?? null);
+
+          return { ...revisedQuote, items: insertedItems, customerNotified, pdfUrl: this.quoteLinks?.buildUrl(tenantId, revisedQuote.id) ?? null };
         });
       }
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for createRevision: ${err.message}`);
@@ -447,6 +493,7 @@ export class SalesService {
       (q) => q.id === existingQuoteId && q.tenantId === tenantId
     );
     if (!prevQuote) throw new NotFoundException('Original quotation not found in this tenant');
+    this.assertRevisable(prevQuote);
 
     prevQuote.status = 'REJECTED';
     const nextVersion = prevQuote.version + 1;
@@ -465,6 +512,7 @@ export class SalesService {
       taxTotal: this.roundMoney(taxTotal),
       discountTotal: this.roundMoney(discount),
       grandTotal: this.roundMoney(grandTotal),
+      validUntil: new Date(Date.now() + (dto.validDays || 15) * 86400000),
       termsAndConditions: dto.termsAndConditions || prevQuote.termsAndConditions,
       customData: dto.customData || prevQuote.customData,
       createdAt: new Date(),
@@ -490,7 +538,208 @@ export class SalesService {
       createdAt: new Date(),
     });
 
-    return { ...revisedQuote, items };
+    const memCustomer = globalMemoryCustomers.find((c) => c.id === prevQuote.customerId && c.tenantId === tenantId);
+    const customerNotified = this.notifyRevision(tenantId, memCustomer, revisedQuote, prevQuote);
+    if (memCustomer) this.rescheduleQuoteFollowUpMemory(tenantId, userId, revisedQuote, memCustomer, prevQuote.leadId ?? null);
+
+    return { ...revisedQuote, items, customerNotified, pdfUrl: this.quoteLinks?.buildUrl(tenantId, revisedQuote.id) ?? null };
+  }
+
+  // ---- the quote's place in the sales routine ----------------------------------------------------------------
+  // An enquiry creates a "Send quote" task. Making the quote completes it and starts a "Follow up on quote" task
+  // two days out; revising moves that follow-up; the customer accepting closes it.
+
+  private followUpTitle(quote: any, customer: any): string {
+    return `Follow up on quote ${quote.quoteNumber} with ${customer.name}`.slice(0, 200);
+  }
+
+  /** The customer's most recent enquiry that is still waiting for a quote, if any. */
+  private async findOpenEnquiryDb(tx: any, tenantId: string, customerId: string): Promise<string | null> {
+    const [row] = await tx
+      .select({ id: leads.id })
+      .from(leads)
+      .where(
+        and(
+          eq(leads.tenantId, tenantId),
+          eq(leads.customerId, customerId),
+          inArray(leads.stage, ['NEW', 'QUALIFIED']),
+          sql`not exists (select 1 from quotations q where q.lead_id = ${leads.id})`
+        )
+      )
+      .orderBy(desc(leads.createdAt))
+      .limit(1);
+    return row?.id ?? null;
+  }
+
+  private findOpenEnquiryMemory(tenantId: string, customerId: string): string | null {
+    const open = globalMemoryLeads
+      .filter(
+        (l) =>
+          l.tenantId === tenantId &&
+          l.customerId === customerId &&
+          ['NEW', 'QUALIFIED'].includes(l.stage) &&
+          !globalMemoryQuotations.some((q) => q.leadId === l.id)
+      )
+      .sort((a, b) => +new Date(b.createdAt ?? 0) - +new Date(a.createdAt ?? 0));
+    return open[0]?.id ?? null;
+  }
+
+  private async afterQuoteMadeDb(tx: any, tenantId: string, userId: string, quote: any, customer: any, leadId: string | null) {
+    const now = new Date();
+    if (leadId) {
+      await tx
+        .update(tasks)
+        .set({ status: 'COMPLETED', completedAt: now, outcomeNote: `Quote ${quote.quoteNumber} sent`, updatedAt: now })
+        .where(and(eq(tasks.tenantId, tenantId), eq(tasks.leadId, leadId), eq(tasks.type, 'SEND_QUOTE'), eq(tasks.status, 'PENDING')));
+    }
+    await this.rescheduleQuoteFollowUpDb(tx, tenantId, userId, quote, customer, leadId);
+  }
+
+  private afterQuoteMadeMemory(tenantId: string, userId: string, quote: any, customer: any, leadId: string | null) {
+    if (leadId) {
+      for (const t of globalMemoryTasks) {
+        if (t.tenantId === tenantId && t.leadId === leadId && t.type === 'SEND_QUOTE' && t.status === 'PENDING') {
+          t.status = 'COMPLETED';
+          t.completedAt = new Date();
+          t.outcomeNote = `Quote ${quote.quoteNumber} sent`;
+        }
+      }
+    }
+    this.rescheduleQuoteFollowUpMemory(tenantId, userId, quote, customer, leadId);
+  }
+
+  /** Replaces any open follow-up for this quote with one two days from now (nothing is created without an assignee). */
+  private async rescheduleQuoteFollowUpDb(tx: any, tenantId: string, userId: string, quote: any, customer: any, leadId: string | null) {
+    const title = this.followUpTitle(quote, customer);
+    await tx
+      .update(tasks)
+      .set({ status: 'CANCELLED', updatedAt: new Date() })
+      .where(and(eq(tasks.tenantId, tenantId), eq(tasks.type, 'FOLLOW_UP_CALL'), eq(tasks.status, 'PENDING'), eq(tasks.title, title)));
+    if (!userId) return;
+    await tx.insert(tasks).values({
+      tenantId,
+      customerId: customer.id,
+      leadId,
+      type: 'FOLLOW_UP_CALL',
+      title,
+      dueAt: new Date(Date.now() + 2 * 86400000),
+      assignedToId: userId,
+    });
+  }
+
+  private rescheduleQuoteFollowUpMemory(tenantId: string, userId: string, quote: any, customer: any, leadId: string | null) {
+    const title = this.followUpTitle(quote, customer);
+    for (const t of globalMemoryTasks) {
+      if (t.tenantId === tenantId && t.type === 'FOLLOW_UP_CALL' && t.status === 'PENDING' && t.title === title) t.status = 'CANCELLED';
+    }
+    if (!userId) return;
+    globalMemoryTasks.unshift({
+      id: randomUUID(),
+      tenantId,
+      customerId: customer.id,
+      leadId,
+      type: 'FOLLOW_UP_CALL',
+      title,
+      dueAt: new Date(Date.now() + 2 * 86400000),
+      status: 'PENDING',
+      assignedToId: userId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  private async closeQuoteFollowUpDb(tx: any, tenantId: string, quote: any) {
+    const [customer] = await tx.select().from(customers).where(and(eq(customers.id, quote.customerId), eq(customers.tenantId, tenantId))).limit(1);
+    if (!customer) return;
+    const now = new Date();
+    await tx
+      .update(tasks)
+      .set({ status: 'COMPLETED', completedAt: now, outcomeNote: 'Customer approved the quote', updatedAt: now })
+      .where(and(eq(tasks.tenantId, tenantId), eq(tasks.type, 'FOLLOW_UP_CALL'), eq(tasks.status, 'PENDING'), eq(tasks.title, this.followUpTitle(quote, customer))));
+  }
+
+  private closeQuoteFollowUpMemory(tenantId: string, quote: any) {
+    const customer = globalMemoryCustomers.find((c) => c.id === quote.customerId && c.tenantId === tenantId);
+    if (!customer) return;
+    const title = this.followUpTitle(quote, customer);
+    for (const t of globalMemoryTasks) {
+      if (t.tenantId === tenantId && t.type === 'FOLLOW_UP_CALL' && t.status === 'PENDING' && t.title === title) {
+        t.status = 'COMPLETED';
+        t.completedAt = new Date();
+        t.outcomeNote = 'Customer approved the quote';
+      }
+    }
+  }
+
+  /** Only a quote still waiting on the customer can be revised: not one already approved, nor one already replaced. */
+  private assertRevisable(prev: any) {
+    if (prev.status === 'CONVERTED') {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'QuoteAlreadyApproved',
+        message: `${prev.quoteNumber} was already approved and became an order, so it can no longer be revised.`,
+      });
+    }
+    if (prev.status !== 'SENT' && prev.status !== 'DRAFT') {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'QuoteSuperseded',
+        message: `This version of ${prev.quoteNumber} has already been replaced by a newer one. Revise the latest version instead.`,
+      });
+    }
+  }
+
+  /**
+   * Tells the customer on WhatsApp that their quote changed, with the new total, the old one for comparison and a
+   * link to the current PDF. Returns whether a message was queued (false when the customer has no phone number).
+   */
+  private notifyRevision(tenantId: string, customer: any, revised: any, previous: any): boolean {
+    if (!this.notificationOutboxService || !customer?.phone) return false;
+    const changed = Number(previous.grandTotal) !== Number(revised.grandTotal);
+    this.notificationOutboxService
+      .enqueueNotification({
+        tenantId,
+        recipient: customer.phone,
+        templateKey: 'QUOTATION_REVISED',
+        params: {
+          customerName: customer.name,
+          quoteNumber: revised.quoteNumber,
+          version: revised.version,
+          grandTotal: revised.grandTotal,
+          previousLine: changed ? `\n*Earlier Total:* ₹${previous.grandTotal}` : '',
+          ...this.pdfParams(tenantId, revised.id),
+        },
+      })
+      .catch((e: any) => this.logger.warn(`Failed to enqueue revised quotation notification: ${e.message}`));
+    return true;
+  }
+
+  /**
+   * The newest version of the quote a link was made for. Customers are always shown the current version, even
+   * from a link that was sent before the quote was revised.
+   */
+  async getLatestQuoteId(tenantId: string, quoteId: string): Promise<string> {
+    try {
+      const activeDb = this.getDb();
+      const [q] = await activeDb
+        .select()
+        .from(quotations)
+        .where(and(eq(quotations.id, quoteId), eq(quotations.tenantId, tenantId)))
+        .limit(1);
+      if (!q) return quoteId;
+      const [latest] = await activeDb
+        .select({ id: quotations.id })
+        .from(quotations)
+        .where(and(eq(quotations.tenantId, tenantId), eq(quotations.quoteNumber, q.quoteNumber)))
+        .orderBy(desc(quotations.version))
+        .limit(1);
+      return latest?.id ?? quoteId;
+    } catch {
+      const q = globalMemoryQuotations.find((x) => x.id === quoteId && x.tenantId === tenantId);
+      if (!q) return quoteId;
+      const versions = globalMemoryQuotations.filter((x) => x.tenantId === tenantId && x.quoteNumber === q.quoteNumber);
+      return versions.reduce((best, x) => ((x.version ?? 1) > (best.version ?? 1) ? x : best), q).id;
+    }
   }
 
   /**
@@ -604,6 +853,7 @@ export class SalesService {
                 description: item.description,
                 quantity: item.quantity,
                 unit: item.unit,
+                hsnCode: item.hsnCode,
                 unitPrice: item.unitPrice,
                 taxPercent: item.taxPercent,
                 lineTotal: item.lineTotal,
@@ -625,6 +875,9 @@ export class SalesService {
               .where(and(eq(leads.id, quote.leadId), eq(leads.tenantId, tenantId)));
           }
 
+          // The customer said yes: nobody needs to chase this quote any more
+          await this.closeQuoteFollowUpDb(tx, tenantId, quote);
+
           if (advance > 0) {
             const receiptNumber = await getNextDbDocumentNumber(tx, payments, payments.receiptNumber, 'RCP', tenantId);
             await tx.insert(payments).values({
@@ -641,19 +894,13 @@ export class SalesService {
             });
           }
 
-          // Update Customer Receivable
+          // A customer's receivable is computed from opening balance + order balances when read; there is no
+          // stored total to update (the database has no such column).
           const [customer] = await tx
             .select()
             .from(customers)
             .where(and(eq(customers.id, quote.customerId), eq(customers.tenantId, tenantId)))
             .limit(1);
-          if (customer) {
-            const currentRec = parseFloat(customer.totalReceivable || '0.00');
-            await tx
-              .update(customers)
-              .set({ totalReceivable: this.roundMoney(currentRec + balance) })
-              .where(eq(customers.id, customer.id));
-          }
 
           await tx.insert(activities).values({
             tenantId,
@@ -694,7 +941,7 @@ export class SalesService {
         });
       }
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for convertQuoteToOrder: ${err.message}`);
@@ -806,6 +1053,7 @@ export class SalesService {
         lead.stage = 'WON';
       }
     }
+    this.closeQuoteFollowUpMemory(tenantId, quote);
 
     globalMemoryActivities.unshift({
       id: randomUUID(),
@@ -928,7 +1176,7 @@ export class SalesService {
         industryTemplate: template,
       };
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
+      if (err instanceof HttpException) {
         throw err;
       }
       this.logger.warn(`Postgres offline; utilizing memory fallback for getQuotationById: ${err.message}`);
@@ -1041,20 +1289,47 @@ export class SalesService {
    */
   async generateQuotationPdf(id: string, tenantId: string, userRole: TenantRole): Promise<Buffer> {
     const data = await this.getQuotationById(id, tenantId, userRole);
+    const t: any = data.tenant;
+    const c: any = data.customer;
+    const businessName = (t.legalName || '').trim() || t.name;
+    // No amount in the QR: a quotation is not yet a bill, so the customer types what they are paying in their UPI app.
+    const payment = await preparePdfPayment(paymentFromTenantRow(t), businessName);
     return this.pdfEngine.generateQuotationPdf({
+      payment,
       quoteNumber: data.quote.quoteNumber,
+      version: data.quote.version,
+      createdAt: data.quote.createdAt,
       validUntil: data.quote.validUntil,
-      subTotal: data.quote.subTotal,
-      taxTotal: data.quote.taxTotal,
-      discountTotal: data.quote.discountTotal,
-      grandTotal: data.quote.grandTotal,
+      termsAndConditions: data.quote.termsAndConditions,
+      business: {
+        name: (t.legalName || '').trim() || t.name,
+        address: t.address ?? null,
+        gstin: t.gstNumber ?? null,
+        phone: t.phone ?? null,
+      },
+      customer: {
+        name: c.name,
+        companyName: c.companyName ?? null,
+        phone: c.phone ?? null,
+        gstin: c.gstin ?? null,
+        address: c.billingAddress ?? null,
+      },
       items: data.items.map((i: any) => ({
-        description: i.description || i.itemName,
-        quantity: Number(i.quantity),
+        itemName: i.itemName || i.description || 'Item',
+        description: i.itemName ? i.description : null,
+        hsnCode: i.hsnCode ?? null,
+        quantity: i.quantity,
+        unit: i.unit,
         unitPrice: i.unitPrice,
-        total: i.lineTotal,
+        taxPercent: i.taxPercent,
         lineTotal: i.lineTotal,
       })),
+      totals: {
+        subTotal: data.quote.subTotal,
+        taxTotal: data.quote.taxTotal,
+        discountTotal: data.quote.discountTotal,
+        grandTotal: data.quote.grandTotal,
+      },
     });
   }
 }

@@ -3,18 +3,18 @@
 @tailwind utilities;
 
 :root {
-  --color-brand-teal: #167D79;
-  --color-brand-gold: #F4B860;
-  --color-brand-white: #F6F8F7;
-  --color-brand-slate: #243B40;
+  --color-brand-teal: #02937B;
+  --color-brand-gold: #02937B;
+  --color-brand-white: #FFFFFF;
+  --color-brand-slate: #0F1417;
 }
 
 body {
-  color: #243B40;
-  background-color: #F6F8F7;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mukta Malar", "Noto Sans Tamil", sans-serif;
+  color: #0F1417;
+  background-color: #FFFFFF;
+  font-family: var(--font-jakarta), "Mukta Malar", "Noto Sans Tamil", system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
-  user-select: none;
+  user-select: text;
 }
 
 input, textarea, select {
@@ -50,3 +50,43 @@ input, textarea, select {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Company brand roles: white canvas, green actions, dark ink. */
+:root { --color-action: #02937B; --color-ink: #0F1417; --color-muted: #425159; --color-surface: #FFFFFF; }
+::selection { background: #02937B; color: #0F1417; }
+input, textarea { caret-color: #0F1417; }
+:where(a, button, input, select, textarea, summary):focus-visible { outline: 2px solid #0F1417; outline-offset: 3px; }
+::placeholder { color: #52616A; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+ .animate-slide-up { animation: none; transform: none; opacity: 1; }
+ .animate-pulse, .animate-spin { animation: none; }
+ html { scroll-behavior: auto; }
+}
+
+@media (max-width: 767px) {
+ input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select { font-size: 16px; }
+ button, a { touch-action: manipulation; }
+}
+
+/* Theme roles shared by Tailwind utilities. Light is the explicit default. */
+:root {
+ color-scheme: light;
+ --surface: 255 255 255; --foreground: 15 31 35; --muted: 65 85 95;
+ --action: 2 147 123; --on-action: 255 255 255; --accent-soft: 231 246 242; --accent-text: 1 104 88;
+ --slate-50: 246 248 248; --slate-100: 237 242 242; --slate-200: 205 218 221;
+ --slate-300: 166 186 192; --slate-400: 102 125 136; --slate-500: 81 104 117;
+ --slate-600: 65 85 95; --slate-700: 47 66 75; --slate-800: 30 48 56; --slate-900: 15 31 35; --slate-950: 10 23 26;
+}
+:root.dark {
+ color-scheme: dark;
+ --surface: 22 31 29; --foreground: 233 244 241; --muted: 174 197 194;
+ --action: 64 179 165; --on-action: 255 255 255; --accent-soft: 30 57 51; --accent-text: 116 224 204;
+ --slate-50: 27 39 36; --slate-100: 32 47 43; --slate-200: 59 82 76;
+ --slate-300: 91 118 111; --slate-400: 151 178 172; --slate-500: 174 197 194;
+ --slate-600: 190 210 205; --slate-700: 210 226 222; --slate-800: 226 239 235; --slate-900: 233 244 241; --slate-950: 244 250 248;
+}
+body { color: rgb(var(--foreground)); background: rgb(var(--surface)); }
+::placeholder { color: rgb(var(--muted)); opacity: 1; }
+input, textarea { caret-color: rgb(var(--foreground)); }
+::selection { background: rgb(var(--action)); color: rgb(var(--on-action)); }
+:where(a,button,input,select,textarea,summary):focus-visible { outline: 2px solid rgb(var(--accent-text)); outline-offset: 3px; }

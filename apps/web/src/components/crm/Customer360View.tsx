@@ -15,14 +15,14 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
   const cleanPhone = customer.phone.replace(/\D/g, '');
 
   return (
-    <div className="space-y-5 pb-20 text-[#243B40]">
+    <div className="space-y-5 pb-20 text-foreground">
       {/* 1. Customer Profile Header Card */}
-      <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200 space-y-4">
+      <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200 space-y-4">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-xl font-bold">{customer.name}</h1>
             {customer.companyName && (
-              <p className="text-sm font-semibold text-[#167D79]">{customer.companyName}</p>
+              <p className="text-sm font-semibold text-brand-ink">{customer.companyName}</p>
             )}
             <p className="mt-1 text-xs text-slate-500">
               {customer.phone} {customer.gstin ? `• GSTIN: ${customer.gstin}` : ''}
@@ -32,7 +32,7 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
           <button
             type="button"
             onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}
-            className="rounded-lg bg-[#F4B860]/25 px-3 py-1.5 text-xs font-bold"
+            className="rounded-lg bg-action/25 px-3 py-1.5 text-xs font-bold"
           >
             {lang === 'en' ? 'தமிழ்' : 'English'}
           </button>
@@ -42,7 +42,7 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
         <div className="grid grid-cols-3 gap-2.5 pt-1">
           <a
             href={`tel:${customer.phone}`}
-            className="flex min-h-[44px] items-center justify-center rounded-xl bg-[#F6F8F7] text-xs font-bold border border-slate-200"
+            className="flex min-h-[44px] items-center justify-center rounded-xl bg-surface text-xs font-bold border border-slate-200"
           >
             📞 {lang === 'ta' ? 'அழைக்க' : 'Call'}
           </a>
@@ -56,7 +56,7 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
           </a>
           <Link
             href={`/quotations/new?customerId=${customer.id}`}
-            className="flex min-h-[44px] items-center justify-center rounded-xl bg-[#167D79] text-xs font-bold text-white shadow-sm"
+            className="flex min-h-[44px] items-center justify-center rounded-xl bg-action text-xs font-bold text-on-action shadow-sm"
           >
             + {lang === 'ta' ? 'கொட்டேஷன்' : 'New Quote'}
           </Link>
@@ -65,26 +65,26 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
 
       {/* 2. Role-Gated Financial Summary Bar */}
       {financialSummary && (
-        <div className="grid grid-cols-3 gap-3 rounded-2xl bg-[#243B40] p-4 text-white">
+        <div className="grid grid-cols-3 gap-3 rounded-2xl bg-surface border border-slate-200 p-4 text-brand-ink">
           <div>
-            <span className="block text-[11px] text-slate-300">
+            <span className="block text-[11px] text-slate-600">
               {lang === 'ta' ? 'மொத்த வர்த்தகம்' : 'Lifetime Orders'}
             </span>
             <span className="text-base font-bold">₹{financialSummary.lifetimeOrderValue}</span>
           </div>
           <div>
-            <span className="block text-[11px] text-slate-300">
+            <span className="block text-[11px] text-slate-600">
               {lang === 'ta' ? 'கடன் வரம்பு' : 'Credit Limit'}
             </span>
-            <span className="text-base font-bold text-slate-200">
+            <span className="text-base font-bold text-slate-700">
               ₹{financialSummary.creditLimit}
             </span>
           </div>
           <div>
-            <span className="block text-[11px] text-slate-300">
+            <span className="block text-[11px] text-slate-600">
               {lang === 'ta' ? 'மொத்த பாக்கி' : 'Net Balance Due'}
             </span>
-            <span className="text-base font-extrabold text-[#F4B860]">
+            <span className="text-base font-extrabold text-brand-ink">
               ₹{financialSummary.totalPendingBalance}
             </span>
           </div>
@@ -93,8 +93,8 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
 
       {/* 3. Pending Follow-ups Banner */}
       {pendingTasks?.length > 0 && (
-        <div className="rounded-xl bg-[#F4B860]/20 p-3.5 border border-[#F4B860]">
-          <p className="text-xs font-bold text-[#243B40]">
+        <div className="rounded-xl bg-action/20 p-3.5 border border-brand-ink">
+          <p className="text-xs font-bold text-foreground">
             ⏰ {lang === 'ta' ? 'அடுத்த பின்தொடர்தல்:' : 'Upcoming Follow-Up:'}{' '}
             {pendingTasks[0].title} ({new Date(pendingTasks[0].dueAt).toLocaleDateString()})
           </p>
@@ -114,10 +114,10 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id as any)}
-            className={`min-h-[40px] rounded-xl px-4 text-xs font-bold transition-all ${
+            className={`min-h-[44px] rounded-xl px-4 text-xs font-bold transition-all ${
               activeTab === tab.id
-                ? 'bg-[#167D79] text-white'
-                : 'bg-white text-slate-600 border border-slate-200'
+                ? 'bg-action text-on-action'
+                : 'bg-surface text-slate-600 border border-slate-200'
             }`}
           >
             {(tab as any)[lang]}
@@ -132,12 +132,12 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
             <Link
               key={ord.id}
               href={`/orders/${ord.id}`}
-              className="flex items-center justify-between rounded-xl bg-white p-4 shadow-sm border border-slate-200 hover:border-[#167D79]"
+              className="flex items-center justify-between rounded-xl bg-surface p-4 shadow-sm border border-slate-200 hover:border-brand-ink"
             >
               <div>
-                <span className="text-xs font-bold text-[#167D79]">{ord.orderNumber}</span>
-                <p className="text-sm font-bold text-[#243B40]">{ord.productionStage}</p>
-                <span className="text-[11px] text-slate-400">
+                <span className="text-xs font-bold text-brand-ink">{ord.orderNumber}</span>
+                <p className="text-sm font-bold text-foreground">{ord.productionStage}</p>
+                <span className="text-[11px] text-slate-600">
                   {new Date(ord.createdAt).toLocaleDateString()}
                 </span>
               </div>
@@ -160,10 +160,10 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
           {quotations.map((qt: any) => (
             <div
               key={qt.id}
-              className="flex items-center justify-between rounded-xl bg-white p-4 shadow-sm border border-slate-200"
+              className="flex items-center justify-between rounded-xl bg-surface p-4 shadow-sm border border-slate-200"
             >
               <div>
-                <span className="text-xs font-bold text-[#167D79]">
+                <span className="text-xs font-bold text-brand-ink">
                   {qt.quoteNumber} (v{qt.version})
                 </span>
                 <p className="text-xs font-semibold text-slate-500">{qt.status}</p>
@@ -174,7 +174,7 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
                 )}
                 <Link
                   href={`/q/${qt.id}/pdf`}
-                  className="text-xs font-bold text-[#167D79] underline"
+                  className="text-xs font-bold text-brand-ink underline"
                 >
                   {lang === 'ta' ? 'PDF பார்க்க' : 'View PDF'}
                 </Link>
@@ -190,14 +190,14 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
           {payments.map((p: any) => (
             <div
               key={p.id}
-              className="flex items-center justify-between rounded-xl bg-white p-3.5 border border-slate-200"
+              className="flex items-center justify-between rounded-xl bg-surface p-3.5 border border-slate-200"
             >
               <div>
-                <span className="text-xs font-bold text-[#243B40]">{p.receiptNumber}</span>
+                <span className="text-xs font-bold text-foreground">{p.receiptNumber}</span>
                 <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold">
                   {p.mode}
                 </span>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-600">
                   {new Date(p.paidAt).toLocaleDateString()}
                 </p>
               </div>

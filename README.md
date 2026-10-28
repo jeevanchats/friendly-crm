@@ -1,6 +1,6 @@
 # Friendly CRM 🚀
 
-A multi-tenant, mobile-first CRM and Sales Operations platform designed for field sales reps and SMBs (Retail, Manufacturing, Services, and Distribution).
+A multi-tenant, mobile-first CRM and Sales Operations platform designed for field sales reps and SMBs (Printing, Furniture, Textiles, Trading and more via templates).
 
 ---
 
@@ -41,7 +41,7 @@ friendly-crm/
 ### 1. Multi-Tenant Data Isolation
 - **Tenant Context (`TenantGuard`)**: Validates `x-tenant-id` HTTP header and binds tenant session context.
 - **PostgreSQL Row-Level Security (RLS)**: Policies in `packages/db/src/rls/policies.sql` enforce database-level tenant isolation using `SET LOCAL app.current_tenant_id = '...'`.
-- **Tenant Seeding**: Pre-configured pipeline stages and custom fields for Retail, Manufacturing, and Services automatically initialized on tenant onboarding.
+- **Industry Templates**: Pipeline stages and custom fields are data-driven from `packages/shared/src/industry-templates.json` (currently Printing, Furniture, Textiles, Trading) and served per tenant by the `workflow` module.
 
 ### 2. NestJS Modular Monolith (`apps/api`)
 - **Modules**:

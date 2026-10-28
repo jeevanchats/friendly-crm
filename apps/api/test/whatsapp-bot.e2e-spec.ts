@@ -1,0 +1,1153 @@
+import {
+  ConversationEngine,
+  BotPorts,
+  StaffIdentity,
+  OrderSummary,
+  BotSession,
+  CustomerIdentity,
+  CustomerOrderView,
+  CustomerQuoteView,
+  QuoteApproveResult,
+} from '../src/modules/whatsapp/bot/conversation.engine';
+import { buildUpiLink, isValidUpiId } from '../src/modules/payments/upi';
+import { InMemorySessionStore } from '../src/modules/whatsapp/bot/session-store';
+import { parseInboundMessages, webhookEventKeys, InboundMessage } from '../src/modules/whatsapp/bot/inbound-parser';
+import { TenantRole } from '@friendly-crm/shared';
+
+const PHONE = '+919876543210';
+/** The business's bank account and UPI ID, as customers are shown them. */
+const PAY = {
+  upiId: 'senthaamarai@okhdfc',
+  bank: { accountName: 'Senthaamarai Art Crafts', bankName: 'HDFC Bank', accountNumber: '50200012345678', ifsc: 'HDFC0001234', branch: 'Coimbatore' },
+};
+const CUSTOMER_PHONE = '+919443022222';
+
+function staff(over: Partial<StaffIdentity> = {}): StaffIdentity {
+  return {
+    userId: 'u1',
+    fullName: 'Jeevan Prakash',
+    preferredLanguage: 'en',
+    tenantId: 't1',
+    tenantName: 'Senthaamarai Calendars',
+    industryKey: 'printing',
+    role: 'OWNER' as TenantRole,
+    ...over,
+  };
+}
+
+function customer(over: Partial<CustomerIdentity> = {}): CustomerIdentity {
+  return {
+    customerId: 'c1',
+    customerName: 'Sri Krishna Sweets',
+    tenantId: 't1',
+    tenantName: 'Senthaamarai Calendars',
+    tenantPhone: '+919443011111',
+    industryKey: 'printing',
+    defaultLanguage: 'en',
+    selfServiceEnabled: true,
+    ...over,
+  };
+}
+
+function setup(
+  identities: StaffIdentity[],
+  orders: OrderSummary[] = [],
+  customers: CustomerIdentity[] = [],
+  customerOrders: Record<string, CustomerOrderView[]> = {},
+  opts: {
+    rate?: { max: number; windowMs: number };
+    clock?: () => number;
+    quotes?: CustomerQuoteView[];
+    approve?: () => Promise<QuoteApproveResult>;
+    openingBalances?: Record<string, string>;
+    /** customerIds that have already stopped the automatic reminders */
+    optedOut?: string[];
+  } = {}
+) {
+  const calls = {
+    createLead: [] as any[],
+    updateStage: [] as any[],
+    setLang: [] as any[],
+    orderQueries: [] as string[],
+    customerOrderCalls: [] as string[],
+    setSelfService: [] as boolean[],
+    payments: [] as any[],
+    quoteList: 0,
+    approve: [] as any[],
+    change: [] as any[],
+    optOut: [] as Array<{ customerId: string; optedOut: boolean }>,
+  };
+  const optedOut = new Set<string>(opts.optedOut ?? []);
+  const openingBalances: Record<string, string> = opts.openingBalances ?? {};
+  const state = { selfService: true, failSet: false };
+  const failures = { createLead: false, recordPayment: false, optOut: false };
+  const ports: BotPorts = {
+    findStaffByPhone: async (p) => (p === PHONE ? identities : []),
+    findCustomerByPhone: async (p) => (p === CUSTOMER_PHONE ? customers : []),
+    setRemindersOptOut: async (who, value) => {
+      if (failures.optOut) throw new Error('db down');
+      const previous = optedOut.has(who.customerId);
+      value ? optedOut.add(who.customerId) : optedOut.delete(who.customerId);
+      calls.optOut.push({ customerId: who.customerId, optedOut: value });
+      return { previous };
+    },
+    listCustomerOrders: async (who) => {
+      calls.customerOrderCalls.push(who.customerId);
+      return customerOrders[who.customerId] ?? [];
+    },
+    getCustomerOpeningBalance: async (who) => openingBalances[who.customerId] ?? null,
+    listCustomerQuotes: async () => {
+      calls.quoteList++;
+      return opts.quotes ?? [];
+    },
+    recordPayment: async (who, orderId, input) => {
+      if (failures.recordPayment) throw new Error('db down');
+      calls.payments.push({ who, orderId, input });
+      return { receiptNumber: 'RCP-2026-0001', balanceRemaining: '70000.00' };
+    },
+    approveCustomerQuote: async (who, quoteId, expectedTotal, ctx) => {
+      calls.approve.push({ who, quoteId, expectedTotal, ctx });
+      return opts.approve ? opts.approve() : { ok: true, orderNumber: 'ORD-2026-9001', alreadyApproved: false };
+    },
+    requestQuoteChange: async (who, quoteId, text, ctx) => {
+      calls.change.push({ who, quoteId, text, ctx });
+      return true;
+    },
+    createLead: async (who, input) => {
+      if (failures.createLead) throw new Error('db down');
+      calls.createLead.push({ who, input });
+    },
+    findOrders: async (_who, q) => {
+      calls.orderQueries.push(q);
+      return orders.filter((o) => (o.orderNumber + o.customerName).toLowerCase().includes(q.toLowerCase()));
+    },
+    updateOrderStage: async (who, orderId, stageId) => {
+      calls.updateStage.push({ who, orderId, stageId });
+    },
+    setPreferredLanguage: async (userId, locale) => {
+      calls.setLang.push({ userId, locale });
+    },
+    getCustomerSelfService: async () => state.selfService,
+    setCustomerSelfService: async (_who, enabled) => {
+      if (state.failSet) throw new Error('db down');
+      calls.setSelfService.push(enabled);
+      state.selfService = enabled;
+    },
+  };
+  const engine = new ConversationEngine(
+    ports,
+    new InMemorySessionStore<BotSession>(),
+    undefined,
+    opts.rate,
+    opts.clock
+  );
+  let n = 0;
+  const say = async (text: string, from = PHONE) =>
+    (await engine.handle({ id: `m${++n}`, from, type: 'text', text })).replies.join('\n---\n');
+  return { engine, say, calls, failures, state, optedOut };
+}
+
+describe('WhatsApp inbound parser', () => {
+  it('parses Meta Cloud API text and interactive replies', () => {
+    const body = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'WABA-1',
+          changes: [
+            {
+              value: {
+                messages: [
+                  { id: 'wamid.1', from: '919876543210', type: 'text', text: { body: 'hi' } },
+                  { id: 'wamid.2', from: '919876543210', type: 'interactive', interactive: { button_reply: { id: '1', title: 'Save' } } },
+                  { id: 'wamid.3', from: '919876543210', type: 'audio' },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const msgs = parseInboundMessages(body);
+    expect(msgs.map((m) => [m.id, m.from, m.type, m.text])).toEqual([
+      ['wamid.1', '+919876543210', 'text', 'hi'],
+      ['wamid.2', '+919876543210', 'text', '1'],
+      ['wamid.3', '+919876543210', 'media', ''],
+    ]);
+  });
+
+  it('parses WAHA payloads and ignores own messages, groups and statuses', () => {
+    const mk = (over: any) => ({ event: 'message', payload: { id: 'false_1@c.us_X', from: '919876543210@c.us', fromMe: false, body: 'menu', ...over } });
+    expect(parseInboundMessages(mk({}))).toHaveLength(1);
+    expect(parseInboundMessages(mk({ fromMe: true }))).toHaveLength(0);
+    expect(parseInboundMessages(mk({ from: '1203630@g.us' }))).toHaveLength(0);
+    expect(parseInboundMessages({ id: 'e1', messageId: 'job-1', status: 'DELIVERED' })).toHaveLength(0);
+  });
+
+  it('never uses the Meta business-account id as an event key', () => {
+    const body = {
+      entry: [{ id: 'WABA-1', changes: [{ value: { statuses: [{ id: 'wamid.9', status: 'delivered' }], messages: [{ id: 'wamid.8' }] } }] }],
+    };
+    const keys = webhookEventKeys(body);
+    expect(keys).toContain('status:wamid.9:delivered');
+    expect(keys).toContain('msg:wamid.8');
+    expect(keys).not.toContain('WABA-1');
+  });
+});
+
+describe('WhatsApp conversation engine', () => {
+  it('rejects unregistered numbers without revealing anything (bilingual)', async () => {
+    const { say } = setup([staff()]);
+    const reply = await say('hi', '+910000000000');
+    expect(reply).toContain('registered with Friendly CRM');
+    expect(reply).toContain('பதிவு செய்யப்படவில்லை');
+  });
+
+  it('shows only the menu items the role may use', async () => {
+    const owner = await setup([staff()]).say('hi');
+    expect(owner).toContain('New enquiry');
+    expect(owner).toContain('Update order stage');
+
+    const floor = await setup([staff({ role: 'PRODUCTION' as TenantRole })]).say('hi');
+    expect(floor).not.toContain('New enquiry');
+    expect(floor).toContain('Order status');
+    expect(floor).toContain('Update order stage');
+
+    const sales = await setup([staff({ role: 'SALESPERSON' as TenantRole })]).say('hi');
+    expect(sales).toContain('New enquiry');
+    expect(sales).not.toContain('Update order stage');
+  });
+
+  it('captures an enquiry using the industry template (printing asks Job Category)', async () => {
+    const { say, calls } = setup([staff()]);
+    await say('hi');
+    expect(await say('1')).toContain("Customer's name");
+    await say('Sri Krishna Sweets');
+    expect(await say('98765 43211')).toContain('What do they need');
+    const jobPrompt = await say('5000 wall calendars for 2027');
+    expect(jobPrompt).toContain('Job Category');
+    expect(jobPrompt).toContain('Calendars');
+    const confirm = await say('1');
+    expect(confirm).toContain('Sri Krishna Sweets');
+    expect(confirm).toContain('+919876543211');
+    expect(confirm).toContain('Job Category: Calendars');
+    const saved = await say('1');
+    expect(saved).toContain('Enquiry saved');
+    expect(calls.createLead).toHaveLength(1);
+    expect(calls.createLead[0].input).toMatchObject({
+      customerName: 'Sri Krishna Sweets',
+      customerPhone: '+919876543211',
+      customData: { job_type: 'CALENDAR' },
+    });
+  });
+
+  it('asks different required fields for a different industry (furniture)', async () => {
+    const { say } = setup([staff({ industryKey: 'furniture' })]);
+    await say('hi');
+    await say('1');
+    await say('Karthik');
+    await say('9443044444');
+    const prompt = await say('3-door wardrobe');
+    expect(prompt).toContain('Primary Material');
+    expect(prompt).not.toContain('Job Category');
+  });
+
+  it('re-prompts on a bad phone number and a bad option, without advancing', async () => {
+    const { say } = setup([staff()]);
+    await say('hi');
+    await say('1');
+    await say('Murugan');
+    expect(await say('12345')).toContain('valid 10-digit');
+    await say('9443044444');
+    await say('Boxes');
+    expect(await say('9')).toContain('Please reply with one of the numbers');
+  });
+
+  it('is idempotent on a double "Save" (no duplicate lead)', async () => {
+    const { engine, say, calls } = setup([staff()]);
+    await say('hi');
+    await say('1');
+    await say('Anand');
+    await say('9443044444');
+    await say('Calendars');
+    await say('1'); // job type
+    const mk = (id: string): InboundMessage => ({ id, from: PHONE, type: 'text', text: '1' });
+    await Promise.all([engine.handle(mk('a')), engine.handle(mk('b'))]);
+    expect(calls.createLead).toHaveLength(1);
+  });
+
+  it('survives a failing save and tells the user', async () => {
+    const { say, failures, calls } = setup([staff()]);
+    failures.createLead = true;
+    await say('hi');
+    await say('1');
+    await say('Anand');
+    await say('9443044444');
+    await say('Calendars');
+    await say('1');
+    const out = await say('1');
+    expect(out).toContain("couldn't save");
+    expect(calls.createLead).toHaveLength(0);
+  });
+
+  it('cancel aborts a flow', async () => {
+    const { say, calls } = setup([staff()]);
+    await say('hi');
+    await say('1');
+    await say('Anand');
+    expect(await say('cancel')).toContain('Cancelled');
+    expect(calls.createLead).toHaveLength(0);
+  });
+
+  it('speaks Tamil, understands Tamil digits, and switches language per user', async () => {
+    const { say, calls } = setup([staff({ preferredLanguage: 'ta' })]);
+    const menu = await say('வணக்கம்');
+    expect(menu).toContain('புதிய விசாரணை');
+    expect(await say('௧')).toContain('வாடிக்கையாளர் பெயர்');
+    await say('menu');
+    await say('4'); // language
+    const back = await say('1'); // English
+    expect(back).toContain('Language set to English');
+    expect(calls.setLang).toEqual([{ userId: 'u1', locale: 'en' }]);
+  });
+
+  it('shows order status with a localized stage and hides balance when masked', async () => {
+    const orders: OrderSummary[] = [
+      { id: 'o1', orderNumber: 'ORD-2026-4011', customerName: 'Sri Krishna Sweets', productionStage: 'PRINTING_CMYK', balanceDue: '75000.00' },
+      { id: 'o2', orderNumber: 'ORD-2026-0089', customerName: 'Murugan Textiles', productionStage: 'ARTWORK_PENDING', balanceDue: null },
+    ];
+    const { say } = setup([staff()], orders);
+    await say('hi');
+    await say('2');
+    const a = await say('4011');
+    expect(a).toContain('Printing in Progress');
+    expect(a).toContain('₹75,000');
+    const b = await say('murugan');
+    expect(b).toContain('Artwork Approval');
+    expect(b).not.toContain('Balance');
+    expect(await say('nothing-matches')).toContain('No matching orders');
+  });
+
+  it('lets a floor supervisor update an order stage with confirmation', async () => {
+    const orders: OrderSummary[] = [
+      { id: 'o1', orderNumber: 'ORD-1', customerName: 'Sri Krishna Sweets', productionStage: 'PRINTING_CMYK' },
+      { id: 'o2', orderNumber: 'ORD-2', customerName: 'Sri Lakshmi Stores', productionStage: 'ARTWORK_PENDING' },
+    ];
+    const { say, calls } = setup([staff({ role: 'PRODUCTION' as TenantRole })], orders);
+    await say('hi');
+    await say('2'); // PRODUCTION menu: 1 status, 2 update stage
+    expect(await say('sri')).toContain('Which order?');
+    const stages = await say('1'); // ORD-1
+    expect(stages).toContain('Printing in Progress ✓');
+    expect(await say('4')).toContain('Move *ORD-1* to');
+    expect(await say('2')).toContain('Cancelled');
+    expect(calls.updateStage).toHaveLength(0);
+
+    await say('ORD-1');
+    await say('4');
+    const done = await say('1');
+    expect(done).toContain('is now at');
+    expect(calls.updateStage).toEqual([
+      expect.objectContaining({ orderId: 'o1', stageId: 'FINISHING_BINDING' }),
+    ]);
+  });
+
+  it('asks which business when a person belongs to several, then remembers', async () => {
+    const { say } = setup([
+      staff({ tenantId: 't1', tenantName: 'Senthaamarai Calendars' }),
+      staff({ tenantId: 't2', tenantName: 'Vidhyasri Offset', industryKey: 'printing' }),
+    ]);
+    const ask = await say('hi');
+    expect(ask).toContain('Which business?');
+    const menu = await say('2');
+    expect(menu).toContain('Vidhyasri Offset');
+    expect(await say('hi')).toContain('Vidhyasri Offset'); // remembered for the session
+  });
+
+  it('replies to media with a polite text-only notice', async () => {
+    const { engine } = setup([staff()]);
+    const r = await engine.handle({ id: 'x', from: PHONE, type: 'media', text: '' });
+    expect(r.replies[0]).toContain('text messages');
+  });
+
+  describe('staff: record a payment', () => {
+    const orders: OrderSummary[] = [
+      { id: 'o1', orderNumber: 'ORD-2026-4011', customerName: 'Sri Krishna Sweets', productionStage: 'PRINTING_CMYK', balanceDue: '75000.00' },
+      { id: 'o2', orderNumber: 'ORD-2026-4012', customerName: 'Sri Lakshmi Stores', productionStage: 'ARTWORK_PENDING', balanceDue: '1000.00' },
+    ];
+
+    it('is offered to roles that may record payments, as the last option', async () => {
+      const owner = await setup([staff()]).say('hi');
+      expect(owner.trim().split('\n').filter((l) => /^\d\./.test(l)).pop()).toContain('Record a payment');
+      expect(await setup([staff({ role: 'ACCOUNTS' as TenantRole })]).say('hi')).toContain('Record a payment');
+      expect(await setup([staff({ role: 'SALESPERSON' as TenantRole })]).say('hi')).not.toContain('Record a payment');
+      expect(await setup([staff({ role: 'PRODUCTION' as TenantRole })]).say('hi')).not.toContain('Record a payment');
+    });
+
+    it('records a UPI payment with a reference after confirmation, and shows the receipt', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6'); // owner menu: 1 enquiry, 2 status, 3 stage, 4 language, 5 customer updates, 6 payment
+      const ask = await say('4011');
+      expect(ask).toContain('ORD-2026-4011');
+      expect(ask).toContain('Balance: ₹75,000');
+      expect(await say('₹5,000')).toContain('How was it paid?');
+      expect(await say('1')).toContain('reference number'); // UPI
+      const confirm = await say('UTR123456789');
+      expect(confirm).toContain('₹5,000');
+      expect(confirm).toContain('UPI');
+      expect(confirm).toContain('UTR123456789');
+      expect(calls.payments).toHaveLength(0); // nothing is written before the confirmation
+
+      const done = await say('1');
+      expect(done).toContain('RCP-2026-0001');
+      expect(done).toContain('Balance now ₹70,000');
+      expect(calls.payments).toHaveLength(1);
+      expect(calls.payments[0]).toMatchObject({
+        orderId: 'o1',
+        input: { amount: '5000.00', mode: 'UPI', referenceNo: 'UTR123456789' },
+      });
+      expect(calls.payments[0].input.idempotencyKey).toMatch(/^wa-pay:/);
+    });
+
+    it('cash needs no reference, and a repeated "1" does not record twice', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4011');
+      await say('2500.50');
+      const confirm = await say('2'); // cash
+      expect(confirm).toContain('Cash');
+      await say('1');
+      await say('1'); // back at the main menu: this is just "Lead"
+      expect(calls.payments).toHaveLength(1);
+      expect(calls.payments[0].input).toMatchObject({ amount: '2500.50', mode: 'CASH', referenceNo: null });
+    });
+
+    it('lets the user skip the reference with 0', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4011');
+      await say('1000');
+      await say('3'); // bank transfer
+      await say('0');
+      await say('1');
+      expect(calls.payments[0].input).toMatchObject({ mode: 'BANK_TRANSFER', referenceNo: null });
+    });
+
+    it('rejects a bad amount, an amount above the balance, and cancelling records nothing', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4012'); // balance ₹1,000
+      expect(await say('abc')).toContain('as a number');
+      expect(await say('0')).toContain('as a number');
+      expect(await say('-50')).toContain('as a number');
+      expect(await say('12.345')).toContain('as a number');
+      expect(await say('1500')).toContain('more than the balance (₹1,000)');
+      expect(await say('1000')).toContain('How was it paid?');
+      await say('2');
+      const out = await say('2'); // cancel at the confirmation
+      expect(out).toContain('Cancelled');
+      expect(calls.payments).toHaveLength(0);
+    });
+
+    it('picks among several matching orders', async () => {
+      const { say, calls } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      expect(await say('sri')).toContain('Which order?');
+      expect(await say('2')).toContain('ORD-2026-4012');
+      await say('400');
+      await say('2');
+      await say('1');
+      expect(calls.payments[0]).toMatchObject({ orderId: 'o2' });
+    });
+
+    it('on a failure says nothing was saved and a retry reuses the same idempotency key', async () => {
+      const { say, calls, failures } = setup([staff()], orders);
+      await say('hi');
+      await say('6');
+      await say('4011');
+      await say('5000');
+      await say('2');
+      failures.recordPayment = true;
+      const failed = await say('1');
+      expect(failed).toContain('Nothing was saved');
+      expect(failed).not.toContain('RCP-');
+      failures.recordPayment = false;
+      expect(await say('1')).toContain('RCP-2026-0001');
+      expect(calls.payments).toHaveLength(1);
+    });
+
+    it('is refused for a role without payment permission even if forced', async () => {
+      const { engine } = setup([staff({ role: 'SALESPERSON' as TenantRole })], orders);
+      const r = await engine.handle({ id: 'x', from: PHONE, type: 'text', text: '6' });
+      expect(r.replies.join('')).not.toContain('How much was received');
+    });
+  });
+
+  describe('customer self-service', () => {
+    const orders: Record<string, CustomerOrderView[]> = {
+      c1: [
+        {
+          id: 'o1',
+          orderNumber: 'ORD-2026-4011',
+          productionStage: 'PRINTING_CMYK',
+          totalAmount: '125000.00',
+          advanceReceived: '50000.00',
+          balanceDue: '75000.00',
+          expectedDeliveryAt: '2026-11-12T00:00:00.000Z',
+        },
+        { id: 'o2', orderNumber: 'ORD-2026-0100', productionStage: 'DELIVERED', totalAmount: '10000', advanceReceived: '10000', balanceDue: '0.00' },
+      ],
+    };
+
+    // The number alone is not proof: the sender must first give the registered name (or an order number).
+    const open = async (say: (t: string, from?: string) => Promise<string>, answer = 'Sri Krishna Sweets') => {
+      await say('hi', CUSTOMER_PHONE);
+      return say(answer, CUSTOMER_PHONE);
+    };
+
+    it('greets a known customer and shows only customer options', async () => {
+      const { say } = setup([], [], [customer()], orders);
+      const menu = await open(say);
+      expect(menu).toContain('Sri');
+      expect(menu).toContain('Senthaamarai Calendars');
+      expect(menu).toContain('My orders');
+      expect(menu).not.toContain('New enquiry');
+      expect(menu).not.toContain('Update order stage');
+    });
+
+    it("shows the customer's own orders with stage, paid and balance", async () => {
+      const { say } = setup([], [], [customer()], orders);
+      await open(say);
+      const out = await say('1', CUSTOMER_PHONE);
+      expect(out).toContain('ORD-2026-4011');
+      expect(out).toContain('Printing in Progress');
+      expect(out).toContain('Total: ₹1,25,000');
+      expect(out).toContain('Paid: ₹50,000');
+      expect(out).toContain('Balance: ₹75,000');
+      expect(out).toContain('2026');
+      expect(out).toContain('+919443011111');
+      // a fully paid order shows no balance line
+      expect(out.split('ORD-2026-0100')[1]).not.toContain('Balance');
+    });
+
+    it('looks up a specific order by number, only among their own', async () => {
+      const { say, calls } = setup([], [], [customer()], orders);
+      await open(say);
+      const mine = await say('4011', CUSTOMER_PHONE);
+      expect(mine).toContain('ORD-2026-4011');
+      expect(mine).not.toContain('ORD-2026-0100');
+      const other = await say('9999', CUSTOMER_PHONE);
+      expect(other).toContain("couldn't find that order");
+      expect(calls.customerOrderCalls.every((id) => id === 'c1')).toBe(true);
+    });
+
+    it('never exposes staff features or other customers to a customer', async () => {
+      const { say, calls } = setup(
+        [],
+        [{ id: 'x', orderNumber: 'ORD-STAFF-ONLY', customerName: 'Someone Else', productionStage: 'ARTWORK_PENDING' }],
+        [customer()],
+        orders
+      );
+      await open(say);
+      const out = await say('ORD-STAFF-ONLY 123', CUSTOMER_PHONE);
+      expect(out).not.toContain('Someone Else');
+      expect(calls.orderQueries).toHaveLength(0); // staff search port is never used for customers
+      expect(calls.createLead).toHaveLength(0);
+    });
+
+    it('replies in Tamil when the customer writes in Tamil, and can switch language', async () => {
+      const { say } = setup([], [], [customer()], orders);
+      expect(await say('வணக்கம்', CUSTOMER_PHONE)).toContain('பாதுகாப்பு'); // verification prompt, in Tamil
+      const menu = await say('Sri Krishna Sweets', CUSTOMER_PHONE);
+      expect(menu).toContain('என் ஆர்டர்கள்');
+      const orderReply = await say('1', CUSTOMER_PHONE);
+      expect(orderReply).toContain('நிலை');
+      expect(orderReply).toContain('நிலுவை');
+      await say('menu', CUSTOMER_PHONE);
+      await say('4', CUSTOMER_PHONE); // language
+      expect(await say('1', CUSTOMER_PHONE)).toContain('Language set to English');
+    });
+
+    it('says so when there are no orders', async () => {
+      const { say } = setup([], [], [customer({ customerId: 'c-empty' })], orders);
+      await open(say);
+      expect(await say('1', CUSTOMER_PHONE)).toContain("couldn't find any orders");
+    });
+
+    it('asks which business when the customer buys from several', async () => {
+      const { say } = setup(
+        [],
+        [],
+        [customer(), customer({ customerId: 'c2', tenantId: 't2', tenantName: 'Vidhyasri Offset' })],
+        { ...orders, c2: [{ id: 'z', orderNumber: 'VO-77', productionStage: 'ARTWORK_PENDING', balanceDue: '500' }] }
+      );
+      expect(await say('hi', CUSTOMER_PHONE)).toContain('Which business?');
+      const prompt = await say('2', CUSTOMER_PHONE);
+      expect(prompt).toContain('Vidhyasri Offset');
+      expect(prompt).toContain('registered with us');
+      expect(await say('Sri Krishna Sweets', CUSTOMER_PHONE)).toContain('My orders');
+      expect(await say('1', CUSTOMER_PHONE)).toContain('VO-77');
+    });
+
+    describe('quote approval', () => {
+      const quote = (over: Partial<CustomerQuoteView> = {}): CustomerQuoteView => ({
+        id: 'q1',
+        quoteNumber: 'QT-2026-0042',
+        version: 1,
+        grandTotal: '172000.00',
+        validUntil: '2030-01-15T00:00:00.000Z',
+        items: [{ itemName: 'Diwali Rigid Boxes', quantity: '5000.00', unit: 'Nos' }],
+        ...over,
+      });
+
+      it('shows the quote and approves it with one tap, creating the order', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(say);
+        const detail = await say('2', CUSTOMER_PHONE);
+        expect(detail).toContain('QT-2026-0042');
+        expect(detail).toContain('Diwali Rigid Boxes × 5000 Nos');
+        expect(detail).toContain('₹1,72,000');
+        expect(detail).toContain('Approve and place the order');
+        expect(calls.approve).toHaveLength(0); // looking is not approving
+
+        const done = await say('1', CUSTOMER_PHONE);
+        expect(done).toContain('ORD-2026-9001');
+        expect(done).toContain('approved');
+        expect(calls.approve).toHaveLength(1);
+        expect(calls.approve[0]).toMatchObject({
+          quoteId: 'q1',
+          expectedTotal: '172000.00',
+          ctx: { phone: CUSTOMER_PHONE },
+        });
+        expect(calls.approve[0].ctx.messageId).toBeTruthy();
+      });
+
+      it('includes the customer link to the quotation PDF when the server made one, and none when it did not', async () => {
+        const link = 'https://api.example.in/api/public/quotes/abc.def/pdf';
+        const withLink = setup([], [], [customer()], orders, { quotes: [quote({ pdfUrl: link })] });
+        await open(withLink.say);
+        const detail = await withLink.say('2', CUSTOMER_PHONE);
+        expect(detail).toContain(`Open the quotation (PDF): ${link}`);
+
+        const without = setup([], [], [customer()], orders, { quotes: [quote({ pdfUrl: null })] });
+        await open(without.say);
+        const plain = await without.say('2', CUSTOMER_PHONE);
+        expect(plain).not.toContain('PDF');
+        expect(plain).toContain('Approve and place the order');
+      });
+
+      it('shows the bank account and UPI ID as plain text with the approval, never a link', async () => {
+        const { say } = setup([], [], [customer({ payment: PAY })], orders, { quotes: [quote()] });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        const done = await say('1', CUSTOMER_PHONE);
+        expect(done).toContain('ORD-2026-9001');
+        expect(done).toContain('Account name: Senthaamarai Art Crafts');
+        expect(done).toContain('Account no: 50200012345678');
+        expect(done).toContain('IFSC: HDFC0001234');
+        expect(done).toContain('UPI ID: senthaamarai@okhdfc');
+        expect(done).toContain('quote the order number');
+        expect(done).not.toMatch(/upi:\/\/|https?:\/\//);
+      });
+
+      it('shows no payment details on approval when the business has set none, or the quote was already approved', async () => {
+        const noPay = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(noPay.say);
+        await noPay.say('2', CUSTOMER_PHONE);
+        const out = await noPay.say('1', CUSTOMER_PHONE);
+        expect(out).toContain('ORD-2026-9001');
+        expect(out).not.toContain('IFSC');
+
+        const again = setup([], [], [customer({ payment: PAY })], orders, {
+          quotes: [quote()],
+          approve: async () => ({ ok: true, orderNumber: 'ORD-2026-0007', alreadyApproved: true }),
+        });
+        await open(again.say);
+        await again.say('2', CUSTOMER_PHONE);
+        expect(await again.say('1', CUSTOMER_PHONE)).not.toContain('IFSC');
+      });
+
+      it('a repeated "1" after approving does not approve again', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(say);
+        await say('quotes', CUSTOMER_PHONE);
+        await say('1', CUSTOMER_PHONE);
+        const again = await say('1', CUSTOMER_PHONE); // now it is just the main menu option "1": My orders
+        expect(again).not.toContain('approved');
+        expect(calls.approve).toHaveLength(1);
+      });
+
+      it('lets the customer choose between several quotes', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, {
+          quotes: [quote(), quote({ id: 'q2', quoteNumber: 'QT-2026-0050', grandTotal: '9000.00' })],
+        });
+        await open(say);
+        const list = await say('2', CUSTOMER_PHONE);
+        expect(list).toContain('Which quote?');
+        expect(list).toContain('QT-2026-0050');
+        expect(await say('2', CUSTOMER_PHONE)).toContain('₹9,000');
+        await say('1', CUSTOMER_PHONE);
+        expect(calls.approve[0].quoteId).toBe('q2');
+      });
+
+      it('says so when there are no quotes waiting', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [] });
+        await open(say);
+        expect(await say('quotes', CUSTOMER_PHONE)).toContain('no quotes waiting');
+        expect(calls.approve).toHaveLength(0);
+      });
+
+      it('records a change request instead of approving', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        expect(await say('2', CUSTOMER_PHONE)).toContain('what you would like changed');
+        const sent = await say('Please make it 3000 boxes', CUSTOMER_PHONE);
+        expect(sent).toContain('noted your request');
+        expect(calls.change).toHaveLength(1);
+        expect(calls.change[0]).toMatchObject({ quoteId: 'q1', text: 'Please make it 3000 boxes' });
+        expect(calls.approve).toHaveLength(0);
+      });
+
+      it.each([
+        ['EXPIRED', 'expired'],
+        ['CHANGED', 'price on this quote changed'],
+        ['NOT_AVAILABLE', 'can no longer be approved'],
+      ] as const)('explains a refused approval (%s) and creates nothing', async (reason, text) => {
+        const { say } = setup([], [], [customer()], orders, { quotes: [quote()], approve: async () => ({ ok: false, reason }) });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        const out = await say('1', CUSTOMER_PHONE);
+        expect(out).toContain(text);
+        expect(out).not.toContain('ORD-2026-9001');
+      });
+
+      it('reports an approval that errored as NOT approved', async () => {
+        const { say } = setup([], [], [customer()], orders, {
+          quotes: [quote()],
+          approve: async () => {
+            throw new Error('db down');
+          },
+        });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        const out = await say('1', CUSTOMER_PHONE);
+        expect(out).toContain('nothing was approved');
+        expect(out).not.toContain('ORD-');
+      });
+
+      it('reports an already-approved quote with its existing order', async () => {
+        const { say } = setup([], [], [customer()], orders, {
+          quotes: [quote()],
+          approve: async () => ({ ok: true, orderNumber: 'ORD-2026-0007', alreadyApproved: true }),
+        });
+        await open(say);
+        await say('2', CUSTOMER_PHONE);
+        expect(await say('1', CUSTOMER_PHONE)).toContain('already approved');
+      });
+
+      it('is not reachable before the ownership check passes', async () => {
+        const { say, calls } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await say('hi', CUSTOMER_PHONE);
+        const out = await say('quotes', CUSTOMER_PHONE);
+        expect(out).toContain("doesn't match");
+        expect(calls.quoteList).toBe(0);
+        expect(calls.approve).toHaveLength(0);
+      });
+
+      it('replies in Tamil', async () => {
+        const { say } = setup([], [], [customer()], orders, { quotes: [quote()] });
+        await say('வணக்கம்', CUSTOMER_PHONE);
+        await say('Sri Krishna Sweets', CUSTOMER_PHONE);
+        expect(await say('2', CUSTOMER_PHONE)).toContain('ஆர்டர் செய்ய');
+      });
+    });
+
+    describe('dues summary with bank details', () => {
+      const dueOrders: Record<string, CustomerOrderView[]> = {
+        c1: [
+          { id: 'o1', orderNumber: 'ORD-2026-4011', productionStage: 'PRINTING_CMYK', totalAmount: '125000.00', advanceReceived: '50000.00', balanceDue: '75000.00' },
+          { id: 'o2', orderNumber: 'ORD-2026-0100', productionStage: 'DELIVERED', totalAmount: '10000', advanceReceived: '10000', balanceDue: '0.00' },
+          { id: 'o3', orderNumber: 'ORD-2026-4020', productionStage: 'ARTWORK_PENDING', balanceDue: '1234.50' },
+        ],
+      };
+      const withUpi = customer({ payment: PAY });
+
+      it('lists only orders with a balance and the total, then how to pay, as plain text', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders);
+        await open(say);
+        const out = await say('3', CUSTOMER_PHONE);
+        expect(out).toContain('Pending dues: ₹76,234.5');
+        expect(out).toContain('(2 orders)');
+        expect(out).toContain('ORD-2026-4011');
+        expect(out).toContain('ORD-2026-4020');
+        expect(out).not.toContain('ORD-2026-0100'); // fully paid
+        expect(out).toContain('Account name: Senthaamarai Art Crafts');
+        expect(out).toContain('Bank: HDFC Bank, Coimbatore');
+        expect(out).toContain('Account no: 50200012345678');
+        expect(out).toContain('IFSC: HDFC0001234');
+        expect(out).toContain('UPI ID: senthaamarai@okhdfc');
+        expect(out).toContain('quote the order number');
+        expect(out).not.toMatch(/upi:\/\/|https?:\/\//);
+        expect(out).toContain('+919443011111');
+      });
+
+      it('also answers to the word "dues"', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders);
+        await open(say);
+        expect(await say('dues', CUSTOMER_PHONE)).toContain('Pending dues');
+      });
+
+      it('shows the amounts and asks the customer to call when the business has set no payment details', async () => {
+        const { say } = setup([], [], [customer()], dueOrders);
+        await open(say);
+        const out = await say('3', CUSTOMER_PHONE);
+        expect(out).toContain('₹75,000');
+        expect(out).not.toContain('IFSC');
+        expect(out).toContain('call us');
+      });
+
+      it('shows only the UPI ID when there is no bank account, and only the bank account when there is no UPI ID', async () => {
+        const upiOnly = setup([], [], [customer({ payment: { upiId: 'senthaamarai@okhdfc', bank: null } })], dueOrders);
+        await open(upiOnly.say);
+        const a = await upiOnly.say('3', CUSTOMER_PHONE);
+        expect(a).toContain('UPI ID: senthaamarai@okhdfc');
+        expect(a).not.toContain('Account no');
+        const bankOnly = setup([], [], [customer({ payment: { upiId: null, bank: PAY.bank } })], dueOrders);
+        await open(bankOnly.say);
+        const b = await bankOnly.say('3', CUSTOMER_PHONE);
+        expect(b).toContain('IFSC: HDFC0001234');
+        expect(b).not.toContain('UPI ID');
+      });
+
+      it('says so when nothing is due', async () => {
+        const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] });
+        await open(say);
+        expect(await say('3', CUSTOMER_PHONE)).toContain('no pending dues');
+      });
+
+      it('adds a balance carried over from before Friendly CRM to the total', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders, { openingBalances: { c1: '10000.00' } });
+        await open(say);
+        const out = await say('3', CUSTOMER_PHONE);
+        expect(out).toContain('Pending dues: ₹86,234.5');
+        expect(out).toContain('Previous balance');
+        expect(out).toContain('₹10,000');
+      });
+
+      it('shows a previous balance even when no order is open', async () => {
+        const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] }, { openingBalances: { c1: '2500' } });
+        await open(say);
+        const out = await say('3', CUSTOMER_PHONE);
+        expect(out).toContain('Pending dues: ₹2,500');
+        expect(out).not.toContain('orders)');
+        expect(out).toContain('Previous balance');
+        expect(out).not.toContain('no pending dues');
+      });
+
+      it('treats a zero or missing previous balance as nothing', async () => {
+        const { say } = setup([], [], [withUpi], { c1: [dueOrders.c1[1]] }, { openingBalances: { c1: '0.00' } });
+        await open(say);
+        expect(await say('3', CUSTOMER_PHONE)).toContain('no pending dues');
+      });
+
+      it('is not available before the ownership check passes', async () => {
+        const { say, calls } = setup([], [], [withUpi], dueOrders);
+        await say('hi', CUSTOMER_PHONE);
+        const out = await say('dues', CUSTOMER_PHONE);
+        expect(out).toContain("doesn't match");
+        expect(out).not.toContain('IFSC');
+        expect(calls.customerOrderCalls.every((id) => id === 'c1')).toBe(true);
+      });
+
+      it('replies in Tamil', async () => {
+        const { say } = setup([], [], [withUpi], dueOrders);
+        await say('வணக்கம்', CUSTOMER_PHONE);
+        await say('Sri Krishna Sweets', CUSTOMER_PHONE);
+        expect(await say('3', CUSTOMER_PHONE)).toContain('நிலுவைத் தொகை');
+      });
+    });
+
+    describe('ownership check', () => {
+      it('shows nothing about the customer before it passes, not even their name', async () => {
+        const { say, calls } = setup([], [], [customer()], orders);
+        const first = await say('hi', CUSTOMER_PHONE);
+        expect(first).toContain('registered with us');
+        expect(first).not.toContain('Sri');
+        expect(first).not.toContain('My orders');
+        expect(calls.customerOrderCalls).toHaveLength(0);
+        // an order lookup is not honoured until verified: it is treated as the (wrong) answer
+        const probe = await say('4011', CUSTOMER_PHONE);
+        expect(probe).toContain("doesn't match");
+        expect(probe).not.toContain('ORD-2026-4011');
+      });
+
+      it('accepts the name ignoring case, spacing and punctuation', async () => {
+        const { say } = setup([], [], [customer()], orders);
+        await say('hi', CUSTOMER_PHONE);
+        expect(await say('  sri  KRISHNA sweets. ', CUSTOMER_PHONE)).toContain('My orders');
+      });
+
+      it('accepts one of their own order numbers instead of the name', async () => {
+        const { say } = setup([], [], [customer()], orders);
+        await say('hi', CUSTOMER_PHONE);
+        expect(await say('ord-2026-4011', CUSTOMER_PHONE)).toContain('My orders');
+      });
+
+      it("does not accept another customer's order number or a partial name", async () => {
+        const { say } = setup([], [], [customer()], { ...orders, other: [{ id: 'q', orderNumber: 'ORD-OTHER-1', productionStage: 'DELIVERED' }] });
+        await say('hi', CUSTOMER_PHONE);
+        expect(await say('ORD-OTHER-1', CUSTOMER_PHONE)).toContain("doesn't match");
+        expect(await say('Sri', CUSTOMER_PHONE)).toContain("doesn't match");
+      });
+
+      it('locks after 3 wrong answers, even if the right one follows', async () => {
+        const { say, calls } = setup([], [], [customer()], orders);
+        await say('hi', CUSTOMER_PHONE);
+        await say('wrong one', CUSTOMER_PHONE);
+        await say('wrong two', CUSTOMER_PHONE);
+        const locked = await say('wrong three', CUSTOMER_PHONE);
+        expect(locked).toContain("couldn't verify");
+        expect(locked).toContain('+919443011111');
+        expect(await say('Sri Krishna Sweets', CUSTOMER_PHONE)).toContain("couldn't verify");
+        expect(await say('1', CUSTOMER_PHONE)).not.toContain('ORD-2026-4011');
+        expect(calls.customerOrderCalls.every((id) => id === 'c1')).toBe(true);
+      });
+
+      it('stays verified for the rest of the session', async () => {
+        const { say } = setup([], [], [customer()], orders);
+        await open(say);
+        expect(await say('menu', CUSTOMER_PHONE)).toContain('Sri');
+        expect(await say('1', CUSTOMER_PHONE)).toContain('ORD-2026-4011');
+      });
+    });
+
+    it('staff take precedence when a number is both staff and customer', async () => {
+      const { engine } = setup([staff()], [], [customer()], orders);
+      const r = await engine.handle({ id: 'p', from: PHONE, type: 'text', text: 'hi' });
+      expect(r.replies[0]).toContain('New enquiry');
+    });
+  });
+
+  describe('rate limiting', () => {
+    it('warns once, then silently drops, then recovers after the window', async () => {
+      let now = 1_000_000;
+      const { engine } = setup([staff()], [], [], {}, { rate: { max: 3, windowMs: 60_000 }, clock: () => now });
+      const send = (i: number) => engine.handle({ id: `r${i}`, from: PHONE, type: 'text', text: 'hi' });
+      for (let i = 0; i < 3; i++) expect((await send(i)).replies.length).toBeGreaterThan(0);
+      const warn = await send(4);
+      expect(warn.replies[0]).toContain('too fast');
+      expect((await send(5)).replies).toEqual([]);
+      now += 61_000;
+      expect((await send(6)).replies[0]).toContain('New enquiry');
+    });
+  });
+
+  describe('owner setting: customer self-service on/off', () => {
+    it('is offered to the owner only', async () => {
+      expect(await setup([staff()]).say('hi')).toContain('Customer order updates on/off');
+      expect(await setup([staff({ role: 'MANAGER' as TenantRole })]).say('hi')).not.toContain('Customer order updates');
+      expect(await setup([staff({ role: 'SALESPERSON' as TenantRole })]).say('hi')).not.toContain('Customer order updates');
+    });
+
+    it('turns it OFF after showing the current state', async () => {
+      const { say, calls } = setup([staff()]);
+      await say('hi');
+      const status = await say('5');
+      expect(status).toContain('*ON*');
+      const done = await say('1');
+      expect(done).toContain('now *OFF*');
+      expect(calls.setSelfService).toEqual([false]);
+    });
+
+    it('can turn it back ON, and "keep" changes nothing', async () => {
+      const { say, calls, state } = setup([staff()]);
+      state.selfService = false;
+      await say('hi');
+      expect(await say('5')).toContain('*OFF*');
+      await say('2'); // keep OFF
+      expect(calls.setSelfService).toEqual([]);
+      await say('5');
+      expect(await say('1')).toContain('now *ON*');
+      expect(calls.setSelfService).toEqual([true]);
+    });
+
+    it('reports a failed save instead of claiming success', async () => {
+      const { say, state } = setup([staff()]);
+      state.failSet = true;
+      await say('hi');
+      await say('5');
+      const out = await say('1');
+      expect(out).toContain("couldn't change that setting");
+      expect(out).not.toContain('now *OFF*');
+    });
+  });
+
+  describe('customers of a business that switched self-service off', () => {
+    it('get a polite pointer to the business, never their orders', async () => {
+      const { say, calls } = setup([], [], [customer({ selfServiceEnabled: false })], {
+        c1: [{ id: 'o1', orderNumber: 'ORD-1', productionStage: 'PRINTING_CMYK', balanceDue: '500' }],
+      });
+      const out = await say('hi', CUSTOMER_PHONE);
+      expect(out).toContain("aren't available for *Senthaamarai Calendars*");
+      expect(out).toContain('+919443011111');
+      expect(await say('1', CUSTOMER_PHONE)).toContain("aren't available");
+      expect(calls.customerOrderCalls).toHaveLength(0);
+    });
+
+    it('only offers the businesses that have it on', async () => {
+      const { say } = setup(
+        [],
+        [],
+        [customer({ selfServiceEnabled: false }), customer({ customerId: 'c2', tenantId: 't2', tenantName: 'Vidhyasri Offset' })],
+        { c2: [{ id: 'z', orderNumber: 'VO-77', productionStage: 'ARTWORK_PENDING', balanceDue: '500' }] }
+      );
+      const prompt = await say('hi', CUSTOMER_PHONE); // single enabled business -> no "which business?"
+      expect(prompt).not.toContain('Which business?');
+      expect(prompt).toContain('Vidhyasri Offset');
+      expect(await say('Sri Krishna Sweets', CUSTOMER_PHONE)).toContain('Vidhyasri Offset');
+      expect(await say('1', CUSTOMER_PHONE)).toContain('VO-77');
+    });
+
+    it('answers in Tamil when the customer writes Tamil', async () => {
+      const { say } = setup([], [], [customer({ selfServiceEnabled: false })]);
+      expect(await say('வணக்கம்', CUSTOMER_PHONE)).toContain('கிடைக்காது');
+    });
+  });
+});
+
+describe('customer STOP / START for automatic payment reminders', () => {
+  it('honours STOP at once, before any identity question, and says how to turn it back on', async () => {
+    const { say, optedOut, calls } = setup([], [], [customer()]);
+    const out = await say('STOP', CUSTOMER_PHONE);
+    expect(out).toContain('no longer get automatic payment reminders from *Senthaamarai Calendars*');
+    expect(out).toContain('START');
+    expect(optedOut.has('c1')).toBe(true);
+    expect(calls.customerOrderCalls).toHaveLength(0); // nothing about the customer was looked up or shown
+    expect(out).not.toContain('Sri Krishna'); // not even their name, because they have not been verified
+  });
+
+  it('understands the usual ways of saying it, with punctuation and capitals', async () => {
+    for (const word of ['stop', 'Stop.', '  STOP!  ', 'stop reminders', 'Unsubscribe', 'opt out', 'நிறுத்து']) {
+      const { say, optedOut } = setup([], [], [customer()]);
+      expect(await say(word, CUSTOMER_PHONE)).toMatch(/no longer|இனி/);
+      expect(optedOut.has('c1')).toBe(true);
+    }
+  });
+
+  it('does not mistake a sentence for STOP', async () => {
+    const { say, optedOut } = setup([], [], [customer()]);
+    await say("please don't stop the printing", CUSTOMER_PHONE);
+    await say('stop by tomorrow', CUSTOMER_PHONE);
+    expect(optedOut.size).toBe(0);
+  });
+
+  it('START turns reminders back on, but on its own "start" is still the menu for someone who never stopped', async () => {
+    const stopped = setup([], [], [customer()], {}, { optedOut: ['c1'] });
+    const on = await stopped.say('START', CUSTOMER_PHONE);
+    expect(on).toContain('back on');
+    expect(on).toContain('STOP');
+    expect(stopped.optedOut.has('c1')).toBe(false);
+
+    const never = setup([], [], [customer()]);
+    const menu = await never.say('start', CUSTOMER_PHONE);
+    expect(menu).not.toContain('back on');
+    expect(menu).toContain('please reply with your name'); // the normal first step for an unverified customer
+    expect(never.optedOut.size).toBe(0);
+  });
+
+  it('works in Tamil, and answers in Tamil when the message is in Tamil', async () => {
+    const { say, optedOut } = setup([], [], [customer()]);
+    const out = await say('நிறுத்து', CUSTOMER_PHONE);
+    expect(out).toContain('தானியங்கி');
+    expect(optedOut.has('c1')).toBe(true);
+    const back = await say('தொடங்கு', CUSTOMER_PHONE);
+    expect(back).toContain('மீண்டும்');
+    expect(optedOut.has('c1')).toBe(false);
+  });
+
+  it('works even when the business has switched customer self-service off', async () => {
+    const { say, optedOut } = setup([], [], [customer({ selfServiceEnabled: false })]);
+    expect(await say('STOP', CUSTOMER_PHONE)).toContain('no longer get automatic payment reminders');
+    expect(optedOut.has('c1')).toBe(true);
+  });
+
+  it('works for a number that has been locked out of the verification questions', async () => {
+    const { say, optedOut } = setup([], [], [customer()]);
+    await say('hi', CUSTOMER_PHONE);
+    for (let i = 0; i < 4; i++) await say('wrong answer', CUSTOMER_PHONE);
+    expect(await say('hello', CUSTOMER_PHONE)).toMatch(/locked|call/i);
+    expect(await say('STOP', CUSTOMER_PHONE)).toContain('no longer');
+    expect(optedOut.has('c1')).toBe(true);
+  });
+
+  it('applies to every business the number buys from when no business has been picked', async () => {
+    const two = [customer(), customer({ customerId: 'c2', tenantId: 't2', tenantName: 'Vidhyasri Offset' })];
+    const { say, optedOut, calls } = setup([], [], two);
+    const out = await say('stop', CUSTOMER_PHONE);
+    expect(out).toContain('Senthaamarai Calendars, Vidhyasri Offset');
+    expect([...optedOut].sort()).toEqual(['c1', 'c2']);
+    expect(calls.optOut).toHaveLength(2);
+  });
+
+  it('applies only to the business being talked about once one is picked', async () => {
+    const two = [customer(), customer({ customerId: 'c2', tenantId: 't2', tenantName: 'Vidhyasri Offset' })];
+    const { say, optedOut } = setup([], [], two);
+    await say('hi', CUSTOMER_PHONE); // which business?
+    await say('2', CUSTOMER_PHONE);
+    const out = await say('stop', CUSTOMER_PHONE);
+    expect(out).toContain('*Vidhyasri Offset*');
+    expect([...optedOut]).toEqual(['c2']);
+  });
+
+  it('repeating STOP is harmless and still confirms', async () => {
+    const { say, optedOut } = setup([], [], [customer()], {}, { optedOut: ['c1'] });
+    expect(await say('stop', CUSTOMER_PHONE)).toContain('no longer');
+    expect(optedOut.has('c1')).toBe(true);
+  });
+
+  it('tells the customer when it could not be saved, and does not claim success', async () => {
+    const { say, failures, optedOut } = setup([], [], [customer()]);
+    failures.optOut = true;
+    const out = await say('STOP', CUSTOMER_PHONE);
+    expect(out).toContain("couldn't change that");
+    expect(out).not.toContain('Done');
+    expect(optedOut.size).toBe(0);
+  });
+
+  it('is only for customers: for staff "stop" still cancels a flow', async () => {
+    const { say, optedOut } = setup([staff()]);
+    await say('hi');
+    await say('1');
+    const out = await say('stop');
+    expect(out).not.toContain('reminders');
+    expect(optedOut.size).toBe(0);
+  });
+});
+
+describe('UPI helpers', () => {
+  it('validates UPI IDs', () => {
+    for (const ok of ['shop@okhdfc', 'a.b-c_d1@ybl', '9443011111@paytm']) expect(isValidUpiId(ok)).toBe(true);
+    for (const bad of ['', 'shop', '@ybl', 'shop@', 'sh op@ybl', 'shop@ybl&am=1', 'a@b@c', 'x@y']) {
+      expect(isValidUpiId(bad)).toBe(false);
+    }
+  });
+
+  it('builds a link with exact amount and percent-encoded fields', () => {
+    expect(buildUpiLink({ upiId: 'shop@ybl', payeeName: 'A & B Prints', amountPaise: 100050, note: 'ORD 1' })).toBe(
+      'upi://pay?pa=shop%40ybl&pn=A%20%26%20B%20Prints&am=1000.50&cu=INR&tn=ORD%201'
+    );
+    expect(buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 5, note: 'n' })).toContain('am=0.05');
+  });
+
+  it('refuses a bad UPI ID or amount', () => {
+    expect(() => buildUpiLink({ upiId: 'bad', payeeName: 'S', amountPaise: 100, note: 'n' })).toThrow();
+    expect(() => buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 0, note: 'n' })).toThrow();
+    expect(() => buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 1.5, note: 'n' })).toThrow();
+  });
+});

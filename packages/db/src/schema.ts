@@ -10,6 +10,9 @@ import {
   jsonb,
   uniqueIndex,
   index,
+  primaryKey,
+  customType,
+  date,
 } from 'drizzle-orm/pg-core';
 
 // --- REUSABLE HELPERS ---
@@ -31,6 +34,25 @@ export const tenants = pgTable('tenants', {
   gstNumber: varchar('gst_number', { length: 20 }),
   phone: varchar('phone', { length: 20 }).notNull(), // E.164 Normalized (+91...)
   isActive: boolean('is_active').default(true).notNull(),
+  // Owner opt-out: when false, customers texting the WhatsApp number cannot view their own orders.
+  customerSelfServiceEnabled: boolean('customer_self_service_enabled').default(true).notNull(),
+  // The business's UPI ID (VPA) that customers pay dues to. Set by the owner; null = no payment links.
+  upiId: varchar('upi_id', { length: 100 }),
+  // The business's bank account, shown to customers who want to pay by transfer. All null until the owner sets it.
+  bankAccountName: varchar('bank_account_name', { length: 160 }),
+  bankName: varchar('bank_name', { length: 120 }),
+  bankAccountNumber: varchar('bank_account_number', { length: 18 }),
+  bankIfsc: varchar('bank_ifsc', { length: 11 }),
+  bankBranch: varchar('bank_branch', { length: 120 }),
+  // Supplier block of GST invoices. gstNumber is above; stateCode is the two-digit GST state code.
+  legalName: varchar('legal_name', { length: 200 }),
+  address: text('address'),
+  stateCode: varchar('state_code', { length: 2 }),
+  // Automatic payment reminders: opt-in, first after N days overdue, then every N days, at most N in total.
+  autoRemindersEnabled: boolean('auto_reminders_enabled').default(false).notNull(),
+  reminderAfterDays: integer('reminder_after_days').default(7).notNull(),
+  reminderRepeatDays: integer('reminder_repeat_days').default(7).notNull(),
+  reminderMaxCount: integer('reminder_max_count').default(3).notNull(),
   ...timestamps,
 });
 
@@ -109,6 +131,10 @@ export const customers = pgTable(
     gstin: varchar('gstin', { length: 20 }),
     billingAddress: text('billing_address'),
     shippingAddress: text('shipping_address'),
+    // GST state code, used as the place of supply when the customer has no GSTIN
+    stateCode: varchar('state_code', { length: 2 }),
+    // The customer asked not to get automatic reminders (staff can still send one by hand)
+    remindersOptOut: boolean('reminders_opt_out').default(false).notNull(),
     creditLimit: numeric('credit_limit', { precision: 12, scale: 2 }).default('0.00'),
     openingBalance: numeric('opening_balance', { precision: 12, scale: 2 }).default('0.00'),
     customData: jsonb('custom_data').$type<Record<string, any>>().default({}).notNull(),
@@ -143,6 +169,37 @@ export const leads = pgTable(
   })
 );
 
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+/**
+ * A voice note or file attached to an enquiry. The bytes are kept here (not on the lead) so lists of enquiries
+ * never load them; read them one at a time through the attachment download endpoint.
+ */
+export const leadAttachments = pgTable(
+  'lead_attachments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }).notNull(),
+    kind: varchar('kind', { length: 10 }).notNull(), // 'VOICE' | 'FILE'
+    fileName: varchar('file_name', { length: 120 }).notNull(),
+    mimeType: varchar('mime_type', { length: 100 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    durationSeconds: integer('duration_seconds'),
+    transcript: text('transcript'),
+    data: bytea('data').notNull(),
+    createdById: uuid('created_by_id').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    leadIdx: index('lead_attachments_lead_idx').on(table.tenantId, table.leadId),
+  })
+);
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -150,7 +207,7 @@ export const tasks = pgTable(
     tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
     customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'cascade' }),
     leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'set null' }),
-    type: varchar('type', { length: 40 }).default('FOLLOW_UP_CALL').notNull(), // 'FOLLOW_UP_CALL' | 'WHATSAPP' | 'PAYMENT_REMINDER' | 'SITE_VISIT'
+    type: varchar('type', { length: 40 }).default('FOLLOW_UP_CALL').notNull(), // 'SEND_QUOTE' | 'FOLLOW_UP_CALL' | 'WHATSAPP' | 'PAYMENT_REMINDER' | 'SITE_VISIT'
     title: varchar('title', { length: 200 }).notNull(),
     dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
     status: varchar('status', { length: 30 }).default('PENDING').notNull(), // 'PENDING' | 'COMPLETED' | 'CANCELLED'
@@ -247,6 +304,7 @@ export const quotationItems = pgTable('quotation_items', {
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
   unit: varchar('unit', { length: 30 }).default('Nos').notNull(), // 'Nos' | 'Sq.Ft' | 'Meters' | 'Bales' | 'Sets'
   unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+  hsnCode: varchar('hsn_code', { length: 8 }),
   taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).default('18.00').notNull(),
   lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
 });
@@ -282,30 +340,228 @@ export const orderItems = pgTable('order_items', {
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
   unit: varchar('unit', { length: 30 }).default('Nos').notNull(),
   unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+  hsnCode: varchar('hsn_code', { length: 8 }),
   taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).default('18.00').notNull(),
   lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
 });
+
+/**
+ * Product / service master. A quotation line copies these defaults when a product is picked, so editing a
+ * product never changes quotes or invoices already made. Archived (is_active = false) instead of deleted.
+ * Name and code are unique per business (case-insensitive) via indexes created in migration 0010.
+ */
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    name: varchar('name', { length: 200 }).notNull(),
+    code: varchar('code', { length: 50 }),
+    description: text('description'),
+    hsnCode: varchar('hsn_code', { length: 8 }),
+    unit: varchar('unit', { length: 30 }).default('Nos').notNull(),
+    unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).default('18.00').notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdById: uuid('created_by_id').references(() => users.id),
+    ...timestamps,
+  },
+  (table) => ({
+    tenantActiveIdx: index('products_tenant_active_idx').on(table.tenantId, table.isActive),
+  })
+);
 
 // ==========================================
 // 4. BILLING & PAYMENTS DOMAIN
 // ==========================================
 
+export interface InvoiceParty {
+  name: string;
+  gstin: string | null;
+  address: string | null;
+  stateCode: string | null;
+  phone?: string | null;
+}
+
+/**
+ * A GST tax invoice, issued once per order. The row and its items are a snapshot: later edits to the
+ * business, customer or order never change an issued invoice, and the app role cannot UPDATE or DELETE it.
+ * `amount` is the invoice total and always equals the order total. Whether it has been paid is derived from the
+ * order's balance, not stored here.
+ */
 export const invoices = pgTable(
   'invoices',
   {
     id: uuid('id').defaultRandom().primaryKey(),
     tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
-    invoiceNumber: varchar('invoice_number', { length: 50 }).notNull(), // e.g., 'INV-2026-0089'
+    invoiceNumber: varchar('invoice_number', { length: 50 }).notNull(), // 'INV/2026-27/0001' (16 chars max under GST)
+    financialYear: varchar('financial_year', { length: 7 }), // '2026-27'
     orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
     customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    supplyType: varchar('supply_type', { length: 5 }), // 'INTRA' (CGST+SGST) | 'INTER' (IGST)
+    placeOfSupply: varchar('place_of_supply', { length: 2 }), // GST state code
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }),
+    roundOff: numeric('round_off', { precision: 12, scale: 2 }),
     amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    // Legacy columns from before GST invoices existed; payment state is derived from the order instead.
     paidAmount: numeric('paid_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
-    status: varchar('status', { length: 30 }).default('UNPAID').notNull(), // 'UNPAID' | 'PARTIAL' | 'PAID'
+    status: varchar('status', { length: 30 }).default('UNPAID').notNull(),
+    supplier: jsonb('supplier').$type<InvoiceParty>(),
+    buyer: jsonb('buyer').$type<InvoiceParty>(),
     dueDate: timestamp('due_date', { withTimezone: true }),
+    issuedById: uuid('issued_by_id').references(() => users.id),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).defaultNow().notNull(),
     ...timestamps,
   },
   (table) => ({
     tenantInvoiceIdx: index('invoices_tenant_idx').on(table.tenantId),
+    tenantNumberIdx: uniqueIndex('invoices_tenant_number_idx').on(table.tenantId, table.invoiceNumber),
+    // Not unique: an invoice that a credit note cancelled in full can be replaced by a new one for the same order.
+    tenantOrderIdx: index('invoices_tenant_order_idx').on(table.tenantId, table.orderId),
+  })
+);
+
+export const invoiceItems = pgTable(
+  'invoice_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'cascade' }).notNull(),
+    lineNo: integer('line_no').notNull(),
+    itemName: varchar('item_name', { length: 200 }).notNull(),
+    description: text('description'),
+    hsnCode: varchar('hsn_code', { length: 8 }).notNull(),
+    quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
+    unit: varchar('unit', { length: 30 }).notNull(),
+    unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+    taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).notNull(),
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }).notNull(),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }).notNull(),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }).notNull(),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }).notNull(),
+    lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
+  },
+  (table) => ({
+    invoiceIdx: index('invoice_items_invoice_idx').on(table.tenantId, table.invoiceId),
+  })
+);
+
+/** Last used invoice serial per business per financial year; incremented inside the issuing transaction. */
+export const invoiceCounters = pgTable(
+  'invoice_counters',
+  {
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    financialYear: varchar('financial_year', { length: 7 }).notNull(),
+    lastNumber: integer('last_number').default(0).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.tenantId, table.financialYear] }),
+  })
+);
+
+/**
+ * A GST credit note against an issued invoice (goods returned, discount after sale, correction, cancellation).
+ * Like an invoice it is a snapshot with a gapless number of its own and cannot be edited or deleted by the app.
+ * Issuing one lowers the order total (and so its balance) by `amount`.
+ */
+export const creditNotes = pgTable(
+  'credit_notes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    creditNoteNumber: varchar('credit_note_number', { length: 50 }).notNull(), // 'CN/2026-27/0001'
+    financialYear: varchar('financial_year', { length: 7 }).notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id).notNull(),
+    orderId: uuid('order_id').references(() => orders.id).notNull(),
+    customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    reason: varchar('reason', { length: 30 }).notNull(), // 'SALES_RETURN' | 'POST_SALE_DISCOUNT' | 'CORRECTION' | 'CANCELLATION' | 'OTHER'
+    reasonNote: text('reason_note'),
+    supplyType: varchar('supply_type', { length: 10 }).notNull(),
+    placeOfSupply: varchar('place_of_supply', { length: 2 }).notNull(),
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }).notNull(),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    roundOff: numeric('round_off', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    supplier: jsonb('supplier').$type<InvoiceParty>().notNull(),
+    buyer: jsonb('buyer').$type<InvoiceParty>().notNull(),
+    issuedById: uuid('issued_by_id').references(() => users.id),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tenantNumberIdx: uniqueIndex('credit_notes_tenant_number_idx').on(table.tenantId, table.creditNoteNumber),
+    invoiceIdx: index('credit_notes_invoice_idx').on(table.tenantId, table.invoiceId),
+  })
+);
+
+export const creditNoteItems = pgTable(
+  'credit_note_items',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    creditNoteId: uuid('credit_note_id').references(() => creditNotes.id, { onDelete: 'cascade' }).notNull(),
+    invoiceItemId: uuid('invoice_item_id').references(() => invoiceItems.id).notNull(),
+    lineNo: integer('line_no').notNull(),
+    itemName: varchar('item_name', { length: 200 }).notNull(),
+    description: text('description'),
+    hsnCode: varchar('hsn_code', { length: 8 }).notNull(),
+    quantity: numeric('quantity', { precision: 10, scale: 2 }).default('0.00').notNull(), // 0 for a value-only credit
+    unit: varchar('unit', { length: 30 }).notNull(),
+    unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+    taxPercent: numeric('tax_percent', { precision: 5, scale: 2 }).notNull(),
+    taxableValue: numeric('taxable_value', { precision: 12, scale: 2 }).notNull(),
+    cgstAmount: numeric('cgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    sgstAmount: numeric('sgst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    igstAmount: numeric('igst_amount', { precision: 12, scale: 2 }).default('0.00').notNull(),
+    lineTotal: numeric('line_total', { precision: 12, scale: 2 }).notNull(),
+  },
+  (table) => ({
+    noteIdx: index('credit_note_items_note_idx').on(table.tenantId, table.creditNoteId),
+    invoiceItemIdx: index('credit_note_items_invoice_item_idx').on(table.tenantId, table.invoiceItemId),
+  })
+);
+
+/** Last used credit note serial per business per financial year; incremented inside the issuing transaction. */
+export const creditNoteCounters = pgTable(
+  'credit_note_counters',
+  {
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    financialYear: varchar('financial_year', { length: 7 }).notNull(),
+    lastNumber: integer('last_number').default(0).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.tenantId, table.financialYear] }),
+  })
+);
+
+/**
+ * An e-way bill generated on the government portal and recorded against an invoice, with the PDF staff downloaded.
+ * The app never calls the government: it only keeps the number, dates, vehicle and file next to the invoice.
+ */
+export const ewayBills = pgTable(
+  'eway_bills',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id).notNull(),
+    ewbNumber: varchar('ewb_number', { length: 12 }).notNull(),
+    generatedOn: date('generated_on', { mode: 'string' }),
+    validUntil: date('valid_until', { mode: 'string' }),
+    vehicleNumber: varchar('vehicle_number', { length: 12 }),
+    fileName: varchar('file_name', { length: 120 }),
+    mimeType: varchar('mime_type', { length: 100 }),
+    sizeBytes: integer('size_bytes'),
+    data: bytea('data'),
+    uploadedById: uuid('uploaded_by_id').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tenantNumberIdx: uniqueIndex('eway_bills_tenant_number_idx').on(table.tenantId, table.ewbNumber),
+    invoiceIdx: index('eway_bills_invoice_idx').on(table.tenantId, table.invoiceId),
   })
 );
 
@@ -372,7 +628,7 @@ export const notificationOutbox = pgTable(
     payload: jsonb('payload').default({}).notNull(),
     renderedMessage: text('rendered_message').notNull(),
     mediaUrl: text('media_url'),
-    status: varchar('status', { length: 20 }).default('PENDING').notNull(), // 'PENDING' | 'SENT' | 'FAILED' | 'DEAD_LETTER'
+    status: varchar('status', { length: 20 }).default('PENDING').notNull(), // 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'DEAD_LETTER'
     attempts: integer('attempts').default(0).notNull(),
     maxAttempts: integer('max_attempts').default(3).notNull(),
     lastError: text('last_error'),

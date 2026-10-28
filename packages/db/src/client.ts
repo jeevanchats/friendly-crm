@@ -8,7 +8,15 @@ const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:post
 const postgresFn: any = typeof postgres === 'function' ? postgres : (postgres as any)?.default || postgres;
 
 // Standard pooled connection for app
-export const pgClient: any = typeof postgresFn === 'function' ? postgresFn(connectionString, { max: 10 }) : null;
+export const pgClient: any = typeof postgresFn === 'function' ? postgresFn(connectionString, {
+  max: 10,
+  // drizzle-orm already (de)serialises json/jsonb; without this, postgres.js
+  // encodes the stringified value a second time and jsonb columns store a JSON string.
+  types: {
+    json: { to: 114, from: [114], serialize: (v: unknown) => v, parse: (v: unknown) => v },
+    jsonb: { to: 3802, from: [3802], serialize: (v: unknown) => v, parse: (v: unknown) => v },
+  },
+}) : null;
 export const db: any = pgClient ? drizzle(pgClient, { schema }) : ({} as any);
 
 // Helper to execute tenant-scoped queries with RLS session setting

@@ -1,69 +1,68 @@
 'use client';
+import { useLocale } from '../components/shared/LocaleProvider';
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { HomeDashboard } from '../components/dashboard/HomeDashboard';
+import { useAuth } from '../components/auth/AuthProvider';
+import { apiFetch } from '../lib/session';
 
 export default function HomePage() {
-  const [lang, setLang] = useState<'en' | 'ta'>('en');
-  const [dashboardData, setDashboardData] = useState<any>({
-    summaryCards: {
-      dueFollowUps: 2,
-      openQuotations: 2,
-      openQuotationsValue: '185000.00',
-      activeOrders: 3,
-      totalReceivables: '108000.00',
-    },
-    priorityTasks: [
-      {
-        id: 'task-demo-1',
-        type: 'FOLLOW_UP_CALL',
-        title: 'Call Sri Murugan Textiles for packaging artwork approval',
-        dueAt: new Date(Date.now() - 3600000).toISOString(),
-        customerId: 'c-demo-1',
-        customerName: 'Sri Murugan Textiles & Sweets',
-        customerPhone: '+919840123456',
-      },
-      {
-        id: 'task-demo-2',
-        type: 'WHATSAPP_MESSAGE',
-        title: 'WhatsApp revised quotation with tin mounting options',
-        dueAt: new Date(Date.now() + 1800000).toISOString(),
-        customerId: 'c-demo-2',
-        customerName: 'Karthik Precision Engineering',
-        customerPhone: '+919876543210',
-      },
-    ],
-  });
-  const [loading, setLoading] = useState(false);
+  const { user, active } = useAuth();
+  const tenantId = active!.tenantId;
+  const [lang] = useLocale();
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const res = await fetch('/api/crm/dashboard', {
-        headers: {
-          'x-tenant-id': 't-demo-printing',
-          'x-user-role': 'OWNER',
-        },
-      });
+      const res = await apiFetch('/api/crm/dashboard');
       if (res.ok) {
-        const json = await res.json();
-        setDashboardData(json);
+        setDashboardData(await res.json());
+      } else {
+        setDashboardData(null);
+        setError(res.status === 403 ? 'Your role cannot view the dashboard.' : `Could not load the dashboard (${res.status}).`);
       }
-    } catch (err) {
-      console.warn('Using initial dashboard state', err);
+    } catch {
+      setDashboardData(null);
+      setError('Could not reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Load, and reload when the business is switched.
   useEffect(() => {
     fetchDashboard();
-  }, [fetchDashboard]);
+  }, [tenantId, fetchDashboard]);
+
+  if (!dashboardData) {
+    return (
+      <div className="py-12 text-center text-sm">
+        {loading ? (
+          <span className="text-slate-600">Loading…</span>
+        ) : (
+          <div role="alert" className="mx-auto max-w-sm space-y-3">
+            <p className="font-semibold text-red-700">{error}</p>
+            <button
+              type="button"
+              onClick={fetchDashboard}
+              className="min-h-[44px] rounded-xl bg-action px-4 font-bold text-on-action hover:bg-action/85 transition-colors"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <HomeDashboard
-        userName="Anand"
+        userName={user?.name || user?.phone || ''}
         lang={lang}
         data={dashboardData}
         onRefresh={fetchDashboard}

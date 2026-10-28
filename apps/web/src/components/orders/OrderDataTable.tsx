@@ -25,7 +25,7 @@ export function OrderDataTable({ orders, isLoading, page, onPageChange, hasMore 
   }
 
   return (
-    <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
+    <div className="bg-surface shadow-sm rounded-lg border border-gray-200 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
@@ -38,7 +38,7 @@ export function OrderDataTable({ orders, isLoading, page, onPageChange, hasMore 
               <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-surface divide-y divide-gray-200">
             {orders.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-500">
@@ -82,14 +82,14 @@ export function OrderDataTable({ orders, isLoading, page, onPageChange, hasMore 
           <button
             onClick={() => onPageChange(page - 1)}
             disabled={page === 1}
-            className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-surface hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Previous
           </button>
           <button
             onClick={() => onPageChange(page + 1)}
             disabled={!hasMore}
-            className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-surface hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next
           </button>

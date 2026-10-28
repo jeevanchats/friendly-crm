@@ -61,6 +61,47 @@ export class OrdersService {
   }
 
   /**
+   * Customer-facing order list (WhatsApp self-service). Strictly scoped to ONE customer within ONE
+   * tenant and returns only fields a customer may see (no items, custom data, notes or audit trail).
+   */
+  async getOrdersForCustomer(tenantId: string, customerId: string, limit = 10) {
+    const pick = (o: any) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      productionStage: o.productionStage,
+      totalAmount: o.totalAmount ?? null,
+      advanceReceived: o.advanceReceived ?? null,
+      balanceDue: o.balanceDue ?? null,
+      expectedDeliveryAt: o.expectedDeliveryAt ?? null,
+      createdAt: o.createdAt ?? null,
+    });
+
+    try {
+      const activeDb = this.getDb();
+      if (typeof activeDb?.transaction === 'function') {
+        return await activeDb.transaction(async (tx: any) => {
+          await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          const rows = await tx
+            .select()
+            .from(orders)
+            .where(and(eq(orders.tenantId, tenantId), eq(orders.customerId, customerId)))
+            .orderBy(desc(orders.createdAt))
+            .limit(limit);
+          return rows.map(pick);
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Postgres offline; utilizing memory fallback for getOrdersForCustomer: ${err.message}`);
+    }
+
+    return globalMemoryOrders
+      .filter((o) => o.tenantId === tenantId && o.customerId === customerId)
+      .sort((a, b) => +new Date(b.createdAt ?? 0) - +new Date(a.createdAt ?? 0))
+      .slice(0, limit)
+      .map(pick);
+  }
+
+  /**
    * 1. GET /api/orders
    * List all orders for the tenant, optionally filtered by production stage
    */
@@ -223,13 +264,17 @@ export class OrdersService {
           });
 
           if (this.notificationOutboxService) {
-            tx.select({ phone: customers.phone, name: customers.name })
-              .from(customers)
-              .where(eq(customers.id, order.customerId))
-              .limit(1)
-              .then(([cust]: any[]) => {
-                if (cust?.phone) {
-                  this.notificationOutboxService?.enqueueNotification({
+            // Read the customer inside this transaction (awaited, so the connection is still open) and queue the
+            // WhatsApp update; a failure here must never undo the stage change itself.
+            try {
+              const [cust] = await tx
+                .select({ phone: customers.phone, name: customers.name })
+                .from(customers)
+                .where(and(eq(customers.id, existing.customerId), eq(customers.tenantId, tenantId)))
+                .limit(1);
+              if (cust?.phone) {
+                this.notificationOutboxService
+                  .enqueueNotification({
                     tenantId,
                     recipient: cust.phone,
                     templateKey: 'STAGE_UPDATED',
@@ -239,10 +284,12 @@ export class OrdersService {
                       stageName: cleanStageId,
                       balanceText: updated.balanceDue != null ? `\nBalance Due: ₹${updated.balanceDue}` : '',
                     },
-                  }).catch((e: any) => this.logger.warn(`Stage update outbox enqueue failed: ${e.message}`));
-                }
-              })
-              .catch((e: any) => this.logger.warn(`Failed to resolve customer phone for notification: ${e.message}`));
+                  })
+                  .catch((e: any) => this.logger.warn(`Stage update outbox enqueue failed: ${e.message}`));
+              }
+            } catch (e: any) {
+              this.logger.warn(`Failed to resolve customer phone for notification: ${e.message}`);
+            }
           }
 
           return updated;
@@ -442,20 +489,13 @@ export class OrdersService {
             },
           });
 
-          // 4. Update Customer totalReceivable
+          // 4. The customer's receivable is computed from opening balance + order balances when read; there is no
+          // stored total to update (the database has no such column).
           const [customer] = await tx
             .select()
             .from(customers)
             .where(and(eq(customers.id, order.customerId), eq(customers.tenantId, tenantId)))
             .limit(1);
-          if (customer) {
-            const curRec = parseFloat(customer.totalReceivable || '0.00');
-            const updatedRec = Math.max(0, curRec - amount);
-            await tx
-              .update(customers)
-              .set({ totalReceivable: roundMoney(updatedRec) })
-              .where(eq(customers.id, customer.id));
-          }
 
           const result = {
             payment,

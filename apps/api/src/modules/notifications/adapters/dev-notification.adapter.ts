@@ -77,6 +77,11 @@ export class DevNotificationAdapter implements INotificationAdapter {
     this.logger.log(
       `[DEV NOTIFICATION GATEWAY] Dispatched [${options.channel}] to ${masked} (ID: ${messageId})`
     );
+    // Local walkthroughs only: print what the customer would see on WhatsApp. Never in production, because
+    // messages contain customer names, amounts and payment links.
+    if (process.env.DEV_LOG_MESSAGE_BODIES === 'true' && process.env.NODE_ENV !== 'production') {
+      this.logger.log(`[DEV MESSAGE to ${options.recipient}]\n${options.message}\n[/DEV MESSAGE]`);
+    }
 
     return {
       success: true,

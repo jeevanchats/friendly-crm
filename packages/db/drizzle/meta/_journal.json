@@ -22,6 +22,111 @@
       "when": 1792600000000,
       "tag": "0002_enable_rls_and_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792701000000,
+      "tag": "0003_staff_phone_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792702000000,
+      "tag": "0004_customer_phone_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792703000000,
+      "tag": "0005_tenant_customer_self_service",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792704000000,
+      "tag": "0006_tenant_upi_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792705000000,
+      "tag": "0007_gst_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792706000000,
+      "tag": "0008_notification_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792707000000,
+      "tag": "0009_auto_reminders",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792708000000,
+      "tag": "0010_products",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792709000000,
+      "tag": "0011_user_memberships_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792710000000,
+      "tag": "0012_lead_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1792711000000,
+      "tag": "0013_attachment_transcript",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792712000000,
+      "tag": "0014_credit_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1792713000000,
+      "tag": "0015_eway_bills",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1792714000000,
+      "tag": "0016_reinvoice_after_cancellation",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792715000000,
+      "tag": "0017_bank_details",
+      "breakpoints": true
     }
   ]
 }

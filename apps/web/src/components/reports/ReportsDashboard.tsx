@@ -12,7 +12,7 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
   const { funnel, financials, topDebtors, repeatOpportunities } = data;
 
   return (
-    <div className="space-y-6 pb-20 text-[#243B40]">
+    <div className="space-y-6 pb-20 text-foreground">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -28,7 +28,7 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
         <button
           type="button"
           onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}
-          className="rounded-lg bg-[#F4B860]/25 px-3 py-1.5 text-xs font-bold"
+          className="rounded-lg bg-action/25 px-3 py-1.5 text-xs font-bold"
         >
           {lang === 'en' ? 'தமிழ்' : 'English'}
         </button>
@@ -36,28 +36,28 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
 
       {/* 1. Conversion & Revenue KPIs */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="rounded-2xl bg-white p-4 shadow-sm border border-slate-200">
+        <div className="rounded-2xl bg-surface p-4 shadow-sm border border-slate-200">
           <span className="text-xs font-semibold text-slate-500">
             {lang === 'ta' ? 'வெற்றி விகிதம் (Conversion)' : 'Lead Conversion'}
           </span>
-          <p className="mt-1 text-2xl font-extrabold text-[#167D79]">
+          <p className="mt-1 text-2xl font-extrabold text-brand-ink">
             {funnel.conversionRatePercent}%
           </p>
-          <span className="text-[11px] text-slate-400">
+          <span className="text-[11px] text-slate-600">
             {funnel.wonLeads} / {funnel.totalLeads} {lang === 'ta' ? 'ஆர்டர்கள்' : 'Leads Won'}
           </span>
         </div>
 
-        <div className="rounded-2xl bg-white p-4 shadow-sm border border-slate-200">
+        <div className="rounded-2xl bg-surface p-4 shadow-sm border border-slate-200">
           <span className="text-xs font-semibold text-slate-500">
             {lang === 'ta' ? 'மொத்த ஆர்டர் மதிப்பு' : 'Total Sales Booked'}
           </span>
-          <p className="mt-1 text-xl font-extrabold text-[#243B40]">
+          <p className="mt-1 text-xl font-extrabold text-foreground">
             ₹{financials.totalSalesBooked}
           </p>
         </div>
 
-        <div className="rounded-2xl bg-white p-4 shadow-sm border border-slate-200">
+        <div className="rounded-2xl bg-surface p-4 shadow-sm border border-slate-200">
           <span className="text-xs font-semibold text-slate-500">
             {lang === 'ta' ? 'வசூலான தொகை' : 'Total Collected'}
           </span>
@@ -66,7 +66,7 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
           </p>
         </div>
 
-        <div className="rounded-2xl bg-white p-4 shadow-sm border border-slate-200">
+        <div className="rounded-2xl bg-surface p-4 shadow-sm border border-slate-200">
           <span className="text-xs font-semibold text-slate-500">
             {lang === 'ta' ? 'மொத்த பாக்கி (Receivables)' : 'Pending Receivables'}
           </span>
@@ -77,8 +77,8 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
       </div>
 
       {/* 2. Top Pending Collections List with 1-Tap WhatsApp Payment Reminder */}
-      <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200 space-y-3">
-        <h2 className="text-sm font-bold text-[#243B40]">
+      <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200 space-y-3">
+        <h2 className="text-sm font-bold text-foreground">
           💳 {lang === 'ta' ? 'வரவேண்டிய பாக்கி பட்டியல் (Top Receivables)' : 'Pending Collections Recovery'}
         </h2>
         <div className="divide-y divide-slate-100">
@@ -92,8 +92,8 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
             return (
               <div key={d.customerId} className="flex items-center justify-between py-3">
                 <div>
-                  <p className="text-sm font-bold text-[#243B40]">{d.customerName}</p>
-                  <span className="text-xs text-slate-400">
+                  <p className="text-sm font-bold text-foreground">{d.customerName}</p>
+                  <span className="text-xs text-slate-600">
                     {d.unpaidOrdersCount} {lang === 'ta' ? 'ஆர்டர்கள் நிலுவை' : 'Unpaid Orders'}
                   </span>
                 </div>
@@ -115,8 +115,8 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
       </div>
 
       {/* 3. Section 8 Business Insight: Repeat-Order Radar (Inactive > 45 Days) */}
-      <div className="rounded-2xl bg-white p-5 shadow-sm border border-slate-200 space-y-3">
-        <h2 className="text-sm font-bold text-[#167D79]">
+      <div className="rounded-2xl bg-surface p-5 shadow-sm border border-slate-200 space-y-3">
+        <h2 className="text-sm font-bold text-brand-ink">
           🔁 {lang === 'ta' ? 'மறு ஆர்டர் வாய்ப்புகள் (Repeat-Order Radar)' : 'Repeat-Order Opportunities (45+ Days Inactive)'}
         </h2>
         <div className="divide-y divide-slate-100">
@@ -130,7 +130,7 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
             return (
               <div key={opp.customerId} className="flex items-center justify-between py-3">
                 <div>
-                  <p className="text-sm font-bold text-[#243B40]">{opp.customerName}</p>
+                  <p className="text-sm font-bold text-foreground">{opp.customerName}</p>
                   <span className="text-xs text-slate-500">
                     {lang === 'ta' ? 'கடந்த வர்த்தகம்:' : 'Lifetime:'} ₹{opp.lifetimeSpent} ({opp.pastOrdersCount} orders)
                   </span>
@@ -139,7 +139,7 @@ export function ReportsDashboard({ data, defaultLang = 'en' }: ReportsProps) {
                   href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(checkinMsg)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg bg-[#F4B860] px-3 py-2 text-xs font-bold text-[#243B40]"
+                  className="rounded-lg bg-action px-3 py-2 text-xs font-bold text-on-action"
                 >
                   {lang === 'ta' ? 'மறு ஆர்டர் கேள்' : 'Ask Repeat Order'}
                 </a>

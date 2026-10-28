@@ -18,7 +18,7 @@ export function OrderStageTracker({
   const currentIndex = DEFAULT_ORDER_STAGES.findIndex((s) => s.key === currentStage);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div className="bg-surface rounded-xl border border-slate-200 p-4 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <div>
           <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">
@@ -45,7 +45,7 @@ export function OrderStageTracker({
                     ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-300'
                     : isPassed
                     ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-slate-100 text-slate-400'
+                    : 'bg-slate-100 text-slate-600'
                 }`}
               >
                 {isPassed && <Check className="w-3.5 h-3.5" />}

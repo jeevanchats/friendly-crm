@@ -300,7 +300,7 @@ describe('Friendly CRM — Phase 2: Close Data Leaks and Fix Persistence Suite',
       createdTaskId = intakeData.followUpTask.id;
     });
 
-    it('step 2: verifies newly scheduled follow-up task appears immediately in Home Dashboard', async () => {
+    it('step 2: verifies the new enquiry appears immediately under Quotes to send on the Home Dashboard', async () => {
       const dashRes = await fetch(`${baseUrl}/api/crm/dashboard`, {
         headers: {
           'Authorization': `Bearer ${tokenOwnerA}`,
@@ -310,12 +310,16 @@ describe('Friendly CRM — Phase 2: Close Data Leaks and Fix Persistence Suite',
 
       expect(dashRes.status).toBe(200);
       const dash = await dashRes.json();
-      expect(dash.summaryCards.dueFollowUps).toBeGreaterThanOrEqual(1);
+      expect(dash.summaryCards.quotesToSend).toBeGreaterThanOrEqual(1);
 
-      // Verify the task is present in priorityTasks
-      const foundTask = dash.priorityTasks.find((t: any) => t.id === createdTaskId);
-      expect(foundTask).toBeDefined();
-      expect(foundTask.customerName).toContain('Saravana');
+      // The enquiry waits for a quote in its own list, with a "send quote" job due...
+      const waiting = dash.pendingQuotes.find((q: any) => q.leadId === createdLeadId);
+      expect(waiting).toBeDefined();
+      expect(waiting.customerName).toContain('Saravana');
+      expect(waiting.title).toContain('Diwali Sweet Boxes');
+      expect(waiting.dueAt).toBeTruthy();
+      // ...and is not mixed into the ordinary follow-up queue
+      expect(dash.priorityTasks.find((t: any) => t.id === createdTaskId)).toBeUndefined();
     });
 
     it('step 3: completes follow-up task and confirms real-time KPI update', async () => {

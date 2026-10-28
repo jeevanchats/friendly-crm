@@ -29,12 +29,45 @@ export interface CustomFieldConfig {
   options?: CustomFieldOption[];
 }
 
+export interface LeadStageConfig extends OrderStageConfig {
+  /** Marks a terminal stage. Omit for in-progress stages. */
+  outcome?: 'WON' | 'LOST';
+}
+
+/** Sample text shown as placeholders in forms, written in this industry's own words. */
+export interface IndustryExamples {
+  /** What an enquiry for this trade looks like, e.g. an item and quantity. */
+  enquiry: LocalizedString;
+  /** A typical customer / contact name. */
+  customer: LocalizedString;
+  /** A typical company or shop name. */
+  company: LocalizedString;
+  /** A typical catalogue item for the product list (plain text, not translated). */
+  product: { name: string; description: string; hsnCode: string; unit: string; unitPrice: string; taxPercent: string };
+}
+
 export interface IndustryTemplate {
   key: IndustryKey;
   name: LocalizedString;
+  examples?: IndustryExamples;
+  /** Optional per-industry lead pipeline. Falls back to DEFAULT_LEAD_STAGES. */
+  leadStages?: LeadStageConfig[];
   orderStages: OrderStageConfig[];
   customFields: CustomFieldConfig[];
 }
+
+/**
+ * Lead pipeline used when a template does not define its own `leadStages`.
+ * Stage ids must stay in sync with LeadStageEnum in dtos/crm.dto.ts.
+ */
+export const DEFAULT_LEAD_STAGES: LeadStageConfig[] = [
+  { id: 'NEW', label: { en: 'New Lead', ta: 'புதிய லீட்' }, color: '#3B82F6' },
+  { id: 'QUALIFIED', label: { en: 'Qualified', ta: 'தகுதியானது' }, color: '#8B5CF6' },
+  { id: 'QUOTED', label: { en: 'Quoted', ta: 'மேற்கோள் அனுப்பப்பட்டது' }, color: '#F4B860' },
+  { id: 'NEGOTIATION', label: { en: 'Negotiation', ta: 'பேச்சுவார்த்தை' }, color: '#EC4899' },
+  { id: 'WON', label: { en: 'Won', ta: 'வெற்றி' }, color: '#10B981', outcome: 'WON' },
+  { id: 'LOST', label: { en: 'Lost', ta: 'இழந்தது' }, color: '#EF4444', outcome: 'LOST' },
+];
 
 const rawTemplates = (industryTemplatesData as any)?.default || industryTemplatesData;
 export const INDUSTRY_TEMPLATES: Record<string, IndustryTemplate> = (
@@ -48,6 +81,27 @@ export function getIndustryTemplate(key: string): IndustryTemplate {
     return INDUSTRY_TEMPLATES['printing'];
   }
   return template;
+}
+
+/** Placeholder examples for forms. Falls back to neutral wording that names no particular trade. */
+export function getIndustryExamples(industryKey: string): IndustryExamples {
+  const found = INDUSTRY_TEMPLATES[industryKey?.toLowerCase?.() ?? '']?.examples;
+  return (
+    found ?? {
+      enquiry: { en: 'e.g., what the customer wants and how many', ta: 'எ.கா. வாடிக்கையாளர் கேட்கும் பொருள் மற்றும் எண்ணிக்கை' },
+      customer: { en: 'e.g., customer or contact name', ta: 'எ.கா. வாடிக்கையாளர் பெயர்' },
+      company: { en: 'e.g., shop or company name', ta: 'எ.கா. கடை / நிறுவனம் பெயர்' },
+      product: { name: 'Item name', description: 'Size, grade or other details', hsnCode: '', unit: 'Nos', unitPrice: '100', taxPercent: '18' },
+    }
+  );
+}
+
+export function isIndustryKey(key: unknown): key is IndustryKey {
+  return typeof key === 'string' && Object.prototype.hasOwnProperty.call(INDUSTRY_TEMPLATES, key.toLowerCase());
+}
+
+export function getLeadStages(industryKey: string): LeadStageConfig[] {
+  return getIndustryTemplate(industryKey).leadStages ?? DEFAULT_LEAD_STAGES;
 }
 
 export function getCustomFieldsForEntity(
@@ -97,7 +151,11 @@ export function buildCustomDataZodSchema(
         break;
       }
       case 'BOOLEAN': {
-        schema = z.coerce.boolean();
+        // z.coerce.boolean() turns the string "false" into true, so map strings explicitly.
+        schema = z.preprocess(
+          (v) => (v === 'true' ? true : v === 'false' ? false : v),
+          z.boolean()
+        );
         break;
       }
       case 'TEXT':
@@ -121,6 +179,19 @@ export function buildCustomDataZodSchema(
 }
 
 /**
+ * Returns human-readable validation errors for customData (empty array when valid).
+ */
+export function getCustomDataErrors(
+  industryKey: string,
+  entity: 'LEAD' | 'QUOTATION' | 'ORDER',
+  data: unknown
+): string[] {
+  const result = buildCustomDataZodSchema(industryKey, entity).safeParse(data || {});
+  if (result.success) return [];
+  return result.error.errors.map((err) => `${err.path.join('.')}: ${err.message}`);
+}
+
+/**
  * Validates customData directly, throwing a structured error if invalid
  */
 export function validateCustomData(
@@ -132,9 +203,7 @@ export function validateCustomData(
   const result = schema.safeParse(data || {});
 
   if (!result.success) {
-    const errorMessages = result.error.errors.map(
-      (err) => `${err.path.join('.')}: ${err.message}`
-    );
+    const errorMessages = getCustomDataErrors(industryKey, entity, data);
     throw new Error(`Validation failed for ${industryKey} ${entity} customData: ${errorMessages.join('; ')}`);
   }
 
