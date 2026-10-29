@@ -2,7 +2,7 @@ name: Friendly CRM CI Pipeline
 
 on:
   push:
-    branches: [main, feature/**, fix/**]
+    branches: [main, feature/**, fix/**, ci/**]
   pull_request:
     branches: [main]
 
