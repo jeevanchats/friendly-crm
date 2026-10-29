@@ -280,6 +280,23 @@ export class CrmController {
   }
 
   /**
+   * GET /api/crm/customers/similar?name=&companyName=&gstin=&phone=
+   * Customers that look like the one being typed (same GSTIN, same or near-identical name). A warning aid for the
+   * Add customer form: it never blocks, the person decides.
+   */
+  @Get('customers/similar')
+  @RequirePermission('customer:view')
+  async similarCustomers(
+    @CurrentTenant() tenant: { id: string },
+    @Query('name') name?: string,
+    @Query('companyName') companyName?: string,
+    @Query('gstin') gstin?: string,
+    @Query('phone') phone?: string
+  ) {
+    return this.customersService.findSimilar(tenant.id, { name, companyName, gstin, phone });
+  }
+
+  /**
    * 9. GET /api/crm/customers/:id
    * Complete Customer 360 profile view: details, orders, quotations, ledger & timeline
    */

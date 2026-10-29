@@ -2,6 +2,7 @@
  * Product master import: column matching and row validation for a product / service list.
  * Pure and shared by the browser (live preview) and the API (the real check), like customer-import.
  */
+import { cleanDisplayName } from './duplicates';
 import { isValidHsn } from './gst';
 import { parseDelimited, parseMoneyToPaise } from './customer-import';
 import { getIndustryExamples } from './templates';
@@ -125,7 +126,7 @@ export function validateProductRow(raw: Partial<Record<ProductField, unknown>>):
   const warnings: string[] = [];
   const text = (k: ProductField) => (raw[k] === undefined || raw[k] === null ? '' : String(raw[k]).trim());
 
-  const name = text('name');
+  const name = cleanDisplayName(text('name'));
   if (!name) errors.push('Name is missing');
   else if (name.length > 200) errors.push('Name is longer than 200 characters');
 

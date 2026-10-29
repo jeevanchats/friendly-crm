@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { GST_RATE_SLABS, IndustryKey, getIndustryExamples, normalizeUnit, validateProductRow } from '@friendly-crm/shared';
 import { apiFetch } from '../../lib/session';
+import { SimilarMatches, useSimilar } from '../shared/SimilarMatches';
 
 export interface ProductRow {
   id: string;
@@ -48,6 +49,10 @@ export function ProductForm({
   });
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // Products that look like this one (not itself). Only a warning: an exact name or code is refused on save anyway.
+  const similar = useSimilar('/api/products/similar', { name: f.name.trim(), code: f.code.trim() }, f.name.trim().length >= 3 || f.code.trim().length >= 2).filter(
+    (m) => m.id !== product?.id
+  );
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setF((prev) => ({ ...prev, [k]: e.target.value }));
 
@@ -133,6 +138,8 @@ export function ProductForm({
           <label htmlFor="p-desc" className={label}>{ta ? 'விவரம்' : 'Description'}</label>
           <textarea id="p-desc" className={input} rows={2} value={f.description} onChange={set('description')} maxLength={1000} placeholder={`e.g., ${example.description}`} />
         </div>
+
+        <SimilarMatches kind="product" matches={similar} ta={ta} />
 
         {errors.length > 0 && (
           <ul role="alert" className="space-y-1 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700">

@@ -4,8 +4,9 @@ import { useDialog } from '../shared/useDialog';
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { X } from 'lucide-react';
-import { GST_STATES, hasPermission, normalizeGstin, stateCodeFromGstin, validateCustomerRow, TenantRole } from '@friendly-crm/shared';
+import { GST_STATES, hasPermission, isValidGstin, normalizeGstin, stateCodeFromGstin, validateCustomerRow, TenantRole } from '@friendly-crm/shared';
 import { apiFetch } from '../../lib/session';
+import { SimilarMatches, useSimilar } from '../shared/SimilarMatches';
 
 interface Props {
   role: TenantRole;
@@ -38,12 +39,28 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
 
   const gstState = f.gstin.trim() ? stateCodeFromGstin(normalizeGstin(f.gstin)) : null;
 
+  // Does this look like someone already in the customer list? (Only a warning; the phone number is the hard check.)
+  const gstinOk = isValidGstin(normalizeGstin(f.gstin));
+  const similar = useSimilar(
+    '/api/crm/customers/similar',
+    { name: f.name.trim(), companyName: f.companyName.trim(), gstin: gstinOk ? normalizeGstin(f.gstin) : '', phone: f.phone.trim() },
+    f.name.trim().length >= 3 || f.companyName.trim().length >= 3 || gstinOk
+  );
+  const [confirmedDifferent, setConfirmedDifferent] = useState(false);
+  const similarKey = similar.map((m) => m.id).join(',');
+  React.useEffect(() => setConfirmedDifferent(false), [similarKey]);
+  const mustConfirm = similar.some((m) => m.reason === 'gstin' || m.reason === 'same-name') && !confirmedDifferent;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setExistingId(null);
     const check = validateCustomerRow(f);
     if (!check.ok) {
       setErrors(check.errors);
+      return;
+    }
+    if (mustConfirm) {
+      setErrors([ta ? 'இதே GSTIN அல்லது பெயருடன் வாடிக்கையாளர் உள்ளார். வேறு நபர் என்றால் மேலே உறுதி செய்யவும்.' : 'A customer with the same GSTIN or name already exists. Tick the box above if this is a different customer.']);
       return;
     }
     setErrors([]);
@@ -132,6 +149,8 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
             <input id="c-limit" className={input} value={f.creditLimit} onChange={set('creditLimit')} inputMode="decimal" placeholder="0" />
           </div>
         </div>
+
+        <SimilarMatches kind="customer" matches={similar} ta={ta} confirmed={confirmedDifferent} onConfirm={setConfirmedDifferent} />
 
         {errors.length > 0 && (
           <ul role="alert" className="space-y-1 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700">

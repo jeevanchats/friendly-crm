@@ -30,6 +30,13 @@ export class ProductsController {
     return this.products.list(tenant.id, { search, includeArchived: archived === 'true', limit: Number.isFinite(n) ? n : undefined });
   }
 
+  /** GET /api/products/similar?name=&code= : products that look like the one being typed (a warning aid, never a block). */
+  @Get('similar')
+  @RequirePermission('product:view')
+  similar(@CurrentTenant() tenant: { id: string }, @Query('name') name?: string, @Query('code') code?: string) {
+    return this.products.findSimilar(tenant.id, { name, code });
+  }
+
   /** POST /api/products : add one product. 409 when the name or code is already used. */
   @Post()
   @RequirePermission('product:manage')
