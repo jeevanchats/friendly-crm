@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Customer360View } from '../../../components/crm/Customer360View';
 import { BillingDetailsCard } from '../../../components/crm/BillingDetailsCard';
+import { ContactsCard } from '../../../components/crm/ContactsCard';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import { useLocale } from '../../../components/shared/LocaleProvider';
@@ -125,6 +126,7 @@ export default function CustomerDetailPage() {
               remindersOptOut: customerData.customer?.remindersOptOut,
             }}
           />
+          <ContactsCard key={`contacts-${customerId}`} customerId={customerId} role={activeRole} lang={locale} />
         </>
       ) : null}
     </div>

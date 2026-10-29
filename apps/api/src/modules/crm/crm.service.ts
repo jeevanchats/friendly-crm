@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, HttpException, Logger } from '@nestjs/common';
 import { sql, eq, and, or, ilike, desc } from 'drizzle-orm';
-import { db, customers, leads, tasks, activities, tenants } from '@friendly-crm/db';
+import { db, customers, customerContacts, leads, tasks, activities, tenants } from '@friendly-crm/db';
 import {
   IntakeLeadDto,
   UpdateLeadStageDto,
@@ -20,6 +20,7 @@ import {
   globalMemoryLeads,
   globalMemoryTasks,
   globalMemoryActivities,
+  globalMemoryContacts,
 } from './memory-store';
 import { onDbError } from '../../common/utils/db-fallback.util';
 
@@ -94,7 +95,9 @@ export class CrmService {
   ): Promise<{
     status: 'FOUND' | 'NOT_FOUND' | 'INVALID';
     phone: string | null;
-    matchedOn?: 'PHONE' | 'WHATSAPP';
+    matchedOn?: 'PHONE' | 'WHATSAPP' | 'CONTACT';
+    /** When the number belongs to one of the customer's contacts: who. */
+    contactName?: string;
     customer?: { id: string; name: string; companyName: string | null; phone: string; openEnquiries: number };
   }> {
     const phone = normalizeContactPhone(rawPhone);
@@ -118,6 +121,7 @@ export class CrmService {
             status: 'FOUND',
             phone,
             matchedOn: found.matchedOn,
+            ...(found.contact ? { contactName: found.contact.name } : {}),
             customer: {
               id: found.customer.id,
               name: found.customer.name,
@@ -134,21 +138,28 @@ export class CrmService {
       onDbError(this.logger, 'looking the customer up in memory', dbErr);
     }
 
+    const memContact = globalMemoryContacts.find((c) => c.tenantId === tenantId && c.phone === phone);
     const mem =
       this.memoryCustomers.find((c) => c.tenantId === tenantId && c.phone === phone) ??
-      this.memoryCustomers.find((c) => c.tenantId === tenantId && c.whatsappNumber === phone);
+      this.memoryCustomers.find((c) => c.tenantId === tenantId && c.whatsappNumber === phone) ??
+      (memContact ? this.memoryCustomers.find((c) => c.tenantId === tenantId && c.id === memContact.customerId) : undefined);
     if (!mem) return { status: 'NOT_FOUND', phone };
     const open = this.memoryLeads.filter((l: any) => l.tenantId === tenantId && l.customerId === mem.id && needsQuote(l.stage)).length;
     return {
       status: 'FOUND',
       phone,
-      matchedOn: mem.phone === phone ? 'PHONE' : 'WHATSAPP',
+      matchedOn: mem.phone === phone ? 'PHONE' : mem.whatsappNumber === phone ? 'WHATSAPP' : 'CONTACT',
+      ...(mem.phone !== phone && mem.whatsappNumber !== phone && memContact ? { contactName: memContact.name } : {}),
       customer: { id: mem.id, name: mem.name, companyName: mem.companyName ?? null, phone: mem.phone, openEnquiries: open },
     };
   }
 
-  /** The customer with this phone number, or failing that the one whose WhatsApp number it is. */
-  private async findCustomerByPhone(tx: any, tenantId: string, phone: string): Promise<{ customer: any; matchedOn: 'PHONE' | 'WHATSAPP' } | null> {
+  /** The customer with this phone number, or failing that the one whose WhatsApp number it is, or whose contact has it. */
+  private async findCustomerByPhone(
+    tx: any,
+    tenantId: string,
+    phone: string
+  ): Promise<{ customer: any; matchedOn: 'PHONE' | 'WHATSAPP' | 'CONTACT'; contact?: { name: string } } | null> {
     const [byPhone] = await tx
       .select()
       .from(customers)
@@ -160,7 +171,19 @@ export class CrmService {
       .from(customers)
       .where(and(eq(customers.tenantId, tenantId), eq(customers.whatsappNumber, phone)))
       .limit(1);
-    return byWhatsapp ? { customer: byWhatsapp, matchedOn: 'WHATSAPP' } : null;
+    if (byWhatsapp) return { customer: byWhatsapp, matchedOn: 'WHATSAPP' };
+    const [contact] = await tx
+      .select()
+      .from(customerContacts)
+      .where(and(eq(customerContacts.tenantId, tenantId), eq(customerContacts.phone, phone)))
+      .limit(1);
+    if (!contact) return null;
+    const [parent] = await tx
+      .select()
+      .from(customers)
+      .where(and(eq(customers.tenantId, tenantId), eq(customers.id, contact.customerId)))
+      .limit(1);
+    return parent ? { customer: parent, matchedOn: 'CONTACT', contact: { name: contact.name } } : null;
   }
 
   /**
@@ -333,9 +356,11 @@ export class CrmService {
     }
 
       // Memory Fallback
+      const memContact = globalMemoryContacts.find((c) => c.tenantId === tenantId && c.phone === normalizedPhone);
       let customer =
         this.memoryCustomers.find((c) => c.tenantId === tenantId && c.phone === normalizedPhone) ??
-        this.memoryCustomers.find((c) => c.tenantId === tenantId && c.whatsappNumber === normalizedPhone);
+        this.memoryCustomers.find((c) => c.tenantId === tenantId && c.whatsappNumber === normalizedPhone) ??
+        (memContact ? this.memoryCustomers.find((c) => c.tenantId === tenantId && c.id === memContact.customerId) : undefined);
       let isNewCustomer = false;
 
       if (!customer) {

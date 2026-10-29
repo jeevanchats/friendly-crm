@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { db, sql } from '@friendly-crm/db';
-import { globalMemoryCustomers, globalMemoryTenants } from '../../crm/memory-store';
+import { globalMemoryContacts, globalMemoryCustomers, globalMemoryTenants } from '../../crm/memory-store';
 import { CustomerIdentity } from './conversation.engine';
 import { onDbError } from '../../../common/utils/db-fallback.util';
 
@@ -36,8 +36,9 @@ export class CustomerIdentityService {
       onDbError(this.logger, 'customer phone lookup using memory store', err);
     }
 
+    const contactOf = new Set(globalMemoryContacts.filter((k) => k.phone === phoneE164).map((k) => k.customerId));
     return globalMemoryCustomers
-      .filter((c) => c.phone === phoneE164 || c.whatsappNumber === phoneE164)
+      .filter((c) => c.phone === phoneE164 || c.whatsappNumber === phoneE164 || contactOf.has(c.id))
       .map((c) => {
         const tenant: any = globalMemoryTenants.get(c.tenantId);
         return {

@@ -1,7 +1,9 @@
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: '.',
+  // Specs that need a real, migrated Postgres run in their own lane (jest.db.config.js, `npm run test:db`)
   testRegex: '.*\\.e2e-spec\\.ts$',
+  testPathIgnorePatterns: ['/node_modules/', '(-db|auth-expiry-queries)\\.e2e-spec\\.ts$'],
   transform: {
     '^.+\\.(t|j)s$': 'ts-jest',
   },

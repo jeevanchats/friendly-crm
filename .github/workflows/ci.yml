@@ -59,3 +59,12 @@ jobs:
           NODE_ENV: test
           ENABLE_DEV_SMS_GATEWAY: 'true'
           JWT_SECRET: ci-test-jwt-secret-key-at-least-32-chars
+
+      - name: Run the real-Postgres specs
+        run: |
+          cd apps/api
+          npm run test:db -- --ci
+        env:
+          NODE_ENV: test
+          ENABLE_DEV_SMS_GATEWAY: 'true'
+          JWT_SECRET: ci-test-jwt-secret-key-at-least-32-chars
