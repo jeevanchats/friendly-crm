@@ -29,6 +29,8 @@ import {
   normalizeGstin,
   stateCodeFromGstin,
   rankSimilar,
+  findImportNameClashes,
+  nameKey,
   normalizeContactPhone,
 } from '@friendly-crm/shared';
 import { filterAndSanitizeActivities } from '../../common';
@@ -55,6 +57,8 @@ export interface ImportRowResult {
   phone: string;
   status: ImportRowStatus;
   messages: string[];
+  /** Importable, but worth a look first: it resembles a customer already there or an earlier row of the file. */
+  check?: boolean;
 }
 
 export interface ImportResult {
@@ -63,6 +67,10 @@ export interface ImportResult {
   updated: number;
   skipped: number;
   errors: number;
+  /** Rows (not counting errors) flagged to check because they look like an existing customer or an earlier row. */
+  toCheck: number;
+  /** 'similar': names that merely look alike were compared too. 'identical-only': the file was too large for that. */
+  nameCheck: 'similar' | 'identical-only';
   /** Total of the opening balances being brought in by new customers, in rupees. */
   openingBalanceTotal: string;
   rows: ImportRowResult[];
@@ -329,6 +337,7 @@ export class CustomersService {
       });
     });
 
+    let nameCheck: 'similar' | 'identical-only' = 'similar';
     const run = async (tx: any | null) => {
       const phones = planned.filter((p) => p.clean).map((p) => p.clean!.phone);
       const existing = await this.findByPhones(tx, tenantId, phones);
@@ -352,6 +361,30 @@ export class CustomersService {
           p.result.messages.push(`Already a customer (${found.name})`);
         }
       }
+      // Resemblance (not identity): a new customer whose name looks like one already there, or like an earlier row
+      const pool: any[] = tx
+        ? await tx.select({ id: customers.id, name: customers.name, companyName: customers.companyName, phone: customers.phone }).from(customers).where(eq(customers.tenantId, tenantId)).limit(20000)
+        : globalMemoryCustomers.filter((c: any) => c.tenantId === tenantId);
+      const newRows = planned.filter((p) => p.clean && p.result.status === 'create');
+      const clashes = findImportNameClashes(newRows.map((p) => ({ name: p.clean!.name, companyName: p.clean!.companyName })), pool);
+      nameCheck = clashes.fuzzy ? 'similar' : 'identical-only';
+      const firstWithKey = new Map<string, number>();
+      for (const [i, p] of newRows.entries()) {
+        const flag = (msg: string) => {
+          p.result.messages.push(msg);
+          p.result.check = true;
+        };
+        const raw = clashes.hits[i];
+        const hit = raw && raw.item.phone !== p.clean!.phone && raw.reason !== 'gstin' ? raw : undefined;
+        if (hit) {
+          flag(`Looks like the existing customer "${hit.item.name}" (${hit.reason === 'same-name' ? 'same name' : 'similar name'}). If it is the same business, skip this row and add the person as a contact there`);
+        }
+        const key = nameKey(p.clean.name);
+        const earlier = key ? firstWithKey.get(key) : undefined;
+        if (earlier !== undefined) flag(`Same name as row ${earlier} but a different number. If it is the same business, make the second person a contact instead`);
+        else if (key) firstWithKey.set(key, p.result.row);
+      }
+
       const withGstin = planned.filter((p) => p.clean?.gstin && (p.result.status === 'create' || p.result.status === 'update'));
       const owners = await this.findByGstins(tx, tenantId, [...new Set(withGstin.map((p) => p.clean!.gstin as string))]);
       for (const p of withGstin) {
@@ -417,6 +450,7 @@ export class CustomersService {
         if (!p.clean) continue;
         p.result.status = 'create';
         p.result.messages = [...(p.warnings ?? [])];
+        p.result.check = undefined;
         p.existing = undefined;
       }
       await run(null);
@@ -430,6 +464,8 @@ export class CustomersService {
       updated: count('update'),
       skipped: count('skip'),
       errors: count('error'),
+      toCheck: rows.filter((r) => r.check && r.status !== 'error' && r.status !== 'skip').length,
+      nameCheck,
       openingBalanceTotal: money(planned.filter((p) => p.result.status === 'create' && p.clean).reduce((s, p) => s + p.clean!.openingBalancePaise, 0)),
       rows,
     };

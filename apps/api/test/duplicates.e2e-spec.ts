@@ -1,4 +1,4 @@
-import { cleanDisplayName, nameKey, nameSimilarity, rankSimilar } from '@friendly-crm/shared';
+import { cleanDisplayName, findImportNameClashes, makeSimilarFinder, nameKey, nameSimilarity, rankSimilar } from '@friendly-crm/shared';
 
 describe('duplicate control: names', () => {
   it('tidies a name without changing its case or punctuation', () => {
@@ -77,5 +77,39 @@ describe('duplicate control: ranking', () => {
   it('ranks certain matches above name matches and honours the limit', () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ id: `x${i}`, name: 'Anand Traders' }));
     expect(rankSimilar({ name: 'Anand Traders' }, many, { limit: 3 })).toHaveLength(3);
+  });
+});
+
+describe('duplicate control: the fast path agrees with the plain comparison, and is fast', () => {
+  const words = ['Anand', 'Murugan', 'Lakshmi', 'Traders', 'Stores', 'Agencies', 'Textiles', 'Furniture', 'Printers', 'Steel', 'Balaji', 'Kumar', 'Ganesh', 'Velan', 'Selvam', 'Vinayaga'];
+  const name = (i: number) => `${words[i % 16]} ${words[(i * 7 + 3) % 16]} ${words[(i * 3 + 1) % 16]}`;
+  // Small slips of the kind people actually make
+  const slip = (s: string, i: number) => [s + 's', s.replace(/a/, 'aa'), s.slice(1), s.replace(/ /, '  '), s.replace(/e/, 'i'), s.toUpperCase(), `M/s. ${s} Pvt Ltd`, s + ' x'][i % 8];
+
+  it('finds exactly the pairs the plain similarity score would', () => {
+    const pool = Array.from({ length: 200 }, (_, i) => ({ id: String(i), name: name(i * 5) }));
+    const finder = makeSimilarFinder(pool);
+    for (let i = 0; i < 120; i++) {
+      const q = slip(name(i * 11 + 2), i);
+      const expected = pool.filter((p) => nameSimilarity(q, p.name) >= 0.82).map((p) => p.id).sort();
+      const got = finder.find({ name: q }, { limit: 1000 }).map((h) => h.item.id).sort();
+      expect(got).toEqual(expected);
+    }
+  });
+
+  it('an import check stays quick: a big file against a big master compares identical names only, a modest one compares by similarity', () => {
+    const pool = Array.from({ length: 5000 }, (_, i) => ({ id: String(i), name: `${name(i)} ${i}` }));
+
+    let started = Date.now();
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ name: i === 3 ? name(3).toUpperCase() + ' 3' : `${name(i * 5 + 1)} ${i * 5 + 1}x` }));
+    const big = findImportNameClashes(rows, pool);
+    expect(big.fuzzy).toBe(false);
+    expect(big.hits[3]?.item.id).toBe('3'); // identical once tidied is still found
+    expect(Date.now() - started).toBeLessThan(3000);
+
+    started = Date.now();
+    const small = findImportNameClashes(rows.slice(0, 40), pool.slice(0, 2000));
+    expect(small.fuzzy).toBe(true);
+    expect(Date.now() - started).toBeLessThan(15000);
   });
 });
