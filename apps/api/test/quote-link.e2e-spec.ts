@@ -218,7 +218,7 @@ describe('customer quote link (HTTP)', () => {
     const res = await fetch(`${baseUrl}/api/sales/quotations`, {
       method: 'POST',
       headers: { authorization: `Bearer ${ownerToken}`, 'x-tenant-id': T, 'content-type': 'application/json' },
-      body: JSON.stringify({ customerId: 'cust-link-1', items: [{ itemName: 'Wall Calendar', quantity: 10, unitPrice: 100, taxPercent: 12, hsnCode: '4910' }] }),
+      body: JSON.stringify({ customerId: 'cust-link-1', items: [{ unit: 'Nos', itemName: 'Wall Calendar', quantity: 10, unitPrice: 100, taxPercent: 12, hsnCode: '4910' }] }),
     });
     expect(res.status).toBe(201);
     quoteId = (await res.json()).id;

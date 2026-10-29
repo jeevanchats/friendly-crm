@@ -137,7 +137,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         body: JSON.stringify({
           customerId: customerIdPrinting,
           items: [
-            {
+            { unit: 'Nos', taxPercent: 18, 
               itemName: 'Foil Stamped Cartons',
               quantity: 0,
               unitPrice: 15.0,
@@ -161,7 +161,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         body: JSON.stringify({
           customerId: customerIdPrinting,
           items: [
-            {
+            { unit: 'Nos', taxPercent: 18, 
               itemName: 'Foil Stamped Cartons',
               quantity: -5,
               unitPrice: 15.0,
@@ -184,7 +184,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         body: JSON.stringify({
           customerId: customerIdPrinting,
           items: [
-            {
+            { unit: 'Nos', taxPercent: 18, 
               itemName: 'Offset Catalogues',
               quantity: 100,
               unitPrice: -50.0,
@@ -210,7 +210,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
           customerId: customerIdPrinting,
           discountAmount: -200,
           items: [
-            {
+            { unit: 'Nos', taxPercent: 18, 
               itemName: 'Rigid Gift Boxes',
               quantity: 50,
               unitPrice: 100.0,
@@ -236,7 +236,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
           customerId: customerIdPrinting,
           discountAmount: 10000, // Total is 10 * 100 * 1.18 = 1180
           items: [
-            {
+            { unit: 'Nos', 
               itemName: 'Sweet Boxes',
               quantity: 10,
               unitPrice: 100.0,
@@ -284,7 +284,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         body: JSON.stringify({
           customerId: customerIdPrinting,
           items: [
-            {
+            { unit: 'Nos', 
               itemName: 'Die-cut Corrugated Boxes',
               quantity: 100,
               unitPrice: 50.0,
@@ -346,7 +346,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           items: [
-            {
+            { unit: 'Nos', 
               itemName: 'Die-cut Corrugated Boxes v2',
               quantity: 120,
               unitPrice: 48.0,
@@ -393,7 +393,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdPrinting,
-          items: [{ itemName: 'Item 1', quantity: 10, unitPrice: 100 }],
+          items: [{ unit: 'Nos', taxPercent: 18, itemName: 'Item 1', quantity: 10, unitPrice: 100 }],
         }),
       });
       const q1 = await q1Res.json();
@@ -408,7 +408,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdPrinting,
-          items: [{ itemName: 'Item 2', quantity: 20, unitPrice: 100 }],
+          items: [{ unit: 'Nos', taxPercent: 18, itemName: 'Item 2', quantity: 20, unitPrice: 100 }],
         }),
       });
       const q2 = await q2Res.json();
@@ -471,7 +471,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdTextiles,
-          items: [{ itemName: 'Pure Kanchipuram Silk Saree', quantity: 5, unitPrice: 12000 }],
+          items: [{ unit: 'Nos', taxPercent: 18, itemName: 'Pure Kanchipuram Silk Saree', quantity: 5, unitPrice: 12000 }],
         }),
       });
 
@@ -496,7 +496,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdPrinting,
-          items: [{ itemName: 'Brochures', quantity: 500, unitPrice: 20 }],
+          items: [{ unit: 'Nos', taxPercent: 18, itemName: 'Brochures', quantity: 500, unitPrice: 20 }],
         }),
       });
       idempotencyQuote = await qRes.json();
@@ -573,7 +573,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdPrinting,
-          items: [{ itemName: 'Luxury Packaging Boxes', quantity: 100, unitPrice: 100, taxPercent: 0 }],
+          items: [{ unit: 'Nos', itemName: 'Luxury Packaging Boxes', quantity: 100, unitPrice: 100, taxPercent: 0 }],
         }),
       });
       const quote = await quoteRes.json();
@@ -647,7 +647,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdPrinting,
-          items: [{ itemName: 'Visiting Cards', quantity: 1000, unitPrice: 2, taxPercent: 0 }],
+          items: [{ unit: 'Nos', itemName: 'Visiting Cards', quantity: 1000, unitPrice: 2, taxPercent: 0 }],
         }),
       });
       const quote = await qRes.json();
@@ -709,7 +709,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdPrinting,
-          items: [{ itemName: 'Envelopes', quantity: 500, unitPrice: 2, taxPercent: 0 }],
+          items: [{ unit: 'Nos', itemName: 'Envelopes', quantity: 500, unitPrice: 2, taxPercent: 0 }],
         }),
       });
       const quote = await qRes.json();
@@ -756,7 +756,7 @@ describe('Friendly CRM — Phase 4: Financial and Workflow Correctness Suite', (
         },
         body: JSON.stringify({
           customerId: customerIdPrinting,
-          items: [{ itemName: 'Invitation Cards', quantity: 200, unitPrice: 10 }],
+          items: [{ unit: 'Nos', taxPercent: 18, itemName: 'Invitation Cards', quantity: 200, unitPrice: 10 }],
         }),
       });
       const quote = await qRes.json();

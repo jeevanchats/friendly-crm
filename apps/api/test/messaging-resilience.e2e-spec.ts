@@ -202,7 +202,7 @@ describe('Friendly CRM — Phase 6: Resilient Messaging & Outbound Notification 
         },
         body: JSON.stringify({
           customerId: customerIdA,
-          items: [{ description: 'Visiting Cards', quantity: 1000, unitPrice: 2.0, taxPercent: 18.0 }],
+          items: [{ unit: 'Nos', description: 'Visiting Cards', quantity: 1000, unitPrice: 2.0, taxPercent: 18.0 }],
         }),
       });
       const quote = await quoteRes.json();

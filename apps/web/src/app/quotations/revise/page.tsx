@@ -55,6 +55,7 @@ function ReviseQuotation() {
             customData: q.customData ?? {},
             items: data.items.map((i: any) => ({
               itemName: i.itemName,
+              productId: i.productId ?? null,
               description: i.description ?? '',
               hsnCode: i.hsnCode ?? '',
               quantity: Number(i.quantity),

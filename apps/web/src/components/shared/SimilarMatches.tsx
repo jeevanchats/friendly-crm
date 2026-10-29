@@ -12,6 +12,9 @@ export interface SimilarMatch {
   phone?: string;
   gstin?: string | null;
   code?: string | null;
+  description?: string | null;
+  hsnCode?: string | null;
+  taxPercent?: string;
   unit?: string;
   unitPrice?: string;
   isActive?: boolean;

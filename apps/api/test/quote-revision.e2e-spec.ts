@@ -28,7 +28,7 @@ describe('Revising a quote tells the customer', () => {
       body: init.body ? JSON.stringify(init.body) : undefined,
     });
 
-  const line = (price: number, qty = 10) => ({ itemName: 'Wall Calendar', quantity: qty, unitPrice: price, taxPercent: 12, hsnCode: '4910' });
+  const line = (price: number, qty = 10) => ({ unit: 'Nos', itemName: 'Wall Calendar', quantity: qty, unitPrice: price, taxPercent: 12, hsnCode: '4910' });
   const create = async (customerId = CUSTOMER_ID, items = [line(100)]) =>
     (await (await http(owner, '/sales/quotations', { method: 'POST', body: { customerId, items } })).json());
   const revise = (id: string, items: unknown[], extra: Record<string, unknown> = {}) =>

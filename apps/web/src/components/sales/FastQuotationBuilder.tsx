@@ -4,9 +4,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CustomFieldRenderer } from '../dynamic/CustomFieldRenderer';
 import { apiFetch } from '../../lib/session';
 import { ProductPicker } from '../products/ProductPicker';
-import { GST_RATE_SLABS, SuggestedLine } from '@friendly-crm/shared';
+import { ProductForm, UNITS } from '../products/ProductForm';
+import { useSimilar } from '../shared/SimilarMatches';
+import { useAuth } from '../auth/AuthProvider';
+import { GST_RATE_SLABS, SuggestedLine, hasPermission } from '@friendly-crm/shared';
 
 type LineItem = {
+  /** The product-list entry this line came from; empty for a free-text line. */
+  productId?: string | null;
   itemName: string;
   description: string;
   hsnCode: string;
@@ -40,6 +45,57 @@ interface FastQuotationProps {
   suggestion?: { id: number; lines: SuggestedLine[] } | null;
 }
 
+/**
+ * Shown under a line whose name is not tied to a product: either it is a near miss of something already listed
+ * (offer that), or it is new (offer to add it to the product list, with the fields already typed on the line).
+ */
+function UnlistedHint({
+  item,
+  lang,
+  canAdd,
+  onUse,
+  onAdd,
+}: {
+  item: LineItem;
+  lang: 'en' | 'ta';
+  canAdd: boolean;
+  onUse: (p: { id: string; name: string; description?: string | null; hsnCode?: string | null; unit?: string; unitPrice?: string; taxPercent?: string }) => void;
+  onAdd: () => void;
+}) {
+  const ta = lang === 'ta';
+  const name = item.itemName.trim();
+  const enabled = name.length >= 3 && !item.productId;
+  const near = useSimilar('/api/products/similar', { name }, enabled).filter((m) => m.isActive !== false).slice(0, 2);
+  if (!enabled) return null;
+  return (
+    <div role="status" className="space-y-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-950">
+      <p className="font-semibold">
+        {near.length > 0
+          ? ta ? 'ஒத்த பொருள் பட்டியலில் உள்ளது — இதுவா?' : 'Something similar is in your product list — did you mean:'
+          : ta ? 'இது உங்கள் பொருள் பட்டியலில் இல்லை.' : 'This is not in your product list.'}
+      </p>
+      {near.map((m) => (
+        <button
+          key={m.id}
+          type="button"
+          onClick={() => onUse({ id: m.id, name: m.name, description: m.description, hsnCode: m.hsnCode, unit: m.unit, unitPrice: m.unitPrice, taxPercent: m.taxPercent })}
+          className="mr-1.5 rounded-md border border-amber-400 bg-surface px-2 py-1 font-bold text-brand-ink"
+        >
+          {m.name}
+          {m.unitPrice != null ? ` · ₹${Number(m.unitPrice)}` : ''}
+        </button>
+      ))}
+      {canAdd ? (
+        <button type="button" onClick={onAdd} className="font-bold text-brand-ink underline">
+          {ta ? 'பொருள் பட்டியலில் சேர்' : 'Add to product list'}
+        </button>
+      ) : (
+        <span className="text-slate-600">{ta ? 'இந்த வரி பட்டியலுடன் இணைக்கப்படாது.' : 'This line will not be linked to the list.'}</span>
+      )}
+    </div>
+  );
+}
+
 export function FastQuotationBuilder({
   customer,
   leadId,
@@ -50,6 +106,9 @@ export function FastQuotationBuilder({
   suggestion,
 }: FastQuotationProps) {
   const [lang, setLang] = useState<'en' | 'ta'>(defaultLang);
+  const { active } = useAuth();
+  const canAddProduct = !!active && hasPermission(active.role, 'product:manage');
+  const [addingFor, setAddingFor] = useState<number | null>(null);
   const [items, setItems] = useState<LineItem[]>(
     revise?.items?.length
       ? revise.items
@@ -97,9 +156,23 @@ export function FastQuotationBuilder({
   }, [suggestion]);
   const removeItem = (idx: number) => setItems((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
 
+  // A quote goes to a customer, so each line needs name, unit, rate and GST (an enquiry only needs a line of words).
+  const lineProblems = items.flatMap((i, idx) => {
+    const label = `${lang === 'ta' ? 'வரி' : 'Line'} ${idx + 1}${i.itemName.trim() ? ` (${i.itemName.trim()})` : ''}`;
+    const out: string[] = [];
+    if (!i.itemName.trim()) out.push(`${label}: ${lang === 'ta' ? 'பொருள் பெயர் இல்லை' : 'item name is missing'}`);
+    if (!i.unit.trim()) out.push(`${label}: ${lang === 'ta' ? 'அலகு இல்லை' : 'unit is missing'}`);
+    if (!(i.unitPrice > 0)) out.push(`${label}: ${lang === 'ta' ? 'விலை இல்லை' : 'rate is missing'}`);
+    return out;
+  });
+
   const handleSaveQuote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving || savedQuote) return; // a second click must never create a second quote
+    if (lineProblems.length > 0) {
+      setSaveError(`${lang === 'ta' ? 'இவற்றை நிரப்பவும்: ' : 'Complete these first: '}${lineProblems.join('; ')}.`);
+      return;
+    }
     setSaveError(null);
     setSaving(true);
     try {
@@ -177,6 +250,35 @@ export function FastQuotationBuilder({
         </button>
       </div>
 
+      <datalist id="quote-units">
+        {UNITS.map((u) => (
+          <option key={u} value={u} />
+        ))}
+      </datalist>
+      {addingFor !== null && items[addingFor] && (
+        <ProductForm
+          lang={lang}
+          industry={industry}
+          initial={{
+            name: items[addingFor].itemName.trim(),
+            description: items[addingFor].description,
+            hsnCode: items[addingFor].hsnCode,
+            unit: items[addingFor].unit,
+            unitPrice: items[addingFor].unitPrice > 0 ? String(items[addingFor].unitPrice) : '',
+            taxPercent: String(items[addingFor].taxPercent),
+          }}
+          onClose={() => setAddingFor(null)}
+          onSaved={(saved) => {
+            const idx = addingFor;
+            setAddingFor(null);
+            if (saved?.id) {
+              patchItem(idx, { productId: saved.id, itemName: saved.name });
+              setFilledFrom((m) => ({ ...m, [idx]: saved.name }));
+            }
+          }}
+        />
+      )}
+
       <form onSubmit={handleSaveQuote} className="space-y-4">
         {/* Line Items */}
         {items.map((item, idx) => (
@@ -186,11 +288,13 @@ export function FastQuotationBuilder({
               placeholder={lang === 'ta' ? 'பொருள் / வேலை பெயர் * (தேடலாம்)' : 'Item / Job Description * (type to search your products)'}
               value={item.itemName}
               onText={(t) => {
-                updateItem(idx, 'itemName', t);
+                // Typing makes it a free-text line again until a product is picked
+                patchItem(idx, { itemName: t, productId: null });
                 setFilledFrom((m) => (m[idx] ? { ...m, [idx]: '' } : m));
               }}
               onPick={(p) => {
                 patchItem(idx, {
+                  productId: p.id,
                   itemName: p.name,
                   description: item.description || p.description || '',
                   hsnCode: p.hsnCode ?? '',
@@ -207,6 +311,24 @@ export function FastQuotationBuilder({
                 {lang === 'ta' ? 'விலை, GST, HSN உங்கள் பொருள் பட்டியலிலிருந்து நிரப்பப்பட்டது. மாற்றலாம்.' : 'Rate, GST and HSN filled from your product list. You can still change them.'}
               </p>
             )}
+            <UnlistedHint
+              item={item}
+              lang={lang}
+              canAdd={canAddProduct}
+              onAdd={() => setAddingFor(idx)}
+              onUse={(p) => {
+                patchItem(idx, {
+                  productId: p.id,
+                  itemName: p.name,
+                  description: item.description || p.description || '',
+                  hsnCode: p.hsnCode ?? '',
+                  ...(p.unit ? { unit: p.unit } : {}),
+                  ...(p.unitPrice != null ? { unitPrice: Number(p.unitPrice) } : {}),
+                  ...(p.taxPercent != null ? { taxPercent: Number(p.taxPercent) } : {}),
+                });
+                setFilledFrom((m) => ({ ...m, [idx]: p.name }));
+              }}
+            />
             {item.hint && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
                 <p className="font-semibold">
@@ -222,7 +344,7 @@ export function FastQuotationBuilder({
                 )}
               </div>
             )}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div>
                 <label className="text-[11px] font-semibold text-slate-500">
                   {lang === 'ta' ? 'அளவு (Qty)' : 'Quantity'}
@@ -232,6 +354,17 @@ export function FastQuotationBuilder({
                   min={1}
                   value={item.quantity}
                   onChange={(e) => updateItem(idx, 'quantity', Number(e.target.value))}
+                  className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-500">{lang === 'ta' ? 'அலகு' : 'Unit'}</label>
+                <input
+                  type="text"
+                  list="quote-units"
+                  maxLength={30}
+                  value={item.unit}
+                  onChange={(e) => updateItem(idx, 'unit', e.target.value)}
                   className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm"
                 />
               </div>
