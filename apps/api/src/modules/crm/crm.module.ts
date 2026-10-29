@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AiModule } from '../ai/ai.module';
 import { CrmController } from './crm.controller';
 import { CrmService } from './crm.service';
 import { DashboardService } from './dashboard.service';
@@ -9,6 +10,7 @@ import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
 
 @Module({
+  imports: [AiModule],
   controllers: [CrmController, AttachmentsController],
   providers: [CrmService, DashboardService, CustomersService, CustomerContactsService, ReportsService, AttachmentsService],
   exports: [CrmService, DashboardService, CustomersService, CustomerContactsService, ReportsService, AttachmentsService],

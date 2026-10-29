@@ -11,6 +11,7 @@
     "clean": "rm -rf dist",
     "test": "jest",
     "test:db": "jest --config ./jest.db.config.js",
+    "check:ai": "jest --config ./jest.live.config.js",
     "test:e2e": "jest --config ./jest.config.js"
   },
   "dependencies": {
