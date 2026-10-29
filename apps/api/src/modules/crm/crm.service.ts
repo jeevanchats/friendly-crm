@@ -21,6 +21,7 @@ import {
   globalMemoryTasks,
   globalMemoryActivities,
 } from './memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 /** Does this enquiry still need a quote? Only enquiries at the start of the pipeline do. */
 const needsQuote = (stage?: string | null): boolean => !stage || stage === 'NEW' || stage === 'QUALIFIED';
@@ -73,8 +74,8 @@ export class CrmService {
       if (tenant?.industryKey) {
         return tenant.industryKey as IndustryKey;
       }
-    } catch {
-      // Postgres offline fallback
+    } catch (err: any) {
+      onDbError(this.logger, 'looking up the business type', err);
     }
 
     const memTenant = this.memoryTenants.get(tenantId);
@@ -130,7 +131,7 @@ export class CrmService {
       }
     } catch (dbErr: any) {
       if (dbErr instanceof HttpException) throw dbErr;
-      this.logger.warn(`Postgres offline; looking the customer up in memory: ${dbErr.message}`);
+      onDbError(this.logger, 'looking the customer up in memory', dbErr);
     }
 
     const mem =
@@ -328,7 +329,7 @@ export class CrmService {
       if (dbErr instanceof BadRequestException || dbErr instanceof NotFoundException || dbErr instanceof ForbiddenException) {
         throw dbErr;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback: ${dbErr.message}`);
+      onDbError(this.logger, 'utilizing memory fallback', dbErr);
     }
 
       // Memory Fallback
@@ -482,8 +483,8 @@ export class CrmService {
         data: rows,
         total: totalCount,
       };
-    } catch {
-      // Memory Fallback
+    } catch (err: any) {
+      onDbError(this.logger, 'listing leads', err);
       let filtered = this.memoryLeads.filter((l) => l.tenantId === tenantId);
 
       if (filter.stage) {
@@ -646,8 +647,8 @@ export class CrmService {
         success: true,
         task: newTask,
       };
-    } catch {
-      // Memory Fallback
+    } catch (err: any) {
+      onDbError(this.logger, 'creating a task', err);
       const newTask = {
         id: randomUUID(),
         tenantId,

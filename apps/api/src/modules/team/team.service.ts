@@ -5,6 +5,7 @@ import { db, sql, users, memberships, auditLogs } from '@friendly-crm/db';
 import { TenantRole, normalizeContactPhone } from '@friendly-crm/shared';
 import { AuthService } from '../auth/auth.service';
 import { globalMemoryAuditLogs } from '../crm/memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 /** Roles an owner can hand out. Ownership itself is not transferable from here. */
 export const ASSIGNABLE_ROLES: TenantRole[] = ['MANAGER', 'SALESPERSON', 'ACCOUNTS', 'PRODUCTION', 'READ_ONLY'];
@@ -48,7 +49,7 @@ export class TeamService {
       });
     } catch (err: any) {
       if (err?.getStatus) throw err; // a deliberate 4xx from fn, not a database outage
-      this.logger.warn(`Postgres offline; using the in-memory team: ${err.message}`);
+      onDbError(this.logger, 'using the in-memory team', err);
       return undefined;
     }
   }

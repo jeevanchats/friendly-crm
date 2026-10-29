@@ -13,6 +13,7 @@ import {
 import { randomUUID } from 'crypto';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
 import { globalMemoryLeads } from './memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export interface UploadedFile {
   originalname?: string;
@@ -103,7 +104,7 @@ export class AttachmentsService {
   /** Real validation errors reach the caller; only a database that cannot be reached falls back to memory. */
   private rethrowUnlessOffline(err: any): void {
     if (err instanceof HttpException) throw err;
-    this.logger.warn(`Postgres offline; using memory for attachments: ${err?.message}`);
+    onDbError(this.logger, 'using memory for attachments', err);
   }
 
   async add(

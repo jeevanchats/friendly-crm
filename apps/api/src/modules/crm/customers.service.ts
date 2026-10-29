@@ -38,6 +38,7 @@ import {
   globalMemoryTasks,
   globalMemoryActivities,
 } from './memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export const MAX_IMPORT_ROWS = 1000;
 
@@ -149,7 +150,7 @@ export class CustomersService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; reading opening balance from memory: ${err.message}`);
+      onDbError(this.logger, 'reading opening balance from memory', err);
     }
     const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
     return mem?.openingBalance ?? '0.00';
@@ -183,7 +184,7 @@ export class CustomersService {
     } catch (err: any) {
       if (err instanceof ConflictException) throw err;
       if (err?.code === '23505') throw new ConflictException({ statusCode: 409, error: 'CustomerExists', message: `${c.phone} is already a customer.` });
-      this.logger.warn(`Postgres offline; creating customer in memory: ${err.message}`);
+      onDbError(this.logger, 'creating customer in memory', err);
     }
     const existing = (await this.findByPhones(null, tenantId, [c.phone])).get(c.phone);
     if (existing) throw dup(existing);
@@ -308,7 +309,7 @@ export class CustomersService {
           message: 'Another person added one of these customers while you were importing. Nothing was imported; please try again.',
         });
       }
-      this.logger.warn(`Postgres offline; importing customers into memory: ${err.message}`);
+      onDbError(this.logger, 'importing customers into memory', err);
       usedMemory = true;
     }
     if (usedMemory) {
@@ -411,7 +412,7 @@ export class CustomersService {
       }
     } catch (err: any) {
       if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
-      this.logger.warn(`Postgres offline; updating customer billing details in memory: ${err.message}`);
+      onDbError(this.logger, 'updating customer billing details in memory', err);
     }
     const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
     if (!mem) throw new NotFoundException('Customer not found');
@@ -457,7 +458,7 @@ export class CustomersService {
       if (err instanceof NotFoundException) {
         // Not in Postgres: a development-only customer may still live in memory
       } else {
-        this.logger.warn(`Postgres offline; changing the reminder setting in memory: ${err.message}`);
+        onDbError(this.logger, 'changing the reminder setting in memory', err);
       }
     }
     const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
@@ -524,7 +525,7 @@ export class CustomersService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for listCustomers: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for listCustomers', err);
     }
 
     let tenantCustomers = globalMemoryCustomers
@@ -726,7 +727,7 @@ export class CustomersService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getCustomer360: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getCustomer360', err);
     }
 
     // Strict Tenant RLS Isolation Check: Customer MUST belong to the requested tenantId!

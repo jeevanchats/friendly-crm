@@ -13,6 +13,7 @@ import {
   sanitizeFileName,
 } from '@friendly-crm/shared';
 import { globalMemoryInvoices, globalMemoryEwayBills } from '../crm/memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export interface EwayBillInput {
   ewbNumber?: unknown;
@@ -89,7 +90,7 @@ export class EwayBillsService {
   private rethrowUnlessOffline(err: any): void {
     if (err instanceof HttpException) throw err;
     if (process.env.NODE_ENV === 'production') throw err;
-    this.logger.warn(`Postgres offline; using memory for e-way bills: ${err?.message}`);
+    onDbError(this.logger, 'using memory for e-way bills', err);
   }
 
   private parse(input: EwayBillInput, file: UploadedEwayFile | undefined) {

@@ -12,6 +12,7 @@ import {
 } from '../crm/memory-store';
 import { SalesService } from './sales.service';
 import { QuoteLinkService } from './quote-link.service';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 /** What a customer may see about a quote waiting for their decision. */
 export interface CustomerQuoteView {
@@ -129,7 +130,7 @@ export class CustomerQuoteService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for listForCustomer: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for listForCustomer', err);
     }
 
     return globalMemoryQuotations
@@ -317,7 +318,7 @@ export class CustomerQuoteService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for inbox: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for inbox', err);
     }
 
     const acts = globalMemoryActivities
@@ -374,7 +375,7 @@ export class CustomerQuoteService {
         return true;
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; recording quote change request in memory: ${err.message}`);
+      onDbError(this.logger, 'recording quote change request in memory', err);
     }
     globalMemoryActivities.unshift({ id: randomUUID(), ...row, createdAt: new Date() });
     return true;
@@ -394,7 +395,7 @@ export class CustomerQuoteService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for loadQuote: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for loadQuote', err);
     }
     return globalMemoryQuotations.find((q) => q.id === quotationId && q.tenantId === tenantId);
   }
@@ -413,7 +414,7 @@ export class CustomerQuoteService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for findOrderNumber: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for findOrderNumber', err);
     }
     return globalMemoryOrders.find((o) => o.quotationId === quotationId && o.tenantId === tenantId)?.orderNumber;
   }

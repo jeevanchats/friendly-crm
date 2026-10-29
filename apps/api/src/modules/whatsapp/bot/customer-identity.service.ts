@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { db, sql } from '@friendly-crm/db';
 import { globalMemoryCustomers, globalMemoryTenants } from '../../crm/memory-store';
 import { CustomerIdentity } from './conversation.engine';
+import { onDbError } from '../../../common/utils/db-fallback.util';
 
 /**
  * Resolves "which customer record(s) does this WhatsApp number belong to?" across tenants,
@@ -32,7 +33,7 @@ export class CustomerIdentityService {
         }));
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; customer phone lookup using memory store: ${err.message}`);
+      onDbError(this.logger, 'customer phone lookup using memory store', err);
     }
 
     return globalMemoryCustomers

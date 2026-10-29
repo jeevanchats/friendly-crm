@@ -20,6 +20,7 @@ import {
   globalMemoryCustomers,
   globalMemoryLeads,
 } from './memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 @Injectable()
 export class DashboardService {
@@ -145,7 +146,7 @@ export class DashboardService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getHomeDashboard: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getHomeDashboard', err);
     }
 
     const isScopedToUser = userRole === 'SALESPERSON';
@@ -278,7 +279,7 @@ export class DashboardService {
       if (err instanceof HttpException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for listTasks: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for listTasks', err);
     }
 
     const data = globalMemoryTasks
@@ -365,7 +366,7 @@ export class DashboardService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for completeFollowUpTask: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for completeFollowUpTask', err);
     }
 
     const task = globalMemoryTasks.find((t) => t.id === taskId && t.tenantId === tenantId);
@@ -432,7 +433,7 @@ export class DashboardService {
         return filterAndSanitizeActivities(rows, canSeePayments);
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getActivities: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getActivities', err);
     }
 
     const memActivities = globalMemoryActivities.filter((a) => a.tenantId === tenantId);
@@ -460,7 +461,7 @@ export class DashboardService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getAuditLogs: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getAuditLogs', err);
     }
 
     let logs = globalMemoryAuditLogs.filter((l) => l.tenantId === tenantId);

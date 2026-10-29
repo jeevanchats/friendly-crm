@@ -14,6 +14,7 @@ import { globalMemoryTenants, globalMemoryAuditLogs } from '../crm/memory-store'
 import { AuthService } from '../auth/auth.service';
 import { isValidUpiId } from '../payments/upi';
 import { PaymentDetails, completeBank, normalizeAccountNumber, normalizeIfsc } from '@friendly-crm/shared';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export interface TenantSettings {
   customerSelfServiceEnabled: boolean;
@@ -125,7 +126,7 @@ export class TenantService {
         this.logger.error(`Onboarding failed in Postgres (${err.code}): ${err.message}`);
         throw new BadRequestException('The business could not be created. Check the details and try again.');
       }
-      this.logger.warn(`Postgres offline; persisting onboarding to memory store: ${err.message}`);
+      onDbError(this.logger, 'persisting onboarding to memory store', err);
     }
 
     // Mirror to unified memory stores
@@ -184,8 +185,8 @@ export class TenantService {
           };
         }
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      onDbError(this.logger, 'reading business settings', err);
     }
 
     const memTenant = globalMemoryTenants.get(tenantId);
@@ -223,8 +224,8 @@ export class TenantService {
         const [row] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
         if (row) return row.name;
       }
-    } catch {
-      // Postgres offline: memory fallback below
+    } catch (err: any) {
+      onDbError(this.logger, 'reading the business name', err);
     }
     return (globalMemoryTenants.get(tenantId) as any)?.name ?? null;
   }
@@ -274,8 +275,8 @@ export class TenantService {
           };
         }
       }
-    } catch {
-      // Postgres offline: memory fallback below
+    } catch (err: any) {
+      onDbError(this.logger, 'reading business details', err);
     }
     const mem = globalMemoryTenants.get(tenantId) as any;
     if (!mem) throw new NotFoundException(`Tenant ${tenantId} not found`);
@@ -440,7 +441,7 @@ export class TenantService {
         return merged;
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; applying tenant settings to memory store: ${err.message}`);
+      onDbError(this.logger, 'applying tenant settings to memory store', err);
     }
 
     const mem = globalMemoryTenants.get(tenantId) as any;
