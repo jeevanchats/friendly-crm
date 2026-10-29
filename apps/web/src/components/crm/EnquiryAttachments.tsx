@@ -5,6 +5,7 @@ import { Mic, FileText, Image as ImageIcon, Download, Trash2, Play } from 'lucid
 import { hasPermission, SuggestedLine } from '@friendly-crm/shared';
 import { apiFetch } from '../../lib/session';
 import { useAuth } from '../auth/AuthProvider';
+import { useLocale } from '../shared/LocaleProvider';
 import { AttachmentPicker, PickerValue, voiceFileName } from './AttachmentPicker';
 import {
   AttachmentInfo,
@@ -18,6 +19,8 @@ import {
 } from '../../lib/attachments';
 
 function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: boolean; onRemoved: () => void }) {
+  const [lang] = useLocale();
+  const ta = lang === 'ta';
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +36,7 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
     try {
       return await fetchAttachmentBlob(item.id);
     } catch (e: any) {
-      setError(e?.message || 'Could not open the file.');
+      setError(e?.message || (ta ? 'கோப்பைத் திறக்க முடியவில்லை.' : 'Could not open the file.'));
       return null;
     } finally {
       setBusy(false);
@@ -49,12 +52,12 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
     if (blob) saveBlob(blob, item.fileName);
   };
   const remove = async () => {
-    if (!window.confirm(`Remove ${item.fileName}?`)) return;
+    if (!window.confirm(ta ? `${item.fileName} நீக்கவா?` : `Remove ${item.fileName}?`)) return;
     try {
       await deleteAttachment(item.id);
       onRemoved();
     } catch (e: any) {
-      setError(e?.message || 'Could not remove the file.');
+      setError(e?.message || (ta ? 'கோப்பை நீக்க முடியவில்லை.' : 'Could not remove the file.'));
     }
   };
 
@@ -65,7 +68,7 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
         <span className="flex min-w-0 items-center gap-2">
           <Icon className="h-4 w-4 shrink-0 text-brand-ink" />
           <span className="min-w-0 truncate font-medium text-foreground">
-            {item.kind === 'VOICE' ? 'Voice note' : item.fileName}
+            {item.kind === 'VOICE' ? (ta ? 'குரல் பதிவு' : 'Voice note') : item.fileName}
             <span className="ml-1.5 text-xs font-normal text-slate-600">
               {item.kind === 'VOICE' && item.durationSeconds != null ? `${formatClock(item.durationSeconds)} · ` : ''}
               {formatSize(item.sizeBytes)}
@@ -75,14 +78,14 @@ function Row({ item, canRemove, onRemoved }: { item: AttachmentInfo; canRemove: 
         <span className="flex shrink-0 items-center gap-1">
           {(item.kind === 'VOICE' || isImage) && !url && (
             <button type="button" onClick={show} disabled={busy} className="inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-action px-3 text-xs font-bold text-on-action disabled:opacity-50">
-              <Play className="h-3.5 w-3.5" /> {busy ? '…' : item.kind === 'VOICE' ? 'Play' : 'View'}
+              <Play className="h-3.5 w-3.5" /> {busy ? '…' : item.kind === 'VOICE' ? (ta ? 'இயக்கு' : 'Play') : ta ? 'பார்' : 'View'}
             </button>
           )}
-          <button type="button" onClick={download} disabled={busy} aria-label={`Download ${item.fileName}`} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50">
+          <button type="button" onClick={download} disabled={busy} aria-label={ta ? `${item.fileName} பதிவிறக்கு` : `Download ${item.fileName}`} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50">
             <Download className="h-4 w-4" />
           </button>
           {canRemove && (
-            <button type="button" onClick={remove} aria-label={`Remove ${item.fileName}`} className="rounded-lg p-2 text-slate-600 hover:text-red-600">
+            <button type="button" onClick={remove} aria-label={ta ? `${item.fileName} நீக்கு` : `Remove ${item.fileName}`} className="rounded-lg p-2 text-slate-600 hover:text-red-600">
               <Trash2 className="h-4 w-4" />
             </button>
           )}
@@ -114,6 +117,8 @@ export function EnquiryAttachments({
   onSuggest?: (lines: SuggestedLine[]) => void;
 }) {
   const { active } = useAuth();
+  const [lang] = useLocale();
+  const ta = lang === 'ta';
   const [items, setItems] = useState<AttachmentInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -131,7 +136,7 @@ export function EnquiryAttachments({
       setItems(await listAttachments(leadId ? { leadId } : { customerId }));
       setError(null);
     } catch (e: any) {
-      setError(e?.message || 'Could not load the attachments.');
+      setError(e?.message || (ta ? 'இணைப்புகளை ஏற்ற முடியவில்லை.' : 'Could not load the attachments.'));
     }
   }, [leadId, customerId]);
 
@@ -153,7 +158,7 @@ export function EnquiryAttachments({
     if (voice) {
       const r = await uploadAttachment(targetLead, voice.blob, voiceFileName(voice.blob.type), voice.seconds, voice.transcript);
       if (r.ok) voice = null;
-      else failures.push(`Voice note: ${r.error}`);
+      else failures.push(`${ta ? 'குரல் பதிவு' : 'Voice note'}: ${r.error}`);
     }
     const left: File[] = [];
     for (const f of draft.files) {
@@ -182,13 +187,13 @@ export function EnquiryAttachments({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError((Array.isArray(body.message) ? body.message.join(' ') : body.message) || `Could not read the enquiry (${res.status}).`);
+        setError((Array.isArray(body.message) ? body.message.join(' ') : body.message) || (ta ? `விசாரணையைப் படிக்க முடியவில்லை (${res.status}).` : `Could not read the enquiry (${res.status}).`));
         return;
       }
       setReadNote({ summary: body.summary ?? '', skipped: body.skipped ?? [], count: body.lines?.length ?? 0, mode: body.mode ?? 'basic' });
       if (body.lines?.length) onSuggest?.(body.lines as SuggestedLine[]);
     } catch {
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(ta ? 'சர்வரை அடைய முடியவில்லை. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயலவும்.' : 'Could not reach the server. Check your connection and try again.');
     } finally {
       setReading(false);
     }
@@ -198,16 +203,16 @@ export function EnquiryAttachments({
   const titles = new Set((items ?? []).map((i) => i.leadTitle).filter(Boolean));
 
   return (
-    <section className="space-y-2 rounded-2xl border border-brand-ink/30 bg-surface p-4" aria-label="Enquiry attachments">
+    <section className="space-y-2 rounded-2xl border border-brand-ink/30 bg-surface p-4" aria-label={ta ? 'விசாரணை இணைப்புகள்' : 'Enquiry attachments'}>
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-foreground">Customer’s requirement{titles.size === 1 ? `: ${[...titles][0]}` : ''}</h2>
+        <h2 className="text-sm font-bold text-foreground">{ta ? 'வாடிக்கையாளரின் தேவை' : 'Customer’s requirement'}{titles.size === 1 ? `: ${[...titles][0]}` : ''}</h2>
         {canAdd && targetLead && !adding && (
           <button type="button" onClick={() => setAdding(true)} className="text-xs font-bold text-brand-ink">
-            ＋ Add
+            ＋ {ta ? 'சேர்' : 'Add'}
           </button>
         )}
       </div>
-      {items === null && !error && <p className="text-xs text-slate-600">Loading…</p>}
+      {items === null && !error && <p className="text-xs text-slate-600">{ta ? 'ஏற்றப்படுகிறது…' : 'Loading…'}</p>}
       {canRead && (
         <button
           type="button"
@@ -215,19 +220,23 @@ export function EnquiryAttachments({
           disabled={reading}
           className="w-full min-h-[44px] rounded-xl bg-surface border border-slate-200 text-sm font-bold text-brand-ink disabled:opacity-50"
         >
-          {reading ? 'Reading the notes, files and voice note…' : '✨ Read enquiry and fill the quote'}
+          {reading ? (ta ? 'குறிப்புகள், கோப்புகள், குரல் பதிவைப் படிக்கிறது…' : 'Reading the notes, files and voice note…') : ta ? '✨ விசாரணையைப் படித்து விலைப்புள்ளியை நிரப்பு' : '✨ Read enquiry and fill the quote'}
         </button>
       )}
       {readNote && (
         <div className="rounded-lg bg-surface p-3 text-xs text-foreground">
           <p className="font-semibold">
             {readNote.count > 0
-              ? `${readNote.count} line${readNote.count === 1 ? '' : 's'} added to the quote below. Check each one and fill what is marked missing.`
-              : 'Nothing could be filled in automatically. Add the lines by hand.'}
+              ? ta
+                ? `கீழே உள்ள விலைப்புள்ளியில் ${readNote.count} வரிகள் சேர்க்கப்பட்டன. ஒவ்வொன்றையும் சரிபார்த்து, விடுபட்டதாகக் குறிக்கப்பட்டவற்றை நிரப்பவும்.`
+                : `${readNote.count} line${readNote.count === 1 ? '' : 's'} added to the quote below. Check each one and fill what is marked missing.`
+              : ta
+                ? 'தானாக எதையும் நிரப்ப முடியவில்லை. வரிகளை நீங்களே சேர்க்கவும்.'
+                : 'Nothing could be filled in automatically. Add the lines by hand.'}
           </p>
           {readNote.mode === 'basic' && (
             <p className="mt-1 text-slate-500">
-              Read without an AI service: typed and spoken words, text inside PDFs and printed text in photos. Handwriting is not read.
+              {ta ? 'AI சேவை இல்லாமல் படிக்கப்பட்டது: தட்டச்சு மற்றும் பேசிய சொற்கள், PDF-இல் உள்ள எழுத்து, புகைப்படங்களில் அச்சிடப்பட்ட எழுத்து. கையெழுத்து படிக்கப்படாது.' : 'Read without an AI service: typed and spoken words, text inside PDFs and printed text in photos. Handwriting is not read.'}
             </p>
           )}
           {readNote.summary && <p className="mt-1 text-slate-600">{readNote.summary}</p>}
@@ -253,10 +262,10 @@ export function EnquiryAttachments({
               disabled={saving || (!draft.voice && draft.files.length === 0)}
               className="min-h-[42px] flex-1 rounded-xl bg-action text-sm font-bold text-on-action disabled:opacity-50"
             >
-              {saving ? 'Uploading…' : 'Upload'}
+              {saving ? (ta ? 'பதிவேற்றுகிறது…' : 'Uploading…') : ta ? 'பதிவேற்று' : 'Upload'}
             </button>
             <button type="button" onClick={() => { setAdding(false); setDraft({ voice: null, files: [] }); }} disabled={saving} className="min-h-[42px] rounded-xl border border-slate-200 bg-surface px-4 text-sm font-semibold text-foreground">
-              Cancel
+              {ta ? 'ரத்து' : 'Cancel'}
             </button>
           </div>
         </div>

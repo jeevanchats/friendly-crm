@@ -23,15 +23,15 @@ export default function HomePage() {
         setDashboardData(await res.json());
       } else {
         setDashboardData(null);
-        setError(res.status === 403 ? 'Your role cannot view the dashboard.' : `Could not load the dashboard (${res.status}).`);
+        setError(res.status === 403 ? (lang === 'ta' ? 'உங்கள் பொறுப்புக்கு டாஷ்போர்டைப் பார்க்க அனுமதி இல்லை.' : 'Your role cannot view the dashboard.') : lang === 'ta' ? `டாஷ்போர்டை ஏற்ற முடியவில்லை (${res.status}).` : `Could not load the dashboard (${res.status}).`);
       }
     } catch {
       setDashboardData(null);
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(lang === 'ta' ? 'சர்வரை அடைய முடியவில்லை. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயலவும்.' : 'Could not reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   // Load, and reload when the business is switched.
   useEffect(() => {
@@ -42,7 +42,7 @@ export default function HomePage() {
     return (
       <div className="py-12 text-center text-sm">
         {loading ? (
-          <span className="text-slate-600">Loading…</span>
+          <span className="text-slate-600">{lang === 'ta' ? 'ஏற்றப்படுகிறது…' : 'Loading…'}</span>
         ) : (
           <div role="alert" className="mx-auto max-w-sm space-y-3">
             <p className="font-semibold text-red-700">{error}</p>
@@ -51,7 +51,7 @@ export default function HomePage() {
               onClick={fetchDashboard}
               className="min-h-[44px] rounded-xl bg-action px-4 font-bold text-on-action hover:bg-action/85 transition-colors"
             >
-              Try again
+              {lang === 'ta' ? 'மீண்டும் முயல்' : 'Try again'}
             </button>
           </div>
         )}

@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { OrderDetailView } from '../../../components/orders/OrderDetailView';
 import { IssueInvoicePanel } from '../../../components/invoices/IssueInvoicePanel';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
+import { useLocale } from '../../../components/shared/LocaleProvider';
 import {
   IndustryKey,
   TenantRole,
@@ -27,12 +28,9 @@ import taMessages from '../../../../messages/ta.json';
 export default function OrderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const orderId = (params?.id as string) || '';
 
-  const langParam = (searchParams?.get('lang') as 'en' | 'ta') || 'en';
-
-  const [locale, setLocale] = useState<'en' | 'ta'>(langParam);
+  const [locale, setLocale] = useLocale();
   // Industry and role are the signed-in user's own (the server derives the role from their membership).
   const { active } = useAuth();
   const activeIndustry: IndustryKey = active!.industryKey;
@@ -64,25 +62,25 @@ export default function OrderDetailPage() {
           setOrderData(data);
         } else {
           setOrderData(null);
-          setError('This order could not be found.');
+          setError(locale === 'ta' ? 'இந்த ஆர்டர் கிடைக்கவில்லை.' : 'This order could not be found.');
         }
       } else {
         setOrderData(null);
         setError(
           res.status === 404
-            ? 'This order was not found in the active business.'
+            ? locale === 'ta' ? 'இந்த ஆர்டர் தற்போதைய வணிகத்தில் கிடைக்கவில்லை.' : 'This order was not found in the active business.'
             : res.status === 403
-            ? 'Your role cannot view this order.'
-            : `Could not load the order (${res.status}).`
+            ? locale === 'ta' ? 'உங்கள் பொறுப்புக்கு இந்த ஆர்டரைப் பார்க்க அனுமதி இல்லை.' : 'Your role cannot view this order.'
+            : locale === 'ta' ? `ஆர்டரை ஏற்ற முடியவில்லை (${res.status}).` : `Could not load the order (${res.status}).`
         );
       }
     } catch {
       setOrderData(null);
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(locale === 'ta' ? 'சர்வரை அடைய முடியவில்லை. இணைய இணைப்பைச் சரிபார்த்து மீண்டும் முயலவும்.' : 'Could not reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
-  }, [orderId, tenantId]);
+  }, [orderId, tenantId, locale]);
 
   useEffect(() => {
     fetchOrderDetail();
@@ -113,7 +111,7 @@ export default function OrderDetailPage() {
             <button
               onClick={() => setLocale(locale === 'en' ? 'ta' : 'en')}
               className="flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-brand-ink/30 bg-action/10 text-brand-ink font-bold text-xs hover:bg-action/20 transition-colors"
-              title="Toggle Tamil / English"
+              title={locale === 'ta' ? 'தமிழ் / English மாற்று' : 'Toggle Tamil / English'}
             >
               <span>{locale === 'en' ? '🇮🇳 தமிழ்' : '🇬🇧 English'}</span>
             </button>

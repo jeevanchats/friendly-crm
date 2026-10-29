@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { IndustryKey, TenantRole } from '@friendly-crm/shared';
+import { useLocale } from '../shared/LocaleProvider';
 import { AUTH_EXPIRED_EVENT, apiFetch, clearSession, getActiveTenantId, getSession, setSession } from '../../lib/session';
 
 export interface Membership {
@@ -225,6 +226,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [status, user, memberships, active, requestOtp, verifyOtp, switchBusiness, logout]
   );
 
+  const [lang] = useLocale();
+  const ta = lang === 'ta';
+
   // Nothing behind the login renders (and so nothing calls the API) until the user is signed in.
   const isPublic = PUBLIC_PATHS.includes(pathname ?? '');
   const waiting = status === 'loading' || (status === 'anonymous' && !isPublic) || (status === 'authenticated' && isPublic);
@@ -234,22 +238,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={value}>
       {waiting ? (
         <div className="min-h-screen flex items-center justify-center bg-surface text-sm font-semibold text-slate-500" role="status">
-          Loading…
+          {ta ? 'ஏற்றப்படுகிறது…' : 'Loading…'}
         </div>
       ) : noBusiness ? (
         <main className="min-h-screen flex items-center justify-center bg-surface px-4 text-foreground">
           <div className="max-w-sm rounded-2xl bg-surface border border-slate-200 shadow-sm p-5 text-center">
-            <h1 className="text-lg font-black">No business linked</h1>
+            <h1 className="text-lg font-black">{ta ? 'எந்த வணிகமும் இணைக்கப்படவில்லை' : 'No business linked'}</h1>
             <p className="mt-2 text-sm text-slate-600">
-              This mobile number ({user?.phone}) isn&apos;t a member of any business yet. Ask the business owner to add you,
-              then sign in again.
+              {ta
+                ? `இந்த மொபைல் எண் (${user?.phone}) இன்னும் எந்த வணிகத்திலும் உறுப்பினர் இல்லை. வணிக உரிமையாளரிடம் உங்களைச் சேர்க்கச் சொல்லி, மீண்டும் உள்நுழையவும்.`
+                : `This mobile number (${user?.phone}) isn't a member of any business yet. Ask the business owner to add you, then sign in again.`}
             </p>
             <button
               type="button"
               onClick={() => logout()}
               className="mt-4 min-h-[48px] w-full rounded-xl bg-action font-bold text-on-action hover:bg-action/85 transition-colors"
             >
-              Sign out
+              {ta ? 'வெளியேறு' : 'Sign out'}
             </button>
           </div>
         </main>

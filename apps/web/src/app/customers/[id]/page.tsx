@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Customer360View } from '../../../components/crm/Customer360View';
 import { BillingDetailsCard } from '../../../components/crm/BillingDetailsCard';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
+import { useLocale } from '../../../components/shared/LocaleProvider';
 import { ArrowLeft, UserCheck, RefreshCw, AlertCircle } from 'lucide-react';
 
 export default function CustomerDetailPage() {
@@ -20,9 +21,8 @@ export default function CustomerDetailPage() {
   const activeRole = active!.role;
   const activeTenant = { name: active!.tenantName };
 
-  const searchParams = useSearchParams();
-  const langParam = (searchParams?.get('lang') as 'en' | 'ta') || 'en';
-  const [locale, setLocale] = useState<'en' | 'ta'>(langParam);
+  const [locale] = useLocale();
+  const ta = locale === 'ta';
 
   const [customerData, setCustomerData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -39,10 +39,10 @@ export default function CustomerDetailPage() {
         setCustomerData(data);
       } else {
         const errJson = await res.json().catch(() => ({}));
-        setError(errJson.message || 'This customer is not available in the active business.');
+        setError(errJson.message || (ta ? 'இந்த வாடிக்கையாளர் தற்போதைய வணிகத்தில் இல்லை.' : 'This customer is not available in the active business.'));
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch customer 360 profile');
+      setError(err.message || (ta ? 'வாடிக்கையாளர் விவரங்களை ஏற்ற முடியவில்லை.' : 'Failed to fetch customer 360 profile'));
     } finally {
       setLoading(false);
     }
@@ -66,7 +66,7 @@ export default function CustomerDetailPage() {
           </Link>
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-brand-ink">
-              Customer 360° Profile
+              {ta ? 'வாடிக்கையாளர் 360° விவரம்' : 'Customer 360° Profile'}
             </span>
             <h2 className="text-sm font-bold text-foreground leading-tight">
               {activeTenant.name}
@@ -78,7 +78,7 @@ export default function CustomerDetailPage() {
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 bg-surface px-2.5 py-1 rounded-xl border border-slate-200 text-xs font-semibold">
             <UserCheck className="w-3.5 h-3.5 text-brand-ink" />
-            <span className="text-slate-500 text-[11px]">Your role:</span>
+            <span className="text-slate-500 text-[11px]">{ta ? 'உங்கள் பொறுப்பு:' : 'Your role:'}</span>
             <span className="font-bold text-brand-ink">{activeRole}</span>
           </div>
 
@@ -86,7 +86,7 @@ export default function CustomerDetailPage() {
             type="button"
             onClick={() => fetchCustomer360()}
             className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
-            title="Refresh"
+            title={ta ? 'புதுப்பி' : 'Refresh'}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-brand-ink' : ''}`} />
           </button>
@@ -95,18 +95,18 @@ export default function CustomerDetailPage() {
 
       {/* Main Content Area */}
       {loading ? (
-        <div className="py-16 text-center text-xs text-slate-600">Loading Customer 360° View...</div>
+        <div className="py-16 text-center text-xs text-slate-600">{ta ? 'வாடிக்கையாளர் 360° காட்சி ஏற்றப்படுகிறது…' : 'Loading Customer 360° View...'}</div>
       ) : error ? (
         <div className="rounded-2xl border border-dashed border-rose-300 bg-rose-50/50 p-8 text-center space-y-3">
           <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
-          <h3 className="text-base font-bold text-rose-900">Tenant Isolation Enforced (RLS)</h3>
+          <h3 className="text-base font-bold text-rose-900">{ta ? 'வணிகப் பிரிப்பு அமலில் உள்ளது (RLS)' : 'Tenant Isolation Enforced (RLS)'}</h3>
           <p className="text-xs text-rose-700 max-w-md mx-auto">{error}</p>
           <div className="pt-2">
             <Link
               href="/customers"
               className="inline-flex items-center justify-center rounded-xl bg-action px-4 py-2 text-xs font-bold text-on-action shadow-sm"
             >
-              Back to Customers Directory
+              {ta ? 'வாடிக்கையாளர் பட்டியலுக்குத் திரும்பு' : 'Back to Customers Directory'}
             </Link>
           </div>
         </div>
