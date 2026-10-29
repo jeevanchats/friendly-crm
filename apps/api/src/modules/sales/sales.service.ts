@@ -48,6 +48,7 @@ import {
   setIdempotentResult,
   roundMoney,
 } from '../../common/utils/document-number.util';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export interface QuoteLineItemInput {
   itemName: string;
@@ -308,7 +309,7 @@ export class SalesService {
       if (err instanceof HttpException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for createQuotation: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for createQuotation', err);
     }
 
     // Unified Memory Fallback
@@ -485,7 +486,7 @@ export class SalesService {
       if (err instanceof HttpException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for createRevision: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for createRevision', err);
     }
 
     // Unified Memory Fallback
@@ -734,7 +735,8 @@ export class SalesService {
         .orderBy(desc(quotations.version))
         .limit(1);
       return latest?.id ?? quoteId;
-    } catch {
+    } catch (err: any) {
+      onDbError(this.logger, 'finding the latest quote version', err);
       const q = globalMemoryQuotations.find((x) => x.id === quoteId && x.tenantId === tenantId);
       if (!q) return quoteId;
       const versions = globalMemoryQuotations.filter((x) => x.tenantId === tenantId && x.quoteNumber === q.quoteNumber);
@@ -944,7 +946,7 @@ export class SalesService {
       if (err instanceof HttpException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for convertQuoteToOrder: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for convertQuoteToOrder', err);
     }
 
     // Unified Memory Fallback
@@ -1179,7 +1181,7 @@ export class SalesService {
       if (err instanceof HttpException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getQuotationById: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getQuotationById', err);
     }
 
     // Unified Memory Fallback — STRICT TENANT SCOPE, NO FALLBACK TO FIRST DEMO QUOTE!
@@ -1267,7 +1269,8 @@ export class SalesService {
       );
 
       return { data: maskedRows, total: rows.length };
-    } catch {
+    } catch (err: any) {
+      onDbError(this.logger, 'listing quotations', err);
       const rows = globalMemoryQuotations.filter((q) => q.tenantId === tenantId);
       const maskedRows = rows.map((q: any) =>
         canSeePayments

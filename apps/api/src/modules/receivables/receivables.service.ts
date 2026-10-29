@@ -19,6 +19,7 @@ import { NotificationOutboxService } from '../notifications/notification-outbox.
 import { PaymentDetails, completeBank } from '@friendly-crm/shared';
 import { isValidUpiId } from '../payments/upi';
 import { buildReminderMessage } from './reminder-message';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 /** Age of an unpaid order since it was placed, or OPENING: money owed from before Friendly CRM (age unknown). */
 export type AgeBucketKey = '0-30' | '31-60' | '61-90' | '90+' | 'OPENING';
@@ -342,7 +343,7 @@ export class ReceivablesService {
       }
     } catch (err: any) {
       if (err instanceof HttpException) throw err;
-      this.logger.warn(`Postgres offline; recording the payment in memory: ${err.message}`);
+      onDbError(this.logger, 'recording the payment in memory', err);
     }
 
     const cust: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
@@ -451,8 +452,8 @@ export class ReceivablesService {
           .where(and(eq(tenants.autoRemindersEnabled, true), eq(tenants.isActive, true)));
         return rows;
       }
-    } catch {
-      // Postgres offline: memory fallback below
+    } catch (err: any) {
+      onDbError(this.logger, 'listing businesses for reminders', err);
     }
     return [...globalMemoryTenants.values()]
       .filter((t: any) => t.autoRemindersEnabled === true && t.isActive !== false)
@@ -483,7 +484,7 @@ export class ReceivablesService {
         return;
       } catch (err: any) {
         if (started) throw err; // the work itself failed: never run it a second time
-        this.logger.warn(`Postgres offline; running auto reminders without a lock: ${err.message}`);
+        onDbError(this.logger, 'running auto reminders without a lock', err);
       }
     }
     await fn();
@@ -616,7 +617,7 @@ export class ReceivablesService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for receivables: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for receivables', err);
     }
 
     const orderRows = globalMemoryOrders.filter(
@@ -663,8 +664,8 @@ export class ReceivablesService {
           .limit(1);
         if (row) return { name: row.name, phone: row.phone, payment: paymentOf(row), defaultLanguage: row.defaultLanguage };
       }
-    } catch {
-      // Postgres offline: memory fallback below
+    } catch (err: any) {
+      onDbError(this.logger, 'reading reminder settings', err);
     }
     const mem = globalMemoryTenants.get(tenantId) as any;
     if (!mem) throw new NotFoundException(`Tenant ${tenantId} not found`);
@@ -682,7 +683,7 @@ export class ReceivablesService {
         return;
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; recording reminder in memory: ${err.message}`);
+      onDbError(this.logger, 'recording reminder in memory', err);
     }
     globalMemoryActivities.unshift({ id: randomUUID(), ...row, createdAt: new Date() } as any);
   }

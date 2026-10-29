@@ -48,6 +48,7 @@ import {
 import { CreditNotesService } from './credit-notes.service';
 import { PaymentDetails } from '@friendly-crm/shared';
 import { paymentFromTenantRow } from '../payments/payment-info';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export type PlaceOfSupplySource = 'OVERRIDE' | 'CUSTOMER_GSTIN' | 'CUSTOMER_STATE' | 'DEFAULT_SUPPLIER_STATE';
 
@@ -575,7 +576,7 @@ export class InvoicesService {
           this.logger.error(`Invoice storage failed: ${err.message}`);
           throw new ServiceUnavailableException('Invoices are temporarily unavailable. Please try again.');
         }
-        this.logger.warn(`Postgres offline; using the in-memory invoice store: ${err.message}`);
+        onDbError(this.logger, 'using the in-memory invoice store', err);
       }
     }
     return fn(null);

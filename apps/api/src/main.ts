@@ -1,8 +1,14 @@
 import './load-env';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { pgClient } from '@friendly-crm/db';
+import { assertRestrictedDbRole } from './common/utils/db-role-check';
 
 async function bootstrap() {
+  if (process.env.NODE_ENV === 'production' && pgClient) {
+    await assertRestrictedDbRole((q) => pgClient.unsafe(q));
+  }
+
   // rawBody: webhook signatures (WhatsApp) must be verified against the exact bytes received.
   const app = await NestFactory.create(AppModule, { rawBody: true });
 

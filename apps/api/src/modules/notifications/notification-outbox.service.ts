@@ -11,6 +11,7 @@ import { DevNotificationAdapter } from './adapters/dev-notification.adapter';
 import { HttpWhatsAppAdapter } from './adapters/http-whatsapp.adapter';
 import { globalMemoryOutbox } from '../crm/memory-store';
 import { randomUUID } from 'crypto';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 /** A job left SENDING longer than this was abandoned (its worker died) and may be claimed again. */
 export const SENDING_LEASE_MS = 5 * 60 * 1000;
@@ -96,7 +97,7 @@ export class NotificationOutboxService {
         return inserted;
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for outbox: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for outbox', err);
     }
 
     // Unified Memory Fallback
@@ -160,8 +161,8 @@ export class NotificationOutboxService {
           .limit(1);
         if (current) return { job: current, claimed: false };
       }
-    } catch {
-      // Fallback to memory
+    } catch (err: any) {
+      onDbError(this.logger, 'reading the message queue', err);
     }
 
     const mem = globalMemoryOutbox.find((j) => j.id === jobId && (!tenantId || j.tenantId === tenantId));
@@ -246,8 +247,8 @@ export class NotificationOutboxService {
 
         return { job: updated, claimed: true };
       }
-    } catch {
-      // Memory fallback update
+    } catch (err: any) {
+      onDbError(this.logger, 'updating a queued message', err);
     }
 
     job.status = newStatus;
@@ -290,8 +291,8 @@ export class NotificationOutboxService {
           .where(and(...whereConds))
           .limit(limit);
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      onDbError(this.logger, 'reading the message queue', err);
     }
 
     if (pendingJobs.length === 0) {
@@ -342,8 +343,8 @@ export class NotificationOutboxService {
           .orderBy(desc(notificationOutbox.createdAt))
           .limit(50);
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      onDbError(this.logger, 'updating a queued message', err);
     }
 
     let list = globalMemoryOutbox.filter((j) => j.tenantId === tenantId);
@@ -375,8 +376,8 @@ export class NotificationOutboxService {
 
         job = updated;
       }
-    } catch {
-      // Memory fallback
+    } catch (err: any) {
+      onDbError(this.logger, 'reading the message queue', err);
     }
 
     if (!job) {

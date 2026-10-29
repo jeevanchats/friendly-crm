@@ -39,6 +39,7 @@ import {
   globalMemoryCustomers,
   globalMemoryTenants,
 } from '../crm/memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export interface RecordPaymentDto {
   orderId?: string;
@@ -91,7 +92,7 @@ export class OrdersService {
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getOrdersForCustomer: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getOrdersForCustomer', err);
     }
 
     return globalMemoryOrders
@@ -150,7 +151,7 @@ export class OrdersService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getOrders: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getOrders', err);
     }
 
     let list = globalMemoryOrders.filter((o) => o.tenantId === tenantId);
@@ -299,7 +300,7 @@ export class OrdersService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for updateOrderStage: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for updateOrderStage', err);
     }
 
     const order = globalMemoryOrders.find(
@@ -528,7 +529,7 @@ export class OrdersService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for recordPayment: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for recordPayment', err);
     }
 
     const order = globalMemoryOrders.find(
@@ -736,7 +737,7 @@ export class OrdersService {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ForbiddenException) {
         throw err;
       }
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getOrderDetail: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getOrderDetail', err);
     }
 
     const order = globalMemoryOrders.find(

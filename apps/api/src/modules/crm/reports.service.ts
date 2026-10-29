@@ -8,6 +8,7 @@ import {
   globalMemoryCustomers,
   globalMemoryLeads,
 } from './memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 @Injectable()
 export class ReportsService {
@@ -97,7 +98,7 @@ export class ReportsService {
       }
     } catch (err: any) {
       if (err instanceof ForbiddenException) throw err;
-      this.logger.warn(`Postgres offline; utilizing memory fallback for getBusinessInsights: ${err.message}`);
+      onDbError(this.logger, 'utilizing memory fallback for getBusinessInsights', err);
     }
 
     // Memory Fallback strictly scoped to tenantId

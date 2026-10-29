@@ -12,6 +12,7 @@ import { and, asc, eq, or, sql as dsql } from 'drizzle-orm';
 import { db, sql, products } from '@friendly-crm/db';
 import { CleanProduct, validateProductRow } from '@friendly-crm/shared';
 import { globalMemoryProducts } from '../crm/memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export const MAX_PRODUCT_IMPORT_ROWS = 1000;
 
@@ -379,7 +380,7 @@ export class ProductsService {
           this.logger.error(`Product storage failed: ${err.message}`);
           throw new ServiceUnavailableException('Products are temporarily unavailable. Please try again.');
         }
-        this.logger.warn(`Postgres offline; using the in-memory product store: ${err.message}`);
+        onDbError(this.logger, 'using the in-memory product store', err);
       }
     }
     return fn(null);

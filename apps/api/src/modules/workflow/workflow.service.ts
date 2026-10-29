@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { db, tenants } from '@friendly-crm/db';
 import {
@@ -12,6 +12,7 @@ import {
 } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
 import { globalMemoryTenants } from '../crm/memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 type TemplateEntity = 'LEAD' | 'QUOTATION' | 'ORDER';
 type Lang = 'en' | 'ta';
@@ -30,6 +31,7 @@ const TEMPLATE_ENTITIES: TemplateEntity[] = ['LEAD', 'QUOTATION', 'ORDER'];
  */
 @Injectable()
 export class WorkflowService {
+  private readonly logger = new Logger(WorkflowService.name);
   async resolveIndustry(tenantId: string): Promise<IndustryKey> {
     try {
       const store = tenantContextStorage.getStore();
@@ -40,8 +42,8 @@ export class WorkflowService {
         .where(eq(tenants.id, tenantId))
         .limit(1);
       if (tenant?.industryKey) return tenant.industryKey as IndustryKey;
-    } catch {
-      // Postgres offline: fall through to the in-memory dev store
+    } catch (err: any) {
+      onDbError(this.logger, 'reading the business type', err);
     }
     return globalMemoryTenants.get(tenantId)?.industryKey || 'printing';
   }

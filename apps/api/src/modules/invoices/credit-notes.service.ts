@@ -42,6 +42,7 @@ import {
   globalMemoryCreditNoteItems,
   globalMemoryCreditNoteCounters,
 } from '../crm/memory-store';
+import { onDbError } from '../../common/utils/db-fallback.util';
 
 export interface IssueCreditNoteDto {
   reason?: string;
@@ -518,7 +519,7 @@ export class CreditNotesService {
           this.logger.error(`Credit note storage failed: ${err.message}`);
           throw new ServiceUnavailableException('Credit notes are temporarily unavailable. Please try again.');
         }
-        this.logger.warn(`Postgres offline; using the in-memory credit note store: ${err.message}`);
+        onDbError(this.logger, 'using the in-memory credit note store', err);
       }
     }
     return fn(null);
