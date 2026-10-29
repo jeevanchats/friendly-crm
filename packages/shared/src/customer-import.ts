@@ -2,6 +2,7 @@
  * Customer master import: CSV / pasted-from-Excel parsing, column matching, and row validation.
  * Pure and dependency-free so the browser (live preview) and the API (the real check) use identical rules.
  */
+import { cleanDisplayName } from './duplicates';
 import { GST_STATES, isValidGstin, isValidStateCode, normalizeGstin, stateCodeFromGstin } from './gst';
 
 // ---------------------------------------------------------------- phone
@@ -251,7 +252,7 @@ export function validateCustomerRow(raw: Partial<Record<CustomerField, unknown>>
   const warnings: string[] = [];
   const text = (k: CustomerField) => (raw[k] === undefined || raw[k] === null ? '' : String(raw[k]).trim());
 
-  const name = text('name');
+  const name = cleanDisplayName(text('name'));
   if (!name) errors.push('Name is missing');
   else if (name.length > 160) errors.push('Name is longer than 160 characters');
 
@@ -266,7 +267,7 @@ export function validateCustomerRow(raw: Partial<Record<CustomerField, unknown>>
     else whatsapp = w;
   }
 
-  const company = text('companyName');
+  const company = cleanDisplayName(text('companyName'));
   if (company.length > 160) errors.push('Company is longer than 160 characters');
 
   const email = text('email');

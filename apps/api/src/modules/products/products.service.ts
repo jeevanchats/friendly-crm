@@ -10,9 +10,9 @@ import {
 import { randomUUID } from 'crypto';
 import { and, asc, eq, or, sql as dsql } from 'drizzle-orm';
 import { db, sql, products } from '@friendly-crm/db';
-import { CleanProduct, validateProductRow } from '@friendly-crm/shared';
+import { CleanProduct, rankSimilar, validateProductRow } from '@friendly-crm/shared';
 import { globalMemoryProducts } from '../crm/memory-store';
-import { onDbError } from '../../common/utils/db-fallback.util';
+import { memoryFallbackAllowed, onDbError } from '../../common/utils/db-fallback.util';
 
 export const MAX_PRODUCT_IMPORT_ROWS = 1000;
 
@@ -92,6 +92,23 @@ export class ProductsService {
         .slice(0, limit + 1);
     });
     return { data: rows.slice(0, limit).map(toView), total: rows.length > limit ? limit + 1 : rows.length };
+  }
+
+  /** Products that look like the one being typed: the same code, or the same or a near-identical name (archived ones too). */
+  async findSimilar(tenantId: string, q: { name?: string; code?: string }) {
+    const rows = await this.withStore(tenantId, async (tx) => {
+      const mem = () => (memoryFallbackAllowed() ? globalMemoryProducts.filter((p) => p.tenantId === tenantId) : []);
+      if (tx) {
+        const rows = await tx.select().from(products).where(eq(products.tenantId, tenantId)).limit(20000);
+        const seen = new Set(rows.map((r: any) => String(r.id)));
+        return [...rows, ...mem().filter((p: any) => !seen.has(String(p.id)))];
+      }
+      return globalMemoryProducts.filter((p) => p.tenantId === tenantId);
+    });
+    const hits = rankSimilar(q, rows.map((p: any) => ({ ...p, id: String(p.id) })));
+    return {
+      matches: hits.map((h) => ({ ...toView(h.item as any), reason: h.reason, score: h.score })),
+    };
   }
 
   // ---------------------------------------------------------------- writes

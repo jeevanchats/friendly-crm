@@ -24,3 +24,4 @@ export * from './quote-text';
 export * from './credit-note';
 export * from './eway-bill';
 export * from './payment-details';
+export * from './duplicates';

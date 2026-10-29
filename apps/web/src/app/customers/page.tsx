@@ -233,6 +233,7 @@ export default function CustomersDirectoryPage() {
       {showAdd && (
         <AddCustomerForm
           role={active!.role}
+          lang={lang}
           onClose={() => setShowAdd(false)}
           onCreated={() => {
             setShowAdd(false);

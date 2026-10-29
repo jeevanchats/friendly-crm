@@ -27,6 +27,8 @@ import {
   isValidStateCode,
   normalizeGstin,
   stateCodeFromGstin,
+  rankSimilar,
+  normalizeContactPhone,
 } from '@friendly-crm/shared';
 import { filterAndSanitizeActivities } from '../../common';
 import {
@@ -38,7 +40,7 @@ import {
   globalMemoryTasks,
   globalMemoryActivities,
 } from './memory-store';
-import { onDbError } from '../../common/utils/db-fallback.util';
+import { memoryFallbackAllowed, onDbError } from '../../common/utils/db-fallback.util';
 
 export const MAX_IMPORT_ROWS = 1000;
 
@@ -472,6 +474,46 @@ export class CustomersService {
    * List all customers for a tenant with computed outstanding balance
    * Enforces Row-Level Security: returns ONLY customers belonging to the tenant.
    */
+  /**
+   * Customers that look like the one being entered: the same GSTIN, the same or a nearly identical name (a company
+   * name counts too). The phone is the identity and has its own hard check, so a customer already on that phone is left out.
+   */
+  async findSimilar(tenantId: string, q: { name?: string; companyName?: string; gstin?: string; phone?: string }) {
+    const phone = q.phone ? normalizeContactPhone(q.phone) : null;
+    const fromMemory = () => (memoryFallbackAllowed() ? globalMemoryCustomers.filter((c: any) => c.tenantId === tenantId) : []);
+    const pool: any[] = await (async () => {
+      try {
+        if (typeof db?.transaction === 'function') {
+          const rows = await db.transaction(async (tx: any) => {
+            await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+            return tx
+              .select({ id: customers.id, name: customers.name, companyName: customers.companyName, phone: customers.phone, gstin: customers.gstin })
+              .from(customers)
+              .where(eq(customers.tenantId, tenantId))
+              .limit(20000);
+          });
+          const seen = new Set(rows.map((r: any) => r.id));
+          return [...rows, ...fromMemory().filter((c: any) => !seen.has(c.id))];
+        }
+      } catch (err: any) {
+        onDbError(this.logger, 'looking for similar customers', err);
+      }
+      return fromMemory();
+    })();
+    const hits = rankSimilar(q, pool.filter((c) => !phone || c.phone !== phone));
+    return {
+      matches: hits.map((h) => ({
+        id: h.item.id,
+        name: h.item.name,
+        companyName: h.item.companyName ?? null,
+        phone: h.item.phone,
+        gstin: h.item.gstin ?? null,
+        reason: h.reason,
+        score: h.score,
+      })),
+    };
+  }
+
   async listCustomers(tenantId: string, search?: string, userRole?: TenantRole) {
     const canSeePayments = userRole ? hasPermission(userRole, 'payment:view') : true;
     try {
