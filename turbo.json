@@ -19,7 +19,7 @@
       "dependsOn": ["^build"]
     },
     "check-types": {
-      "dependsOn": ["^check-types"]
+      "dependsOn": ["^build", "^check-types"]
     },
     "db:generate": {
       "cache": false
