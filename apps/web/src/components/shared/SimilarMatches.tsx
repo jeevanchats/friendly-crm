@@ -73,7 +73,7 @@ export function SimilarMatches({
   onConfirm?: (v: boolean) => void;
 }) {
   if (matches.length === 0) return null;
-  const needsConfirm = kind === 'customer' && !!onConfirm && matches.some((m) => m.reason === 'gstin' || m.reason === 'same-name');
+  const needsConfirm = kind === 'customer' && !!onConfirm && matches.some((m) => m.reason === 'same-name') && !matches.some((m) => m.reason === 'gstin');
   return (
     <div role="status" className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
       <p className="flex items-center gap-1.5 font-bold">
@@ -111,9 +111,13 @@ export function SimilarMatches({
       </ul>
       {kind === 'customer' && (
         <p className="text-[11px]">
-          {ta
-            ? 'அதே வணிகத்தின் மற்றொரு நபர் என்றால், புதிதாகச் சேர்க்காமல் இருக்கும் வாடிக்கையாளரைத் திறக்கவும்.'
-            : 'If this is another person at the same business, open the existing customer instead of adding a new one.'}
+          {matches.some((m) => m.reason === 'gstin')
+            ? ta
+              ? 'ஒரு GSTIN-க்கு ஒரு வாடிக்கையாளர் மட்டுமே. அதே வணிகத்தின் மற்றொரு நபர் என்றால், இருக்கும் வாடிக்கையாளரைத் திறந்து தொடர்பாகச் சேர்க்கவும்.'
+              : 'One GSTIN, one customer. If this is another person at the same business, open the existing customer and add them as a contact.'
+            : ta
+              ? 'அதே வணிகத்தின் மற்றொரு நபர் என்றால், புதிதாகச் சேர்க்காமல் இருக்கும் வாடிக்கையாளரைத் திறந்து தொடர்பாகச் சேர்க்கவும்.'
+              : 'If this is another person at the same business, open the existing customer and add them as a contact instead of adding a new one.'}
         </p>
       )}
       {kind === 'product' && matches.some((m) => m.isActive === false) && (

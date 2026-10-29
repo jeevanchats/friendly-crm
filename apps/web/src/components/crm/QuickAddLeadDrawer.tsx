@@ -47,7 +47,7 @@ export function QuickAddLeadDrawer({
   const [lookup, setLookup] = useState<
     | { state: 'idle' | 'checking' | 'invalid' | 'error' }
     | { state: 'new'; phone: string }
-    | { state: 'found'; phone: string; matchedOn: string; customer: { id: string; name: string; companyName: string | null; phone: string; openEnquiries: number } }
+    | { state: 'found'; phone: string; matchedOn: string; contactName?: string; customer: { id: string; name: string; companyName: string | null; phone: string; openEnquiries: number } }
   >({ state: 'idle' });
   const filledFromMaster = useRef(false); // name/company currently come from the master record
   const lookupSeq = useRef(0);
@@ -84,7 +84,7 @@ export function QuickAddLeadDrawer({
           filledFromMaster.current = true;
           setCustomerName(r.customer.name);
           setCompanyName(r.customer.companyName ?? '');
-          setLookup({ state: 'found', phone: r.phone, matchedOn: r.matchedOn, customer: r.customer });
+          setLookup({ state: 'found', phone: r.phone, matchedOn: r.matchedOn, contactName: r.contactName, customer: r.customer });
         } else {
           clearMasterFill();
           setLookup(r.status === 'NOT_FOUND' ? { state: 'new', phone: r.phone } : { state: 'invalid' });
@@ -308,6 +308,9 @@ export function QuickAddLeadDrawer({
                 <div className="mt-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-[11px] text-emerald-900">
                   <p className="font-bold">
                     {lang === 'ta' ? 'ஏற்கனவே உள்ள வாடிக்கையாளர்' : 'Existing customer'}: {lookup.customer.name}
+                    {lookup.matchedOn === 'CONTACT' && (
+                      <span className="font-normal"> · {lang === 'ta' ? `இது ${lookup.contactName ?? 'தொடர்பு நபர்'} அவர்களின் எண்` : `this number is ${lookup.contactName ?? 'a contact'}’s, a contact of this customer`}</span>
+                    )}
                     {lookup.matchedOn === 'WHATSAPP' && (
                       <span className="font-normal"> · {lang === 'ta' ? 'இது அவர்களின் WhatsApp எண்' : 'this is their WhatsApp number'} ({lookup.customer.phone})</span>
                     )}

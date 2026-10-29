@@ -49,7 +49,8 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
   const [confirmedDifferent, setConfirmedDifferent] = useState(false);
   const similarKey = similar.map((m) => m.id).join(',');
   React.useEffect(() => setConfirmedDifferent(false), [similarKey]);
-  const mustConfirm = similar.some((m) => m.reason === 'gstin' || m.reason === 'same-name') && !confirmedDifferent;
+  const sameGstin = similar.find((m) => m.reason === 'gstin');
+  const mustConfirm = similar.some((m) => m.reason === 'same-name') && !confirmedDifferent;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,8 +60,13 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
       setErrors(check.errors);
       return;
     }
+    if (sameGstin) {
+      setExistingId(sameGstin.id);
+      setErrors([ta ? `${sameGstin.name} ஏற்கனவே இந்த GSTIN-ஐப் பயன்படுத்துகிறார். அதே வணிகத்தின் மற்றொரு நபர் என்றால் அவரது தொடர்பாகச் சேர்க்கவும்.` : `${sameGstin.name} already uses this GSTIN. If this is another person at the same business, add them as a contact of that customer.`]);
+      return;
+    }
     if (mustConfirm) {
-      setErrors([ta ? 'இதே GSTIN அல்லது பெயருடன் வாடிக்கையாளர் உள்ளார். வேறு நபர் என்றால் மேலே உறுதி செய்யவும்.' : 'A customer with the same GSTIN or name already exists. Tick the box above if this is a different customer.']);
+      setErrors([ta ? 'இதே பெயரில் வாடிக்கையாளர் உள்ளார். வேறு நபர் என்றால் மேலே உறுதி செய்யவும்.' : 'A customer with the same name already exists. Tick the box above if this is a different customer.']);
       return;
     }
     setErrors([]);
@@ -159,7 +165,7 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
             ))}
             {existingId && (
               <li>
-                <Link href={`/customers/${existingId}`} className="text-brand-ink underline">{ta ? 'இருக்கும் வாடிக்கையாளரைத் திற' : 'Open the existing customer'}</Link>
+                <Link href={`/customers/${existingId}`} className="text-brand-ink underline">{ta ? 'இருக்கும் வாடிக்கையாளரைத் திறந்து தொடர்பைச் சேர்' : 'Open the existing customer (add a contact there)'}</Link>
               </li>
             )}
           </ul>

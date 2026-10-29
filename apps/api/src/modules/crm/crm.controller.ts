@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -15,6 +16,7 @@ import {
 import { CrmService } from './crm.service';
 import { DashboardService } from './dashboard.service';
 import { CustomersService } from './customers.service';
+import { CustomerContactsService } from './customer-contacts.service';
 import { ReportsService } from './reports.service';
 import {
   AuthGuard,
@@ -47,7 +49,8 @@ export class CrmController {
     private readonly crmService: CrmService,
     private readonly dashboardService: DashboardService,
     private readonly customersService: CustomersService,
-    private readonly reportsService: ReportsService
+    private readonly reportsService: ReportsService,
+    private readonly contactsService: CustomerContactsService
   ) {}
 
   /**
@@ -309,6 +312,44 @@ export class CrmController {
   ) {
     const userRole = (user?.role || 'READ_ONLY') as TenantRole;
     return this.customersService.getCustomer360(tenant.id, userRole, customerId);
+  }
+
+  /** GET /api/crm/customers/:id/contacts : the people who deal with us for this customer (besides its primary phone). */
+  @Get('customers/:id/contacts')
+  @RequirePermission('customer:view')
+  listContacts(@CurrentTenant() tenant: { id: string }, @Param('id') customerId: string) {
+    return this.contactsService.list(tenant.id, customerId).then((data) => ({ data }));
+  }
+
+  /** POST /api/crm/customers/:id/contacts { name, phone, designation?, email? } : 409 if the number is already someone's. */
+  @Post('customers/:id/contacts')
+  @RequirePermission('customer:create')
+  addContact(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string } | undefined,
+    @Param('id') customerId: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.contactsService.create(tenant.id, user?.id ?? null, customerId, body ?? {});
+  }
+
+  /** PATCH /api/crm/customers/:id/contacts/:contactId : change any of name, phone, designation, email. */
+  @Patch('customers/:id/contacts/:contactId')
+  @RequirePermission('customer:update')
+  updateContact(
+    @CurrentTenant() tenant: { id: string },
+    @Param('id') customerId: string,
+    @Param('contactId') contactId: string,
+    @Body() body: Record<string, unknown>
+  ) {
+    return this.contactsService.update(tenant.id, customerId, contactId, body ?? {});
+  }
+
+  /** DELETE /api/crm/customers/:id/contacts/:contactId */
+  @Delete('customers/:id/contacts/:contactId')
+  @RequirePermission('customer:update')
+  removeContact(@CurrentTenant() tenant: { id: string }, @Param('id') customerId: string, @Param('contactId') contactId: string) {
+    return this.contactsService.remove(tenant.id, customerId, contactId);
   }
 
   /**

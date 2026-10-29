@@ -147,6 +147,29 @@ export const customers = pgTable(
   })
 );
 
+/**
+ * The people who deal with us for a customer (owner, accounts, purchase...). customers.phone stays the primary contact;
+ * a mobile number identifies exactly one customer in a business, so it cannot be a customer's phone AND a contact's.
+ */
+export const customerContacts = pgTable(
+  'customer_contacts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'cascade' }).notNull(),
+    name: varchar('name', { length: 160 }).notNull(),
+    designation: varchar('designation', { length: 80 }),
+    phone: varchar('phone', { length: 20 }).notNull(), // E.164 (+91XXXXXXXXXX)
+    email: varchar('email', { length: 160 }),
+    createdById: uuid('created_by_id').references(() => users.id),
+    ...timestamps,
+  },
+  (table) => ({
+    tenantPhoneIdx: uniqueIndex('customer_contacts_tenant_phone_idx').on(table.tenantId, table.phone),
+    customerIdx: index('customer_contacts_customer_idx').on(table.tenantId, table.customerId),
+  })
+);
+
 export const leads = pgTable(
   'leads',
   {

@@ -5,10 +5,17 @@ import * as schema from './schema';
 
 const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/friendly_crm';
 
-const postgresFn: any = typeof postgres === 'function' ? postgres : (postgres as any)?.default || postgres;
+// `import postgres` is undefined when the importing project has no esModuleInterop (the API's Jest setup compiles this
+// file with its own tsconfig), which silently left `db` empty and every test on the in-memory store. Fall back to require.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const postgresFn: any = typeof postgres === 'function' ? postgres : (postgres as any)?.default || require('postgres');
+
+// Under Jest the API suites run on the in-memory store (they use made-up business ids), so no pool is opened unless a
+// spec asks for a real database: `npm run test:db` sets TEST_REAL_DB=true.
+const useDatabase = process.env.NODE_ENV !== 'test' || process.env.TEST_REAL_DB === 'true';
 
 // Standard pooled connection for app
-export const pgClient: any = typeof postgresFn === 'function' ? postgresFn(connectionString, {
+export const pgClient: any = useDatabase && typeof postgresFn === 'function' ? postgresFn(connectionString, {
   max: 10,
   // drizzle-orm already (de)serialises json/jsonb; without this, postgres.js
   // encodes the stringified value a second time and jsonb columns store a JSON string.

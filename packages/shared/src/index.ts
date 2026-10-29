@@ -25,3 +25,4 @@ export * from './credit-note';
 export * from './eway-bill';
 export * from './payment-details';
 export * from './duplicates';
+export * from './contacts';

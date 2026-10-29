@@ -149,9 +149,15 @@ WhatsApp as that number (`node scripts/dev-chat.mjs +919876543211 "hi"`) shows t
 ## 8. Handy extras
 
 ```powershell
-# Run the automated checks
+# Run the automated checks (these use the in-memory store, no database needed)
 cd apps/api; npx jest --config ./jest.config.js
+
+# Run the specs that need a real Postgres: create an empty database, apply the migrations to it, then
+$env:DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/friendly_ci'
+cd packages/db; npm run db:migrate; cd ../../apps/api; npm run test:db
 ```
+
+**Customers and their people.** A customer is a business; the people who deal with us for it are its contacts (owner, accounts, purchase...), added on the customer's page under *People at this business*. The customer's own number stays its main contact: reminders, invoices and quotes go there. A mobile number belongs to exactly one customer in a business, and so does a GSTIN, so a second person at the same GSTIN is a contact, not a second customer. A contact's number is recognised everywhere a customer's is: Quick Add, the WhatsApp bot (a contact texting the business sees their customer's orders and dues), and customer search. Run `0018_customer_contacts.sql`; it only creates the one-GSTIN index when no business already has a GSTIN twice (if it prints a notice, merge those customers and create the index by hand).
 
 To undo what you create while testing (invoices cannot be deleted by the app on purpose), ask for a cleanup of the
 dev database.

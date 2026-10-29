@@ -347,3 +347,6 @@ export const globalMemoryPayments: Array<any> = [
     notes: 'Advance transfer',
   },
 ];
+
+/** Development/test copy of customer_contacts: the extra people who deal with us for a customer. */
+export const globalMemoryContacts: Array<any> = [];

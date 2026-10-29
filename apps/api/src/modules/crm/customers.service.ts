@@ -11,6 +11,7 @@ import { sql, eq, and, or, inArray, desc } from 'drizzle-orm';
 import {
   db,
   customers,
+  customerContacts,
   leads,
   quotations,
   orders,
@@ -33,6 +34,7 @@ import {
 import { filterAndSanitizeActivities } from '../../common';
 import {
   globalMemoryCustomers,
+  globalMemoryContacts,
   globalMemoryOrders,
   globalMemoryQuotations,
   globalMemoryLeads,
@@ -99,9 +101,60 @@ export class CustomersService {
           .where(and(eq(customers.tenantId, tenantId), inArray(customers.phone, phones.slice(i, i + 500))));
         for (const r of rows) out.set(r.phone, r);
       }
+      // A number that is a customer's CONTACT is not free either: it answers with that customer, marked _viaContact.
+      const rest = phones.filter((p) => !out.has(p));
+      for (let i = 0; i < rest.length; i += 500) {
+        const contacts = await tx
+          .select()
+          .from(customerContacts)
+          .where(and(eq(customerContacts.tenantId, tenantId), inArray(customerContacts.phone, rest.slice(i, i + 500))));
+        if (contacts.length === 0) continue;
+        const parents = await tx
+          .select()
+          .from(customers)
+          .where(and(eq(customers.tenantId, tenantId), inArray(customers.id, [...new Set(contacts.map((c: any) => c.customerId))] as string[])));
+        for (const k of contacts) {
+          const parent = parents.find((p: any) => p.id === k.customerId);
+          if (parent) out.set(k.phone, { ...parent, _viaContact: true, _contactName: k.name });
+        }
+      }
     } else {
       const want = new Set(phones);
       for (const c of globalMemoryCustomers) if (c.tenantId === tenantId && want.has(c.phone)) out.set(c.phone, c);
+      for (const k of globalMemoryContacts) {
+        if (k.tenantId !== tenantId || !want.has(k.phone) || out.has(k.phone)) continue;
+        const parent = globalMemoryCustomers.find((c: any) => c.id === k.customerId && c.tenantId === tenantId);
+        if (parent) out.set(k.phone, { ...parent, _viaContact: true, _contactName: k.name });
+      }
+    }
+    return out;
+  }
+
+  /** One GSTIN belongs to one customer in a business: a second person there is a contact, not a second customer. */
+  private gstinInUse(owner: any, gstin: string) {
+    return new ConflictException({
+      statusCode: 409,
+      error: 'GstinInUse',
+      message: `${owner.name} already uses GSTIN ${gstin}. If this is another person at the same business, add them as a contact of ${owner.name}.`,
+      customerId: owner.id,
+    });
+  }
+
+  /** The customers of this business that already use these GSTINs, keyed by GSTIN. */
+  private async findByGstins(tx: any | null, tenantId: string, gstins: string[]): Promise<Map<string, any>> {
+    const out = new Map<string, any>();
+    if (gstins.length === 0) return out;
+    if (tx) {
+      for (let i = 0; i < gstins.length; i += 500) {
+        const rows = await tx
+          .select()
+          .from(customers)
+          .where(and(eq(customers.tenantId, tenantId), inArray(customers.gstin, gstins.slice(i, i + 500))));
+        for (const r of rows) out.set(r.gstin, r);
+      }
+    } else {
+      const want = new Set(gstins);
+      for (const c of globalMemoryCustomers) if (c.tenantId === tenantId && c.gstin && want.has(c.gstin)) out.set(c.gstin, c);
     }
     return out;
   }
@@ -169,7 +222,9 @@ export class CustomersService {
       new ConflictException({
         statusCode: 409,
         error: 'CustomerExists',
-        message: `${existing.name} already uses ${c.phone}.`,
+        message: existing._viaContact
+          ? `${existing._contactName} (a contact of ${existing.name}) already uses ${c.phone}.`
+          : `${existing.name} already uses ${c.phone}.`,
         customerId: existing.id,
       });
 
@@ -179,17 +234,28 @@ export class CustomersService {
           await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
           const existing = (await this.findByPhones(tx, tenantId, [c.phone])).get(c.phone);
           if (existing) throw dup(existing);
+          if (c.gstin) {
+            const owner = (await this.findByGstins(tx, tenantId, [c.gstin])).get(c.gstin);
+            if (owner) throw this.gstinInUse(owner, c.gstin);
+          }
           const [row] = await tx.insert(customers).values(this.insertValues(tenantId, actorId, c)).returning();
           return row;
         });
       }
     } catch (err: any) {
       if (err instanceof ConflictException) throw err;
+      if (err?.code === '23505' && String(err?.constraint_name ?? err?.constraint ?? '').includes('gstin')) {
+        throw new ConflictException({ statusCode: 409, error: 'GstinInUse', message: `${c.gstin} already belongs to another customer.` });
+      }
       if (err?.code === '23505') throw new ConflictException({ statusCode: 409, error: 'CustomerExists', message: `${c.phone} is already a customer.` });
       onDbError(this.logger, 'creating customer in memory', err);
     }
     const existing = (await this.findByPhones(null, tenantId, [c.phone])).get(c.phone);
     if (existing) throw dup(existing);
+    if (c.gstin) {
+      const owner = (await this.findByGstins(null, tenantId, [c.gstin])).get(c.gstin);
+      if (owner) throw this.gstinInUse(owner, c.gstin);
+    }
     const mem: any = {
       id: randomUUID(),
       ...this.insertValues(tenantId, actorId, c),
@@ -223,6 +289,7 @@ export class CustomersService {
     type Planned = { result: ImportRowResult; clean?: CleanCustomer; existing?: any; warnings?: string[] };
     const planned: Planned[] = [];
     const firstRowForPhone = new Map<string, number>();
+    const firstRowForGstin = new Map<string, number>();
 
     rawRows.forEach((raw, i) => {
       const rowNo = i + 1;
@@ -240,7 +307,21 @@ export class CustomersService {
         });
         return;
       }
+      const sameGstin = check.value.gstin ? firstRowForGstin.get(check.value.gstin) : undefined;
+      if (sameGstin !== undefined) {
+        planned.push({
+          result: {
+            row: rowNo,
+            name: check.value.name,
+            phone: check.value.phone,
+            status: 'error',
+            messages: [`Same GSTIN as row ${sameGstin}: one customer per GSTIN (add the other person as a contact)`],
+          },
+        });
+        return;
+      }
       firstRowForPhone.set(check.value.phone, rowNo);
+      if (check.value.gstin) firstRowForGstin.set(check.value.gstin, rowNo);
       planned.push({
         result: { row: rowNo, name: check.value.name, phone: check.value.phone, status: 'create', messages: [...check.warnings] },
         clean: check.value,
@@ -255,6 +336,12 @@ export class CustomersService {
         if (!p.clean) continue;
         const found = existing.get(p.clean.phone);
         if (!found) continue;
+        if (found._viaContact) {
+          // The number belongs to a contact of an existing customer: never create or update from it
+          p.result.status = 'skip';
+          p.result.messages.push(`Already a contact of ${found.name} (${found._contactName})`);
+          continue;
+        }
         p.existing = found;
         if (opts.onDuplicate === 'update') {
           p.result.status = 'update';
@@ -263,6 +350,16 @@ export class CustomersService {
         } else {
           p.result.status = 'skip';
           p.result.messages.push(`Already a customer (${found.name})`);
+        }
+      }
+      const withGstin = planned.filter((p) => p.clean?.gstin && (p.result.status === 'create' || p.result.status === 'update'));
+      const owners = await this.findByGstins(tx, tenantId, [...new Set(withGstin.map((p) => p.clean!.gstin as string))]);
+      for (const p of withGstin) {
+        const owner = owners.get(p.clean!.gstin as string);
+        if (owner && owner.id !== p.existing?.id) {
+          p.result.status = 'error';
+          p.result.messages.push(`GSTIN ${p.clean!.gstin} already belongs to ${owner.name}: add this person as a contact of ${owner.name} instead`);
+          p.existing = undefined;
         }
       }
       if (opts.dryRun) return;
@@ -390,11 +487,16 @@ export class CustomersService {
     if (Object.keys(next).length === 0) {
       throw new BadRequestException('Nothing to update: send gstin, billingAddress, stateCode, companyName and/or remindersOptOut');
     }
+    const gstinOwnedByAnother = (owner: any) => (owner && owner.id !== customerId ? this.gstinInUse(owner, next.gstin as string) : null);
 
     try {
       if (typeof db?.transaction === 'function') {
         const row = await db.transaction(async (tx) => {
           await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+          if (next.gstin) {
+            const clash = gstinOwnedByAnother((await this.findByGstins(tx, tenantId, [next.gstin])).get(next.gstin));
+            if (clash) throw clash;
+          }
           const [updated] = await tx
             .update(customers)
             .set(next)
@@ -413,11 +515,15 @@ export class CustomersService {
         };
       }
     } catch (err: any) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ConflictException) throw err;
       onDbError(this.logger, 'updating customer billing details in memory', err);
     }
     const mem: any = globalMemoryCustomers.find((c) => c.id === customerId && c.tenantId === tenantId);
     if (!mem) throw new NotFoundException('Customer not found');
+    if (next.gstin) {
+      const clash = gstinOwnedByAnother((await this.findByGstins(null, tenantId, [next.gstin])).get(next.gstin));
+      if (clash) throw clash;
+    }
     Object.assign(mem, next);
     return {
       id: mem.id,
@@ -555,11 +661,27 @@ export class CustomersService {
 
           if (!search) return sanitizedRows;
           const q = search.toLowerCase();
+          // A customer also turns up by the name or number of one of its contacts
+          const like = `%${q.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+          const viaContacts = new Set<string>(
+            (
+              await tx
+                .select({ customerId: customerContacts.customerId })
+                .from(customerContacts)
+                .where(
+                  and(
+                    eq(customerContacts.tenantId, tenantId),
+                    or(sql`lower(${customerContacts.name}) like ${like}`, sql`${customerContacts.phone} like ${like}`)
+                  )
+                )
+            ).map((k: any) => k.customerId)
+          );
           return sanitizedRows.filter(
             (r) =>
               r.name.toLowerCase().includes(q) ||
               r.companyName?.toLowerCase().includes(q) ||
-              r.phone.includes(q)
+              r.phone.includes(q) ||
+              viaContacts.has(r.id)
           );
         });
       }
@@ -600,7 +722,8 @@ export class CustomersService {
         (c) =>
           c.name.toLowerCase().includes(q) ||
           c.companyName?.toLowerCase().includes(q) ||
-          c.phone.includes(q)
+          c.phone.includes(q) ||
+          globalMemoryContacts.some((k) => k.customerId === c.id && (String(k.name).toLowerCase().includes(q) || String(k.phone).includes(q)))
       );
     }
 
