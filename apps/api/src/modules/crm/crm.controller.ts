@@ -17,6 +17,7 @@ import { CrmService } from './crm.service';
 import { DashboardService } from './dashboard.service';
 import { CustomersService } from './customers.service';
 import { CustomerContactsService } from './customer-contacts.service';
+import { DuplicateAdvisorService } from '../ai/duplicate-advisor.service';
 import { ReportsService } from './reports.service';
 import {
   AuthGuard,
@@ -50,7 +51,8 @@ export class CrmController {
     private readonly dashboardService: DashboardService,
     private readonly customersService: CustomersService,
     private readonly reportsService: ReportsService,
-    private readonly contactsService: CustomerContactsService
+    private readonly contactsService: CustomerContactsService,
+    private readonly advisor: DuplicateAdvisorService
   ) {}
 
   /**
@@ -296,7 +298,29 @@ export class CrmController {
     @Query('gstin') gstin?: string,
     @Query('phone') phone?: string
   ) {
-    return this.customersService.findSimilar(tenant.id, { name, companyName, gstin, phone });
+    return { ...(await this.customersService.findSimilar(tenant.id, { name, companyName, gstin, phone })), ai: this.advisor.available() };
+  }
+
+  /**
+   * POST /api/crm/customers/similar/review { name, companyName?, gstin?, phone? }
+   * An AI second opinion on the customers the plain checks found (same / different / unsure, with a reason). It only
+   * advises. The server finds the candidates itself; it sends names and the GST state, never phone numbers or addresses.
+   */
+  @Post('customers/similar/review')
+  @RequirePermission('customer:view')
+  async reviewSimilarCustomers(
+    @CurrentTenant() tenant: { id: string },
+    @Body() body: { name?: string; companyName?: string; gstin?: string; phone?: string }
+  ) {
+    const { matches } = await this.customersService.findSimilar(tenant.id, body ?? {});
+    const state = (g?: string | null) => (g && /^\d{2}/.test(g.trim()) ? g.trim().slice(0, 2) : null);
+    const verdicts = await this.advisor.review(
+      tenant.id,
+      'customer',
+      { name: body?.name ?? null, companyName: body?.companyName ?? null, gstState: state(body?.gstin) },
+      matches.map((m) => ({ id: m.id, fields: { name: m.name, companyName: m.companyName, gstState: state(m.gstin) } }))
+    );
+    return { matches: matches.map((m) => ({ ...m, ...(verdicts.find((v) => v.id === m.id) ?? {}) })) };
   }
 
   /**

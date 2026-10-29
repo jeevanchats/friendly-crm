@@ -27,19 +27,30 @@ export interface SimilarMatch {
  * lookup just shows nothing.
  */
 export function useSimilar(path: string, params: Record<string, string>, enabled: boolean): SimilarMatch[] {
+  return useSimilarWithAi(path, params, enabled).matches;
+}
+
+/** Same lookup, also saying whether an AI second opinion is set up on the server. */
+export function useSimilarWithAi(path: string, params: Record<string, string>, enabled: boolean): { matches: SimilarMatch[]; ai: boolean } {
   const [matches, setMatches] = useState<SimilarMatch[]>([]);
+  const [ai, setAi] = useState(false);
   const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
 
   useEffect(() => {
     if (!enabled) {
       setMatches([]);
+      setAi(false);
       return;
     }
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
         const res = await apiFetch(`${path}?${query}`, { signal: controller.signal });
-        if (res.ok && !controller.signal.aborted) setMatches(((await res.json()) as { matches?: SimilarMatch[] }).matches ?? []);
+        if (res.ok && !controller.signal.aborted) {
+          const body = (await res.json()) as { matches?: SimilarMatch[]; ai?: boolean };
+          setMatches(body.matches ?? []);
+          setAi(body.ai === true);
+        }
       } catch {
         /* a warning aid: stay quiet when it cannot be reached */
       }
@@ -50,8 +61,62 @@ export function useSimilar(path: string, params: Record<string, string>, enabled
     };
   }, [path, query, enabled]);
 
-  return matches;
+  return { matches, ai };
 }
+
+export interface AiReview {
+  available: boolean;
+  state: 'idle' | 'loading' | 'done' | 'error';
+  error?: string;
+  verdicts: Record<string, { verdict: 'same' | 'different' | 'unsure'; reason: string }>;
+  run: () => void;
+}
+
+/**
+ * The AI second opinion on the matches shown. Only runs when the person presses the button (it costs a call), and
+ * starts over whenever the matches or what was typed change. It advises; nothing is decided by it.
+ */
+export function useAiReview(path: string, body: Record<string, string>, matches: SimilarMatch[], available: boolean, ta: boolean): AiReview {
+  const [state, setState] = useState<AiReview['state']>('idle');
+  const [verdicts, setVerdicts] = useState<AiReview['verdicts']>({});
+  const [error, setError] = useState<string | undefined>();
+  const key = `${matches.map((m) => m.id).join(',')}|${JSON.stringify(body)}`;
+
+  useEffect(() => {
+    setState('idle');
+    setVerdicts({});
+    setError(undefined);
+  }, [key]);
+
+  const run = async () => {
+    setState('loading');
+    setError(undefined);
+    try {
+      const res = await apiFetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const json = (await res.json().catch(() => ({}))) as { matches?: Array<SimilarMatch & { verdict?: 'same' | 'different' | 'unsure'; reason?: string }>; message?: string };
+      if (!res.ok) {
+        setError(typeof json.message === 'string' ? json.message : ta ? 'AI சரிபார்ப்பு இப்போது கிடைக்கவில்லை.' : 'The AI check is not available right now.');
+        setState('error');
+        return;
+      }
+      const map: AiReview['verdicts'] = {};
+      for (const m of json.matches ?? []) if (m.verdict) map[m.id] = { verdict: m.verdict, reason: m.reason ?? '' };
+      setVerdicts(map);
+      setState('done');
+    } catch {
+      setError(ta ? 'சர்வரை அடைய முடியவில்லை.' : 'Could not reach the server.');
+      setState('error');
+    }
+  };
+
+  return { available: available && matches.length > 0, state, error, verdicts, run: () => void run() };
+}
+
+const VERDICT: Record<'same' | 'different' | 'unsure', { en: string; ta: string; style: string }> = {
+  same: { en: 'AI: probably the same', ta: 'AI: ஒன்றாக இருக்கலாம்', style: 'bg-rose-100 text-rose-900' },
+  different: { en: 'AI: looks different', ta: 'AI: வேறு போல் தெரிகிறது', style: 'bg-emerald-100 text-emerald-900' },
+  unsure: { en: 'AI: not sure', ta: 'AI: உறுதியில்லை', style: 'bg-slate-200 text-slate-800' },
+};
 
 const REASON: Record<SimilarMatch['reason'], { en: string; ta: string }> = {
   gstin: { en: 'Same GSTIN', ta: 'அதே GSTIN' },
@@ -67,10 +132,13 @@ export function SimilarMatches({
   ta,
   confirmed,
   onConfirm,
+  review,
 }: {
   kind: 'customer' | 'product';
   matches: SimilarMatch[];
   ta: boolean;
+  /** Offer an AI second opinion on these matches (only when the server has one set up). */
+  review?: AiReview;
   /** Customers only: shown when a match is certain enough to ask the person to confirm. */
   confirmed?: boolean;
   onConfirm?: (v: boolean) => void;
@@ -91,6 +159,14 @@ export function SimilarMatches({
             <span className="min-w-0">
               <span className="font-semibold">{m.name}</span>
               {m.isActive === false && <span className="ml-1 text-slate-600">({ta ? 'காப்பகம்' : 'archived'})</span>}
+              {review?.verdicts[m.id] && (
+                <span className="mt-0.5 block text-[11px]">
+                  <span className={`mr-1 inline-block rounded-full px-2 py-0.5 font-bold ${VERDICT[review.verdicts[m.id].verdict].style}`}>
+                    {VERDICT[review.verdicts[m.id].verdict][ta ? 'ta' : 'en']}
+                  </span>
+                  {review.verdicts[m.id].reason}
+                </span>
+              )}
               <span className="block text-[11px] text-slate-700">
                 {[
                   REASON[m.reason][ta ? 'ta' : 'en'],
@@ -112,6 +188,22 @@ export function SimilarMatches({
           </li>
         ))}
       </ul>
+      {review?.available && review.state !== 'done' && (
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={review.run}
+            disabled={review.state === 'loading'}
+            className="rounded-md border border-amber-500 bg-surface px-2.5 py-1 font-bold text-brand-ink disabled:opacity-60"
+          >
+            {review.state === 'loading' ? (ta ? 'ஒப்பிடுகிறது…' : 'Comparing…') : ta ? 'AI-யிடம் ஒப்பிடக் கேள்' : 'Ask AI to compare'}
+          </button>
+          <span className="block text-[11px] text-slate-700">
+            {ta ? 'AI ஆலோசனை மட்டுமே; முடிவு உங்களுடையது. பெயர்கள் (மற்றும் GST மாநிலம்) மட்டுமே அனுப்பப்படும்.' : 'The AI only advises; you decide. Only names (and the GST state) are sent.'}
+          </span>
+          {review.state === 'error' && review.error && <span role="alert" className="block font-semibold text-red-700">{review.error}</span>}
+        </div>
+      )}
       {kind === 'customer' && (
         <p className="text-[11px]">
           {matches.some((m) => m.reason === 'gstin')

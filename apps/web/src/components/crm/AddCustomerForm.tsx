@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { X } from 'lucide-react';
 import { GST_STATES, hasPermission, isValidGstin, normalizeGstin, stateCodeFromGstin, validateCustomerRow, TenantRole } from '@friendly-crm/shared';
 import { apiFetch } from '../../lib/session';
-import { SimilarMatches, useSimilar } from '../shared/SimilarMatches';
+import { SimilarMatches, useAiReview, useSimilarWithAi } from '../shared/SimilarMatches';
 
 interface Props {
   role: TenantRole;
@@ -41,11 +41,9 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
 
   // Does this look like someone already in the customer list? (Only a warning; the phone number is the hard check.)
   const gstinOk = isValidGstin(normalizeGstin(f.gstin));
-  const similar = useSimilar(
-    '/api/crm/customers/similar',
-    { name: f.name.trim(), companyName: f.companyName.trim(), gstin: gstinOk ? normalizeGstin(f.gstin) : '', phone: f.phone.trim() },
-    f.name.trim().length >= 3 || f.companyName.trim().length >= 3 || gstinOk
-  );
+  const similarQuery = { name: f.name.trim(), companyName: f.companyName.trim(), gstin: gstinOk ? normalizeGstin(f.gstin) : '', phone: f.phone.trim() };
+  const { matches: similar, ai: aiOn } = useSimilarWithAi('/api/crm/customers/similar', similarQuery, f.name.trim().length >= 3 || f.companyName.trim().length >= 3 || gstinOk);
+  const aiReview = useAiReview('/api/crm/customers/similar/review', similarQuery, similar, aiOn, ta);
   const [confirmedDifferent, setConfirmedDifferent] = useState(false);
   const similarKey = similar.map((m) => m.id).join(',');
   React.useEffect(() => setConfirmedDifferent(false), [similarKey]);
@@ -156,7 +154,7 @@ export function AddCustomerForm({ role, lang = 'en', onClose, onCreated }: Props
           </div>
         </div>
 
-        <SimilarMatches kind="customer" matches={similar} ta={ta} confirmed={confirmedDifferent} onConfirm={setConfirmedDifferent} />
+        <SimilarMatches kind="customer" matches={similar} ta={ta} confirmed={confirmedDifferent} onConfirm={setConfirmedDifferent} review={aiReview} />
 
         {errors.length > 0 && (
           <ul role="alert" className="space-y-1 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700">
