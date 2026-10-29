@@ -1,10 +1,13 @@
-import { Controller, Get, Res, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Res, HttpStatus, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { db } from '@friendly-crm/db';
 import { sql } from 'drizzle-orm';
+import { memoryFallbackAllowed } from '../../common/utils/db-fallback.util';
 
 @Controller()
 export class HealthController {
+  private readonly logger = new Logger(HealthController.name);
+
   /**
    * 1. GET /api/health (and /health)
    * Liveness Probe: Verifies Node.js process is active
@@ -37,9 +40,11 @@ export class HealthController {
         dbStatus = 'memory_mode';
       }
     } catch (err: any) {
-      dbStatus = `error: ${err.message}`;
-      // In production, unready database means 503 Service Unavailable
-      if (process.env.NODE_ENV === 'production') {
+      // An unreachable database means 503, except where the in-memory fallback is allowed (tests, opt-in local dev).
+      // The error text goes to the log, not to this public response.
+      this.logger.error(`Readiness check: database unreachable: ${err?.message ?? err}`);
+      dbStatus = 'unreachable';
+      if (!memoryFallbackAllowed()) {
         isReady = false;
       }
     }
