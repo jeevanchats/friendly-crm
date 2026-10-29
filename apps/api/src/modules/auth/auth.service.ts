@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
   HttpStatus,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { randomBytes, randomInt, createHash, randomUUID } from 'crypto';
 import {
@@ -26,6 +27,7 @@ import {
 } from '@friendly-crm/db';
 import { eq, and, desc, gt } from 'drizzle-orm';
 import { DevSmsGateway } from './sms-gateway';
+import { Fast2SmsGateway } from './fast2sms-gateway';
 import { globalMemoryTenants } from '../crm/memory-store';
 
 export interface ValidatedUserSession {
@@ -115,7 +117,10 @@ export class AuthService {
   // Rate limiting tracker: phone -> array of request timestamps (epoch ms)
   private readonly requestRateLimits = new Map<string, number[]>();
 
-  constructor(private readonly devSmsGateway: DevSmsGateway) {}
+  constructor(
+    private readonly devSmsGateway: DevSmsGateway,
+    @Optional() private readonly fast2SmsGateway?: Fast2SmsGateway
+  ) {}
 
   /**
    * The in-memory stores stand in for Postgres in tests, and in local development only when ALLOW_MEMORY_FALLBACK=true.
@@ -230,11 +235,13 @@ export class AuthService {
     this.requestRateLimits.set(phone, recentRequests);
 
     // 4. Dispatch via SMS Gateway
-    await this.devSmsGateway.sendOtp(phone, code);
+    const useFast2Sms = !!this.fast2SmsGateway && Fast2SmsGateway.isConfigured();
+    await (useFast2Sms ? this.fast2SmsGateway! : this.devSmsGateway).sendOtp(phone, code);
 
     // Local development only (same rule as the dev gateway's console line): hand the code back so the login page
-    // can show it. Never in production or tests.
+    // can show it. Never in production or tests, and never once a real SMS has been sent.
     const showDevCode =
+      !useFast2Sms &&
       process.env.ENABLE_DEV_SMS_GATEWAY === 'true' &&
       process.env.NODE_ENV !== 'production' &&
       process.env.NODE_ENV !== 'test';

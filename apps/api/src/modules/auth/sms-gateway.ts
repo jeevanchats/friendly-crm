@@ -14,7 +14,7 @@ export class DevSmsGateway implements ISmsGateway {
 
     if (!isTest && !isDevEnabled) {
       throw new ServiceUnavailableException(
-        'Development SMS gateway is disabled. Enable ENABLE_DEV_SMS_GATEWAY=true or configure production SMS provider.'
+        'Development SMS gateway is disabled. Enable ENABLE_DEV_SMS_GATEWAY=true or set FAST2SMS_API_KEY.'
       );
     }
 

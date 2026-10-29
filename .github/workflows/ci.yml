@@ -1,10 +1,3 @@
-# ==============================================================================
-# FRIENDLY CRM — CONTINUOUS INTEGRATION (CI) PIPELINE SPECIFICATION
-# ==============================================================================
-# Move or symlink this file to .github/workflows/ci.yml in your repository
-# when enabling automated GitHub Actions runners with 'workflow' scope.
-# ==============================================================================
-
 name: Friendly CRM CI Pipeline
 
 on:
