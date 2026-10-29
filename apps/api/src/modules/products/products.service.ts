@@ -10,7 +10,7 @@ import {
 import { randomUUID } from 'crypto';
 import { and, asc, eq, or, sql as dsql } from 'drizzle-orm';
 import { db, sql, products } from '@friendly-crm/db';
-import { CleanProduct, rankSimilar, validateProductRow } from '@friendly-crm/shared';
+import { CleanProduct, findImportNameClashes, nameKey, rankSimilar, validateProductRow } from '@friendly-crm/shared';
 import { globalMemoryProducts } from '../crm/memory-store';
 import { memoryFallbackAllowed, onDbError } from '../../common/utils/db-fallback.util';
 
@@ -36,6 +36,8 @@ export interface ProductImportRow {
   name: string;
   status: ProductImportStatus;
   messages: string[];
+  /** Importable, but worth a look first: it resembles a product already listed or an earlier row of the file. */
+  check?: boolean;
 }
 
 export interface ProductImportResult {
@@ -44,6 +46,10 @@ export interface ProductImportResult {
   updated: number;
   skipped: number;
   errors: number;
+  /** Rows (not counting errors) flagged to check because they look like an existing product or an earlier row. */
+  toCheck: number;
+  /** 'similar': names that merely look alike were compared too. 'identical-only': the file was too large for that. */
+  nameCheck: 'similar' | 'identical-only';
   rows: ProductImportRow[];
 }
 
@@ -224,6 +230,7 @@ export class ProductsService {
       planned.push({ result: { row, name: c.name, status: 'create', messages: [...check.warnings] }, clean: c, warnings: [...check.warnings], supplied });
     });
 
+    let nameCheck: 'similar' | 'identical-only' = 'similar';
     const run = async (tx: any | null) => {
       const clean = planned.filter((p) => p.clean).map((p) => p.clean!);
       const clashes = await this.findClashes(tx, tenantId, clean);
@@ -239,6 +246,28 @@ export class ProductsService {
           p.result.status = 'skip';
           p.result.messages.push(`Already a product (${hit.name})`);
         }
+      }
+      // Resemblance (not identity): a new product whose name looks like one already listed, or like an earlier row
+      const pool: any[] = tx
+        ? await tx.select({ id: products.id, name: products.name, code: products.code, isActive: products.isActive }).from(products).where(eq(products.tenantId, tenantId)).limit(20000)
+        : globalMemoryProducts.filter((x) => x.tenantId === tenantId);
+      const newRows = planned.filter((p) => p.clean && p.result.status === 'create');
+      const nameClashes = findImportNameClashes(newRows.map((p) => ({ name: p.clean!.name })), pool.map((x) => ({ ...x, id: String(x.id) })));
+      nameCheck = nameClashes.fuzzy ? 'similar' : 'identical-only';
+      const firstWithKey = new Map<string, number>();
+      for (const [i, p] of newRows.entries()) {
+        const flag = (msg: string) => {
+          p.result.messages.push(msg);
+          p.result.check = true;
+        };
+        const hit = nameClashes.hits[i];
+        if (hit) {
+          flag(`Looks like the listed product "${hit.item.name}"${hit.item.isActive === false ? ' (archived)' : ''} (${hit.reason === 'same-name' ? 'same name' : 'similar name'}). If it is the same item, skip this row${hit.item.isActive === false ? ' and restore that product' : ''}`);
+        }
+        const key = nameKey(p.clean.name);
+        const earlier = key ? firstWithKey.get(key) : undefined;
+        if (earlier !== undefined) flag(`Same name as row ${earlier} apart from spelling or punctuation. Is it the same item?`);
+        else if (key) firstWithKey.set(key, p.result.row);
       }
       if (opts.dryRun) return;
       const toCreate = planned.filter((p) => p.result.status === 'create' && p.clean);
@@ -271,6 +300,7 @@ export class ProductsService {
           if (!p.clean) continue;
           p.result.status = 'create';
           p.result.messages = [...p.warnings];
+          p.result.check = undefined;
           p.existingId = undefined;
         }
         await run(tx);
@@ -284,7 +314,16 @@ export class ProductsService {
 
     const rows = planned.map((p) => p.result);
     const count = (s: ProductImportStatus) => rows.filter((r) => r.status === s).length;
-    return { dryRun: opts.dryRun, created: count('create'), updated: count('update'), skipped: count('skip'), errors: count('error'), rows };
+    return {
+      dryRun: opts.dryRun,
+      created: count('create'),
+      updated: count('update'),
+      skipped: count('skip'),
+      errors: count('error'),
+      toCheck: rows.filter((r) => r.check && r.status !== 'error' && r.status !== 'skip').length,
+      nameCheck,
+      rows,
+    };
   }
 
   // ---------------------------------------------------------------- helpers

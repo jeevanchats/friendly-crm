@@ -13,6 +13,7 @@ interface RowResult {
   name: string;
   status: 'create' | 'update' | 'skip' | 'error';
   messages: string[];
+  check?: boolean;
 }
 
 interface Summary {
@@ -21,6 +22,8 @@ interface Summary {
   updated: number;
   skipped: number;
   errors: number;
+  toCheck: number;
+  nameCheck?: 'similar' | 'identical-only';
   rows: RowResult[];
 }
 
@@ -84,7 +87,7 @@ export default function ImportProductsPage() {
 
   /** Sends the rows in batches (the server takes up to 1000 at a time) and joins the answers. */
   const run = async (dryRun: boolean): Promise<Summary | null> => {
-    const total: Summary = { dryRun, created: 0, updated: 0, skipped: 0, errors: 0, rows: [] };
+    const total: Summary = { dryRun, created: 0, updated: 0, skipped: 0, errors: 0, toCheck: 0, rows: [] };
     for (let i = 0; i < sheet.rows.length; i += CHUNK) {
       const res = await apiFetch('/api/products/import', {
         method: 'POST',
@@ -106,6 +109,8 @@ export default function ImportProductsPage() {
       total.updated += body.updated;
       total.skipped += body.skipped;
       total.errors += body.errors;
+      total.toCheck += body.toCheck ?? 0;
+      if (body.nameCheck === 'identical-only') total.nameCheck = 'identical-only';
       total.rows.push(...body.rows.map((r: RowResult) => ({ ...r, row: r.row + i })));
     }
     return total;
@@ -152,11 +157,11 @@ export default function ImportProductsPage() {
     );
   }
 
-  const shown = (r: Summary) => (onlyProblems ? r.rows.filter((x) => x.status === 'error') : r.rows);
+  const shown = (r: Summary) => (onlyProblems ? r.rows.filter((x) => x.status === 'error' || x.check) : r.rows);
   const resultTable = (r: Summary, rows = shown(r)) => (
     <div className="space-y-2">
       <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-        <input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} /> {ta ? 'சிக்கல் உள்ள வரிசைகளை மட்டும் காட்டு' : 'Show only rows with problems'}
+        <input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} /> {ta ? 'சிக்கல் அல்லது சரிபார்க்க வேண்டிய வரிசைகளை மட்டும் காட்டு' : 'Show only rows with problems or to check'}
       </label>
       <div className="max-h-96 overflow-auto rounded-xl border border-slate-200">
         <table className="w-full text-left text-xs">
@@ -174,6 +179,7 @@ export default function ImportProductsPage() {
                 <td className="px-3 py-2 font-semibold text-foreground">{x.name || '—'}</td>
                 <td className="px-3 py-2">
                   <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[x.status]}`}>{STATUS_LABEL[x.status][ta ? 'ta' : 'en']}</span>
+                  {x.check && <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">{ta ? 'சரிபார்' : 'Check'}</span>}
                   {x.messages.map((m) => (
                     <div key={m} className="mt-0.5 text-[11px] text-slate-500">{m}</div>
                   ))}
@@ -315,8 +321,11 @@ export default function ImportProductsPage() {
                 <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-800">{preview.created} {ta ? 'சேர்க்க' : 'to add'}</span>
                 {preview.updated > 0 && <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-800">{preview.updated} {ta ? 'புதுப்பிக்க' : 'to update'}</span>}
                 {preview.skipped > 0 && <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{preview.skipped} {ta ? 'ஏற்கனவே உள்ள பொருட்கள்' : 'already products'}</span>}
+                {preview.toCheck > 0 && <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900">{preview.toCheck} {ta ? 'சரிபார்க்க' : 'to check'}</span>}
                 {preview.errors > 0 && <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-800">{preview.errors} {ta ? 'வரிசைகளில் சிக்கல்' : 'with problems'}</span>}
               </div>
+              {preview.toCheck > 0 && <p className="text-xs text-slate-500">{ta ? '“சரிபார்” எனக் குறிக்கப்பட்ட வரிசைகள் இறக்குமதியாகும்; ஏற்கனவே உள்ளதுடன் ஒன்றா என்று பார்த்து, ஒன்றென்றால் அந்த வரிசையை நீக்கவும்.' : 'Rows marked Check will be imported. See whether each is the same as one already there, and take it out of the file if so.'}</p>}
+              {preview.nameCheck === 'identical-only' && <p className="text-xs text-slate-500">{ta ? 'பெரிய கோப்பு: உங்கள் தற்போதைய பட்டியலுடன் ஒரே மாதிரியான பெயர்கள் மட்டுமே ஒப்பிடப்பட்டன.' : 'Large file: only identical names were compared with your existing list.'}</p>}
               {preview.errors > 0 && <p className="text-xs text-slate-500">{ta ? 'சிக்கல் உள்ள வரிசைகள் சேர்க்கப்படாது. உங்கள் கோப்பில் அவற்றைத் திருத்தி மீண்டும் இறக்குமதி செய்யவும்; ஏற்கனவே சேர்த்த பொருட்கள் தவிர்க்கப்படும்.' : 'Rows with problems are left out. Fix them in your file and import it again; products already added are skipped.'}</p>}
               {resultTable(preview)}
               <button
