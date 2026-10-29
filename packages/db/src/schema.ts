@@ -322,6 +322,8 @@ export const quotationItems = pgTable('quotation_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
   quotationId: uuid('quotation_id').references(() => quotations.id, { onDelete: 'cascade' }).notNull(),
+  // The product this line was made from, if any. The line keeps its own copy of name, unit, rate and GST.
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
   itemName: varchar('item_name', { length: 200 }).notNull(),
   description: text('description'), // Holds specs like "300 GSM Art Board, Matt Lamination"
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),
@@ -358,6 +360,7 @@ export const orderItems = pgTable('order_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
   orderId: uuid('order_id').references(() => orders.id, { onDelete: 'cascade' }).notNull(),
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
   itemName: varchar('item_name', { length: 200 }).notNull(),
   description: text('description'),
   quantity: numeric('quantity', { precision: 10, scale: 2 }).notNull(),

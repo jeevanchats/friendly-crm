@@ -25,6 +25,7 @@ import {
   customers,
   tenants,
   tasks,
+  products,
 } from '@friendly-crm/db';
 import { getIndustryTemplate, IndustryKey, TenantRole, hasPermission } from '@friendly-crm/shared';
 import { tenantContextStorage } from '../../common/interceptors/tenant-rls.interceptor';
@@ -40,6 +41,7 @@ import {
   globalMemoryTenants,
   globalMemoryPayments,
   globalMemoryTasks,
+  globalMemoryProducts,
 } from '../crm/memory-store';
 import {
   getNextDbDocumentNumber,
@@ -48,7 +50,7 @@ import {
   setIdempotentResult,
   roundMoney,
 } from '../../common/utils/document-number.util';
-import { onDbError } from '../../common/utils/db-fallback.util';
+import { memoryFallbackAllowed, onDbError } from '../../common/utils/db-fallback.util';
 
 export interface QuoteLineItemInput {
   itemName: string;
@@ -58,6 +60,8 @@ export interface QuoteLineItemInput {
   hsnCode?: string | null;
   unitPrice: number;
   taxPercent?: number;
+  /** The product-list entry this line was made from; absent for free-text lines. */
+  productId?: string | null;
 }
 
 export interface CreateQuotationDto {
@@ -104,6 +108,37 @@ export class SalesService {
     return (Math.round((val + Number.EPSILON) * 100) / 100).toFixed(2);
   }
 
+  /** A line can only point at a product of this business. */
+  private async assertProductsBelong(tenantId: string, items: Array<{ productId?: string | null }>) {
+    const ids = [...new Set(items.map((i) => i.productId).filter((id): id is string => !!id))];
+    if (ids.length === 0) return;
+    const found = new Set<string>();
+    try {
+      if (typeof db?.transaction === 'function') {
+        const uuids = ids.filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+        if (uuids.length > 0) {
+          const rows = await db.transaction(async (tx: any) => {
+            await tx.execute(sql`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`);
+            return tx.select({ id: products.id }).from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, uuids)));
+          });
+          for (const r of rows) found.add(String(r.id));
+        }
+      }
+    } catch (err: any) {
+      onDbError(this.logger, 'checking the products on a quotation', err);
+    }
+    if (memoryFallbackAllowed()) {
+      for (const p of globalMemoryProducts) if (p.tenantId === tenantId && ids.includes(String(p.id))) found.add(String(p.id));
+    }
+    if (ids.some((id) => !found.has(id))) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'UnknownProduct',
+        message: 'A product on this quote is not in your product list (it may have been removed). Pick it again.',
+      });
+    }
+  }
+
   /**
    * Helper to validate and compute line items, preventing zero/negative quantities and negative prices
    */
@@ -114,6 +149,25 @@ export class SalesService {
 
     let subTotal = 0;
     let taxTotal = 0;
+
+    // A quote goes to a customer, so every line needs the full set of fields (unlike an enquiry, where one line of
+    // words is enough). All the problems are reported together so the person can fix them in one go.
+    const incomplete: string[] = [];
+    items.forEach((item, index) => {
+      const label = `Line ${index + 1}${(item.itemName || '').trim() ? ` (${(item.itemName || '').trim()})` : ''}`;
+      if (!(item.itemName || (item as any).description || '').trim()) incomplete.push(`${label}: item name is missing`);
+      if (!String(item.unit ?? '').trim()) incomplete.push(`${label}: unit is missing`);
+      if (!(Number(item.unitPrice) > 0)) incomplete.push(`${label}: rate is missing (it must be more than 0)`);
+      if (item.taxPercent === undefined || item.taxPercent === null || String(item.taxPercent).trim() === '') incomplete.push(`${label}: GST % is missing`);
+    });
+    if (incomplete.length > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'IncompleteQuoteLines',
+        message: `Complete these before the quote can be made: ${incomplete.join('; ')}.`,
+        errors: incomplete,
+      });
+    }
 
     const computedItems = items.map((item, index) => {
       const name = (item.itemName || (item as any).description || '').trim();
@@ -150,10 +204,11 @@ export class SalesService {
 
       return {
         tenantId,
+        productId: item.productId || null,
         itemName: name,
         description: item.description || null,
         quantity: this.roundMoney(qty),
-        unit: item.unit || 'Nos',
+        unit: String(item.unit).trim(),
         hsnCode: item.hsnCode || null,
         unitPrice: this.roundMoney(rate),
         taxPercent: this.roundMoney(taxRate),
@@ -197,6 +252,7 @@ export class SalesService {
     }
 
     const { computedItems, subTotal, taxTotal } = this.computeValidatedLineItems(dto.items, tenantId);
+    await this.assertProductsBelong(tenantId, computedItems);
     const discount = this.validateDiscount(dto.discountAmount, subTotal + taxTotal);
     const grandTotal = Math.max(0, subTotal + taxTotal - discount);
 
@@ -409,6 +465,7 @@ export class SalesService {
     dto: CreateQuotationDto
   ) {
     const { computedItems, subTotal, taxTotal } = this.computeValidatedLineItems(dto.items, tenantId);
+    await this.assertProductsBelong(tenantId, computedItems);
     const discount = this.validateDiscount(dto.discountAmount, subTotal + taxTotal);
     const grandTotal = Math.max(0, subTotal + taxTotal - discount);
 
@@ -851,6 +908,7 @@ export class SalesService {
               items.map((item) => ({
                 tenantId,
                 orderId: order.id,
+                productId: item.productId ?? null,
                 itemName: item.itemName,
                 description: item.description,
                 quantity: item.quantity,

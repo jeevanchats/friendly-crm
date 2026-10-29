@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const QuoteLineItemSchema = z.object({
   id: z.string().uuid().optional(),
+  /** The product-list entry this line was made from (a line without one is free text). */
+  productId: z.string().uuid().optional().nullable(),
   itemName: z.string().optional(),
   description: z.string().optional(),
   quantity: z.coerce.number().gt(0, 'Quantity must be greater than 0'),

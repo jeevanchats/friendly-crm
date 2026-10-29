@@ -47,7 +47,7 @@ describe('Enquiry -> send quote -> follow up on the quote', () => {
   const quoteFor = (customerId: string, extra: Record<string, unknown> = {}) =>
     http(owner, '/sales/quotations', {
       method: 'POST',
-      body: { customerId, items: [{ itemName: 'Wall Calendar', quantity: 500, unitPrice: 85, taxPercent: 12, hsnCode: '4910' }], ...extra },
+      body: { customerId, items: [{ unit: 'Nos', itemName: 'Wall Calendar', quantity: 500, unitPrice: 85, taxPercent: 12, hsnCode: '4910' }], ...extra },
     });
   const tasksOf = (leadId: string) => globalMemoryTasks.filter((t: any) => t.leadId === leadId && t.tenantId === T);
 
@@ -153,7 +153,7 @@ describe('Enquiry -> send quote -> follow up on the quote', () => {
     const pending = () => globalMemoryTasks.filter((t: any) => t.title === title && t.status === 'PENDING');
     expect(pending()).toHaveLength(1);
 
-    const v2 = await (await http(owner, `/sales/quotations/${v1.id}/revise`, { method: 'POST', body: { items: [{ itemName: 'Wall Calendar', quantity: 400, unitPrice: 85, taxPercent: 12 }] } })).json();
+    const v2 = await (await http(owner, `/sales/quotations/${v1.id}/revise`, { method: 'POST', body: { items: [{ unit: 'Nos', itemName: 'Wall Calendar', quantity: 400, unitPrice: 85, taxPercent: 12 }] } })).json();
     expect(v2.version).toBe(2);
     expect(pending()).toHaveLength(1); // the old one was cancelled, one new one stands
     expect(globalMemoryTasks.filter((t: any) => t.title === title && t.status === 'CANCELLED')).toHaveLength(1);

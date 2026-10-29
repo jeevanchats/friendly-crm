@@ -19,33 +19,37 @@ export interface ProductRow {
   isActive: boolean;
 }
 
-const UNITS = ['Nos', 'Kg', 'Gm', 'Ltr', 'Meters', 'Sq.Ft', 'Sets', 'Bales', 'Box', 'Bags', 'Ton', 'Hours'];
+export const UNITS = ['Nos', 'Kg', 'Gm', 'Ltr', 'Meters', 'Sq.Ft', 'Sets', 'Bales', 'Box', 'Bags', 'Ton', 'Hours'];
 
 /** Add or edit one product. The server re-checks everything; this just saves a round trip. */
 export function ProductForm({
   product,
+  initial,
   industry,
   lang = 'en',
   onClose,
   onSaved,
 }: {
   product?: ProductRow;
+  /** Starting values for a NEW product (for example the fields already typed on a quote line). */
+  initial?: Partial<Record<'name' | 'code' | 'description' | 'hsnCode' | 'unit' | 'unitPrice' | 'taxPercent', string>>;
   industry?: IndustryKey;
   lang?: 'en' | 'ta';
   onClose: () => void;
-  onSaved: () => void;
+  /** Called with the saved product. */
+  onSaved: (saved?: ProductRow) => void;
 }) {
   const ta = lang === 'ta';
   // Sample text in this business's own trade
   const example = getIndustryExamples(industry ?? '').product;
   const [f, setF] = useState({
-    name: product?.name ?? '',
-    code: product?.code ?? '',
-    description: product?.description ?? '',
-    hsnCode: product?.hsnCode ?? '',
-    unit: product?.unit ?? 'Nos',
-    unitPrice: product ? String(Number(product.unitPrice)) : '',
-    taxPercent: product ? String(Number(product.taxPercent)) : '18',
+    name: product?.name ?? initial?.name ?? '',
+    code: product?.code ?? initial?.code ?? '',
+    description: product?.description ?? initial?.description ?? '',
+    hsnCode: product?.hsnCode ?? initial?.hsnCode ?? '',
+    unit: product?.unit ?? initial?.unit ?? 'Nos',
+    unitPrice: product ? String(Number(product.unitPrice)) : initial?.unitPrice ?? '',
+    taxPercent: product ? String(Number(product.taxPercent)) : initial?.taxPercent ?? '18',
   });
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -73,7 +77,7 @@ export function ProductForm({
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
-        onSaved();
+        onSaved(body as ProductRow);
         return;
       }
       setErrors(body.errors ?? [Array.isArray(body.message) ? body.message.join(' ') : body.message || `Could not save the product (${res.status}).`]);
