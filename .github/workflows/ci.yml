@@ -12,6 +12,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: friendly_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/friendly_crm
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -30,6 +47,9 @@ jobs:
 
       - name: Build monorepo packages and apps
         run: npx turbo run build
+
+      - name: Create the database tables
+        run: npm run db:migrate
 
       - name: Run Monorepo API Test Suites
         run: |
