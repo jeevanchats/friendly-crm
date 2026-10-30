@@ -34,7 +34,7 @@ describe('Use a contact\'s number for WhatsApp against a real Postgres', () => {
     await pgClient?.end?.({ timeout: 1 });
   });
 
-  it('swaps the WhatsApp number, keeps the old one as a contact, and both numbers still find the customer', async () => {
+  it('makes a person number the WhatsApp number, keeps the person and the earlier number, and all still find the customer', async () => {
     if (!ready) return;
     const added = await service.create(T, null, C, { name: 'Jeevan', phone: phone(3) });
     const out = await service.useForWhatsApp(T, null, C, added.id);
@@ -44,7 +44,7 @@ describe('Use a contact\'s number for WhatsApp against a real Postgres', () => {
       const [c] = await tx.select().from(customers).where(eq(customers.id, C));
       expect(c.whatsappNumber).toBe(phone(3));
       const phones = (await tx.select().from(customerContacts).where(eq(customerContacts.customerId, C))).map((x: any) => x.phone);
-      expect(phones).toEqual([phone(2)]);
+      expect(phones.sort()).toEqual([phone(2), phone(3)].sort()); // the person stays; the earlier WhatsApp number is added
     });
     for (const p of [phone(1), phone(2), phone(3)]) {
       const rows = (await db.execute(sql`SELECT * FROM lookup_customer_by_phone(${p})`)) as any;

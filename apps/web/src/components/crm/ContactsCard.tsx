@@ -89,8 +89,8 @@ export function ContactsCard({ customerId, role, lang = 'en' }: { customerId: st
   const useForWhatsApp = async (c: Contact) => {
     const ok = window.confirm(
       ta
-        ? `இனி WhatsApp செய்திகள் ${c.phone} (${c.name}) எண்ணுக்குச் செல்லும். இந்த எண் நபர் பட்டியலில் இருந்து நீங்கி WhatsApp எண்ணாகும். தொடரவா?`
-        : `WhatsApp messages will go to ${c.phone} (${c.name}). This number moves from the people list to being the WhatsApp number. Continue?`
+        ? `இனி WhatsApp செய்திகள் ${c.phone} (${c.name}) எண்ணுக்குச் செல்லும். தொடரவா?`
+        : `WhatsApp messages will go to ${c.phone} (${c.name}). Continue?`
     );
     if (!ok) return;
     const res = await apiFetch(`/api/crm/customers/${customerId}/contacts/${c.id}/use-for-whatsapp`, { method: 'POST' });
@@ -164,6 +164,11 @@ export function ContactsCard({ customerId, role, lang = 'en' }: { customerId: st
               <span className="min-w-0 text-xs">
                 <span className="font-semibold text-foreground">{c.name}</span>
                 {c.designation && <span className="ml-1.5 text-slate-600">· {c.designation}</span>}
+                {waNumber === c.phone && (
+                  <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                    <MessageCircle className="h-2.5 w-2.5" /> WhatsApp
+                  </span>
+                )}
                 <span className="block text-slate-600">{[c.phone, c.email].filter(Boolean).join(' · ')}</span>
               </span>
               <span className="flex shrink-0 items-center gap-1">
@@ -172,9 +177,11 @@ export function ContactsCard({ customerId, role, lang = 'en' }: { customerId: st
                 </a>
                 {canEdit && (
                   <>
-                    <button type="button" aria-label={ta ? `${c.name} எண்ணை WhatsApp-க்குப் பயன்படுத்து` : `Use ${c.name}'s number for WhatsApp`} title={ta ? 'WhatsApp-க்குப் பயன்படுத்து' : 'Use for WhatsApp'} onClick={() => useForWhatsApp(c)} className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50">
-                      <MessageCircle className="h-4 w-4" />
-                    </button>
+                    {waNumber !== c.phone && (
+                      <button type="button" aria-label={ta ? `${c.name} எண்ணை WhatsApp-க்குப் பயன்படுத்து` : `Use ${c.name}'s number for WhatsApp`} title={ta ? 'WhatsApp-க்குப் பயன்படுத்து' : 'Use for WhatsApp'} onClick={() => useForWhatsApp(c)} className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50">
+                        <MessageCircle className="h-4 w-4" />
+                      </button>
+                    )}
                     <button type="button" aria-label={ta ? `${c.name} திருத்து` : `Edit ${c.name}`} onClick={() => { setErrors([]); setForm({ id: c.id, values: { name: c.name, phone: c.phone, designation: c.designation ?? '', email: c.email ?? '' } }); }} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
                       <Pencil className="h-4 w-4" />
                     </button>

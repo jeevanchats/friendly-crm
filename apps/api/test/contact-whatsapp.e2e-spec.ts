@@ -13,19 +13,19 @@ describe('Use a contact\'s number for WhatsApp', () => {
     return c;
   };
   const contact = (customerId: string, phone: string, name = 'Jeevan') => {
-    const c = { id: randomUUID(), tenantId: T, customerId, name, phone, designation: null, email: null };
+    const c = { id: randomUUID(), tenantId: T, customerId, name, phone, designation: 'Accounts', email: 'j@x.in' };
     globalMemoryContacts.push(c);
     return c;
   };
 
-  it('makes the contact\'s number the WhatsApp number and removes it from the people list', async () => {
+  it('makes the contact\'s number the WhatsApp number and keeps the person, with their role', async () => {
     const c = customer();
     const ct = contact(c.id, '+919840000002');
     expect(await service.numbers(T, c.id)).toEqual({ phone: c.phone, whatsappNumber: c.phone }); // defaults to the main phone
     const out = await service.useForWhatsApp(T, null, c.id, ct.id);
     expect(out).toEqual({ phone: '+919840000001', whatsappNumber: '+919840000002' });
     expect(c.whatsappNumber).toBe('+919840000002');
-    expect(globalMemoryContacts.some((x) => x.id === ct.id)).toBe(false);
+    expect(globalMemoryContacts.find((x) => x.id === ct.id)).toMatchObject({ name: 'Jeevan', designation: 'Accounts', phone: '+919840000002' });
   });
 
   it('keeps a different earlier WhatsApp number as a contact, so it is still recognised', async () => {
@@ -33,16 +33,25 @@ describe('Use a contact\'s number for WhatsApp', () => {
     const ct = contact(c.id, '+919840000013');
     await service.useForWhatsApp(T, 'actor', c.id, ct.id);
     const mine = globalMemoryContacts.filter((x) => x.customerId === c.id);
-    expect(mine.map((x) => x.phone)).toEqual(['+919840000012']);
-    expect(mine[0]).toMatchObject({ name: 'Chris Studio', designation: 'Earlier WhatsApp number' });
+    expect(mine.map((x) => x.phone).sort()).toEqual(['+919840000012', '+919840000013']);
+    expect(mine.find((x) => x.phone === '+919840000012')).toMatchObject({ name: 'Chris Studio', designation: 'Earlier WhatsApp number' });
+    expect(mine.find((x) => x.phone === '+919840000013')).toMatchObject({ name: 'Jeevan', designation: 'Accounts' }); // the person is untouched
     expect(c.whatsappNumber).toBe('+919840000013');
   });
 
-  it('does not add a contact when the earlier WhatsApp number was the main phone', async () => {
+  it('adds no extra contact when the earlier WhatsApp number was the main phone', async () => {
     const c = customer({ phone: '+919840000021', whatsappNumber: '+919840000021' });
     const ct = contact(c.id, '+919840000022');
     await service.useForWhatsApp(T, null, c.id, ct.id);
-    expect(globalMemoryContacts.filter((x) => x.customerId === c.id)).toHaveLength(0);
+    expect(globalMemoryContacts.filter((x) => x.customerId === c.id).map((x) => x.id)).toEqual([ct.id]);
+  });
+
+  it('editing the number of the person whose number is the WhatsApp number moves the WhatsApp number with it', async () => {
+    const c = customer({ phone: '+919840000061' });
+    const ct = contact(c.id, '+919840000062');
+    await service.useForWhatsApp(T, null, c.id, ct.id);
+    await service.update(T, c.id, ct.id, { phone: '+919840000063' });
+    expect(c.whatsappNumber).toBe('+919840000063');
   });
 
   it('refuses a contact of another customer or business, or one that is not there', async () => {
@@ -64,7 +73,8 @@ describe('Use a contact\'s number for WhatsApp', () => {
     const back = await service.useMainForWhatsApp(T, null, c.id);
     expect(back).toEqual({ phone: '+919840000041', whatsappNumber: '+919840000041' });
     const mine = globalMemoryContacts.filter((x) => x.customerId === c.id);
-    expect(mine.map((x) => x.phone)).toEqual(['+919840000042']); // still recognised, and can be chosen again
+    expect(mine).toHaveLength(1); // no duplicate: the person is still there
+    expect(mine[0]).toMatchObject({ name: 'Jeevan', designation: 'Accounts', phone: '+919840000042' });
 
     await service.useForWhatsApp(T, null, c.id, mine[0].id);
     expect(c.whatsappNumber).toBe('+919840000042');
