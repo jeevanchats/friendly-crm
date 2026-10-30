@@ -23,6 +23,10 @@ type LineItem = {
   hint?: { source: string; matched: string | null; missing: Array<'quantity' | 'unit' | 'rate'> };
 };
 
+/** What the reader could not fill in and staff have still not entered (the note shrinks as the line is completed). */
+const stillMissing = (i: LineItem) =>
+  (i.hint?.missing ?? []).filter((m) => (m === 'quantity' ? !(i.quantity > 0) : m === 'unit' ? !i.unit.trim() : !(i.unitPrice > 0)));
+
 /** The quote being revised: its lines, discount and details become the starting point of the new version. */
 export interface ReviseSeed {
   quoteId: string;
@@ -350,10 +354,10 @@ export function FastQuotationBuilder({
                   {item.hint.matched ? ` · ${lang === 'ta' ? 'பொருள் பட்டியல்' : 'product list'}: ${item.hint.matched}` : ''}
                 </p>
                 {item.hint.source && <p className="italic">“{item.hint.source}”</p>}
-                {item.hint.missing.length > 0 && (
+                {stillMissing(item).length > 0 && (
                   <p className="font-bold text-red-700">
                     {lang === 'ta' ? 'நீங்கள் நிரப்ப வேண்டியது: ' : 'You need to fill in: '}
-                    {item.hint.missing.map((m) => (m === 'quantity' ? (lang === 'ta' ? 'அளவு' : 'quantity') : m === 'unit' ? (lang === 'ta' ? 'அலகு' : 'unit') : lang === 'ta' ? 'விலை' : 'rate')).join(', ')}
+                    {stillMissing(item).map((m) => (m === 'quantity' ? (lang === 'ta' ? 'அளவு' : 'quantity') : m === 'unit' ? (lang === 'ta' ? 'அலகு' : 'unit') : lang === 'ta' ? 'விலை' : 'rate')).join(', ')}
                   </p>
                 )}
               </div>
