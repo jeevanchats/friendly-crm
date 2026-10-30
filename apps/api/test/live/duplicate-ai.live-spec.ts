@@ -1,5 +1,27 @@
-import '../../src/load-env';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
 import { DuplicateAdvisorService, DuplicateKind, AdvisorFields, VerdictValue } from '../../src/modules/ai/duplicate-advisor.service';
+
+// Jest gives tests their own copy of process.env, so src/load-env (which fills the real one) would not reach them:
+// read the nearest .env here and fill this copy. Variables already set win, as in load-env.
+(() => {
+  let dir = process.cwd();
+  while (true) {
+    const file = join(dir, '.env');
+    if (existsSync(file)) {
+      for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+        if (m && !line.trim().startsWith('#') && process.env[m[1]] === undefined) {
+          process.env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2');
+        }
+      }
+      return;
+    }
+    const parent = dirname(dir);
+    if (existsSync(join(dir, 'turbo.json')) || parent === dir) return;
+    dir = parent;
+  }
+})();
 
 /**
  * A LIVE check of the AI duplicate review against the real Anthropic API, using the key in .env. Not part of the normal
