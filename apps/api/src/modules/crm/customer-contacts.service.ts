@@ -145,6 +145,9 @@ export class CustomerContactsService {
           .set({ ...patch, updatedAt: new Date() })
           .where(and(eq(customerContacts.id, contactId), eq(customerContacts.tenantId, tenantId)))
           .returning();
+        if (patch.phone && patch.phone !== existing.phone) {
+          await tx.update(customers).set({ whatsappNumber: patch.phone, updatedAt: new Date() }).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId), eq(customers.whatsappNumber, existing.phone)));
+        }
         return toView(row);
       },
       () => {
@@ -152,7 +155,12 @@ export class CustomerContactsService {
         const row = globalMemoryContacts.find((c) => c.id === contactId && c.customerId === customerId && c.tenantId === tenantId);
         if (!row) throw new NotFoundException('Contact not found for this customer');
         if (patch.phone && patch.phone !== row.phone) this.assertPhoneFreeMem(tenantId, patch.phone, contactId);
+        const before = row.phone;
         Object.assign(row, patch, { updatedAt: new Date() });
+        if (patch.phone && patch.phone !== before) {
+          const cust: any = globalMemoryCustomers.find((x: any) => x.id === customerId && x.tenantId === tenantId);
+          if (cust?.whatsappNumber === before) cust.whatsappNumber = patch.phone;
+        }
         return toView(row);
       }
     );
@@ -180,6 +188,107 @@ export class CustomerContactsService {
         return { ok: true as const };
       }
     );
+  }
+
+  // ---------------------------------------------------------------- WhatsApp number
+
+  /** The customer's main phone and the number its WhatsApp messages go to (its own phone when none is set). */
+  async numbers(tenantId: string, customerId: string): Promise<{ phone: string; whatsappNumber: string }> {
+    return this.both(
+      tenantId,
+      'reading customer numbers',
+      async (tx) => {
+        const [c] = await tx.select().from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId))).limit(1);
+        return c ? { phone: c.phone, whatsappNumber: c.whatsappNumber || c.phone } : undefined;
+      },
+      () => {
+        const c: any = globalMemoryCustomers.find((x: any) => x.id === customerId && x.tenantId === tenantId);
+        return { phone: c.phone, whatsappNumber: c.whatsappNumber || c.phone };
+      }
+    );
+  }
+
+  /**
+   * Sends this customer's WhatsApp messages to a contact's number. The person stays in the list with their name, role and
+   * email (the card tags their number as the WhatsApp one). A different WhatsApp number it replaces is kept as a contact so
+   * it is still recognised when that number writes in; the main phone stays as it is.
+   */
+  async useForWhatsApp(tenantId: string, actorId: string | null, customerId: string, contactId: string) {
+    return this.both(
+      tenantId,
+      'setting the WhatsApp number',
+      async (tx) => {
+        const [cust] = await tx.select().from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId))).limit(1);
+        if (!cust) return undefined;
+        const [contact] = await tx
+          .select()
+          .from(customerContacts)
+          .where(and(eq(customerContacts.id, contactId), eq(customerContacts.customerId, customerId), eq(customerContacts.tenantId, tenantId)))
+          .limit(1);
+        if (!contact) throw new NotFoundException('Contact not found for this customer');
+        const old = cust.whatsappNumber;
+        await tx.update(customers).set({ whatsappNumber: contact.phone, updatedAt: new Date() }).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
+        if (old && old !== cust.phone && old !== contact.phone) await this.keepAsContactDb(tx, tenantId, actorId, cust, old);
+        return { phone: cust.phone, whatsappNumber: contact.phone as string };
+      },
+      () => {
+        const cust: any = globalMemoryCustomers.find((x: any) => x.id === customerId && x.tenantId === tenantId);
+        const i = globalMemoryContacts.findIndex((c) => c.id === contactId && c.customerId === customerId && c.tenantId === tenantId);
+        if (i < 0) throw new NotFoundException('Contact not found for this customer');
+        const contact = globalMemoryContacts[i];
+        const old = cust.whatsappNumber;
+        cust.whatsappNumber = contact.phone;
+        if (old && old !== cust.phone && old !== contact.phone) this.keepAsContactMem(tenantId, actorId, cust, old);
+        return { phone: cust.phone as string, whatsappNumber: contact.phone as string };
+      }
+    );
+  }
+
+  /**
+   * Goes back to sending WhatsApp messages to the customer's main phone. The number that was the WhatsApp number stays a
+   * contact (one is added if it was not already, so it is still recognised); it can be chosen again at any time.
+   */
+  async useMainForWhatsApp(tenantId: string, actorId: string | null, customerId: string) {
+    return this.both(
+      tenantId,
+      'resetting the WhatsApp number',
+      async (tx) => {
+        const [cust] = await tx.select().from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId))).limit(1);
+        if (!cust) return undefined;
+        const old = cust.whatsappNumber;
+        if (old && old !== cust.phone) {
+          await this.keepAsContactDb(tx, tenantId, actorId, cust, old);
+          await tx.update(customers).set({ whatsappNumber: cust.phone, updatedAt: new Date() }).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
+        }
+        return { phone: cust.phone as string, whatsappNumber: cust.phone as string };
+      },
+      () => {
+        const cust: any = globalMemoryCustomers.find((x: any) => x.id === customerId && x.tenantId === tenantId);
+        const old = cust.whatsappNumber;
+        if (old && old !== cust.phone) {
+          this.keepAsContactMem(tenantId, actorId, cust, old);
+          cust.whatsappNumber = cust.phone;
+        }
+        return { phone: cust.phone as string, whatsappNumber: cust.phone as string };
+      }
+    );
+  }
+
+  /** A number that stops being the WhatsApp number must still be recognised: make sure some contact has it. */
+  private async keepAsContactDb(tx: any, tenantId: string, actorId: string | null, cust: any, phone: string) {
+    const [has] = await tx.select({ id: customerContacts.id }).from(customerContacts).where(and(eq(customerContacts.tenantId, tenantId), eq(customerContacts.phone, phone))).limit(1);
+    if (has) return;
+    const count = (await tx.select({ id: customerContacts.id }).from(customerContacts).where(and(eq(customerContacts.tenantId, tenantId), eq(customerContacts.customerId, cust.id)))).length;
+    if (count >= MAX_CONTACTS_PER_CUSTOMER) throw new BadRequestException(`A customer can have at most ${MAX_CONTACTS_PER_CUSTOMER} contacts. Remove one first.`);
+    await tx.insert(customerContacts).values({ tenantId, customerId: cust.id, name: cust.name, designation: 'Earlier WhatsApp number', phone, createdById: actorId });
+  }
+
+  private keepAsContactMem(tenantId: string, actorId: string | null, cust: any, phone: string) {
+    if (globalMemoryContacts.some((c) => c.tenantId === tenantId && c.phone === phone)) return;
+    if (globalMemoryContacts.filter((c) => c.tenantId === tenantId && c.customerId === cust.id).length >= MAX_CONTACTS_PER_CUSTOMER) {
+      throw new BadRequestException(`A customer can have at most ${MAX_CONTACTS_PER_CUSTOMER} contacts. Remove one first.`);
+    }
+    globalMemoryContacts.push({ id: randomUUID(), tenantId, customerId: cust.id, name: cust.name, designation: 'Earlier WhatsApp number', phone, email: null, createdById: actorId, createdAt: new Date(), updatedAt: new Date() });
   }
 
   // ---------------------------------------------------------------- the one-number-one-customer rule

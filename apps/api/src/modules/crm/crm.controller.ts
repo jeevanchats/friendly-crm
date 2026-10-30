@@ -344,7 +344,7 @@ export class CrmController {
   @Get('customers/:id/contacts')
   @RequirePermission('customer:view')
   listContacts(@CurrentTenant() tenant: { id: string }, @Param('id') customerId: string) {
-    return this.contactsService.list(tenant.id, customerId).then((data) => ({ data }));
+    return Promise.all([this.contactsService.list(tenant.id, customerId), this.contactsService.numbers(tenant.id, customerId)]).then(([data, numbers]) => ({ data, ...numbers }));
   }
 
   /** POST /api/crm/customers/:id/contacts { name, phone, designation?, email? } : 409 if the number is already someone's. */
@@ -369,6 +369,25 @@ export class CrmController {
     @Body() body: Record<string, unknown>
   ) {
     return this.contactsService.update(tenant.id, customerId, contactId, body ?? {});
+  }
+
+  /** POST /api/crm/customers/:id/contacts/:contactId/use-for-whatsapp : this person's number becomes where WhatsApp messages go. */
+  @Post('customers/:id/contacts/:contactId/use-for-whatsapp')
+  @RequirePermission('customer:update')
+  useContactForWhatsapp(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string } | undefined,
+    @Param('id') customerId: string,
+    @Param('contactId') contactId: string
+  ) {
+    return this.contactsService.useForWhatsApp(tenant.id, user?.id ?? null, customerId, contactId);
+  }
+
+  /** POST /api/crm/customers/:id/whatsapp/use-main : WhatsApp messages go to the main phone again (the other number stays as a contact). */
+  @Post('customers/:id/whatsapp/use-main')
+  @RequirePermission('customer:update')
+  useMainForWhatsapp(@CurrentTenant() tenant: { id: string }, @CurrentUser() user: { id: string } | undefined, @Param('id') customerId: string) {
+    return this.contactsService.useMainForWhatsApp(tenant.id, user?.id ?? null, customerId);
   }
 
   /** DELETE /api/crm/customers/:id/contacts/:contactId */
