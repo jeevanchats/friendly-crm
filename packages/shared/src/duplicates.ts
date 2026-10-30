@@ -135,6 +135,25 @@ export interface DuplicateHit<T> {
 
 export const SIMILAR_THRESHOLD = 0.82;
 
+/** Score given when one name is the other with more words added ("Chris Graphic" and "Chris Graphic Design Studio"). */
+export const CONTAINED_SCORE = 0.85;
+
+/** Options for finding look-alikes. `contained`: also count a name whose (two or more) words are all in the other name. */
+export interface FindOptions {
+  threshold?: number;
+  limit?: number;
+  excludeId?: string;
+  contained?: boolean;
+}
+
+/** True when the shorter name has at least two words and every one of them is also in the longer name. */
+function isContained(a: PreparedName, b: PreparedName): boolean {
+  const [small, large] = a.tokens.length <= b.tokens.length ? [a, b] : [b, a];
+  const words = new Set(small.tokens);
+  if (words.size < 2 || large.tokens.length <= small.tokens.length) return false;
+  return [...words].every((t) => large.tokens.includes(t));
+}
+
 interface Rankable {
   id: string;
   name: string;
@@ -157,7 +176,7 @@ export function makeSimilarFinder<T extends Rankable>(pool: T[]) {
   return {
     find(
       query: { name?: string; companyName?: string; gstin?: string; code?: string },
-      opts: { threshold?: number; limit?: number; excludeId?: string } = {}
+      opts: FindOptions = {}
     ): DuplicateHit<T>[] {
       const threshold = opts.threshold ?? SIMILAR_THRESHOLD;
       const gstin = (query.gstin ?? '').replace(/\s+/g, '').toUpperCase();
@@ -179,7 +198,12 @@ export function makeSimilarFinder<T extends Rankable>(pool: T[]) {
           continue;
         }
         let best = 0;
-        for (const q of queryNames) for (const n of names) best = Math.max(best, similarity(q, n, threshold));
+        for (const q of queryNames) {
+          for (const n of names) {
+            best = Math.max(best, similarity(q, n, threshold));
+            if (opts.contained && best < CONTAINED_SCORE && isContained(q, n)) best = CONTAINED_SCORE;
+          }
+        }
         if (best >= 1) hits.push({ item, reason: 'same-name', score: 1 });
         else if (best >= threshold) hits.push({ item, reason: 'similar-name', score: Math.round(best * 100) / 100 });
       }
@@ -193,7 +217,7 @@ export function makeSimilarFinder<T extends Rankable>(pool: T[]) {
 export function rankSimilar<T extends Rankable>(
   query: { name?: string; companyName?: string; gstin?: string; code?: string },
   pool: T[],
-  opts: { threshold?: number; limit?: number; excludeId?: string } = {}
+  opts: FindOptions = {}
 ): DuplicateHit<T>[] {
   return makeSimilarFinder(pool).find(query, opts);
 }
@@ -210,12 +234,12 @@ export const FUZZY_PAIR_BUDGET = 250_000;
 export function findImportNameClashes<T extends Rankable>(
   rows: Array<{ name: string; companyName?: string | null }>,
   pool: T[],
-  opts: { budget?: number } = {}
+  opts: { budget?: number; contained?: boolean } = {}
 ): { hits: Array<DuplicateHit<T> | undefined>; fuzzy: boolean } {
   const fuzzy = rows.length * pool.length <= (opts.budget ?? FUZZY_PAIR_BUDGET);
   if (fuzzy) {
     const finder = makeSimilarFinder(pool);
-    return { hits: rows.map((r) => finder.find({ name: r.name, companyName: r.companyName ?? undefined }, { limit: 1 })[0]), fuzzy };
+    return { hits: rows.map((r) => finder.find({ name: r.name, companyName: r.companyName ?? undefined }, { limit: 1, contained: opts.contained })[0]), fuzzy };
   }
   const byKey = new Map<string, T>();
   for (const item of pool) {
