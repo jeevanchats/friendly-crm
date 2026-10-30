@@ -8,6 +8,7 @@ import { apiFetch } from '../../lib/session';
 import { downloadInvoicePdf } from '../../lib/invoice-pdf';
 import { CreditNotePanel } from './CreditNotePanel';
 import { EwayBillPanel } from './EwayBillPanel';
+import { RefundPanel } from './RefundPanel';
 
 interface PreparedLine {
   orderItemId: string;
@@ -183,6 +184,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
         </button>
         {message && <p role="alert" className="text-xs font-semibold text-red-700">{message}</p>}
       </section>
+      <RefundPanel orderId={orderId} role={role} lang={lang} onChanged={loadExisting} />
       <EwayBillPanel invoiceId={invoice.id} role={role} lang={lang} amount={Number(invoice.netTotal ?? invoice.totals.grandTotal)} hsnCodes={(invoice.lines ?? []).map((l) => l.hsnCode)} />
       <CreditNotePanel invoiceId={invoice.id} role={role} lang={lang} onChanged={loadExisting} />
       </div>
@@ -220,6 +222,7 @@ export function IssueInvoicePanel({ orderId, role, lang = 'en' }: { orderId: str
           </div>
           {message && <p role="alert" className="text-xs font-semibold text-red-700">{message}</p>}
         </section>
+        <RefundPanel orderId={orderId} role={role} lang={lang} onChanged={loadExisting} />
         <CreditNotePanel invoiceId={invoice.id} role={role} lang={lang} onChanged={loadExisting} />
       </div>
     );

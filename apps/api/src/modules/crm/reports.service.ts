@@ -45,7 +45,9 @@ export class ReportsService {
             .select({
               totalSalesBooked: sql<string>`COALESCE(SUM(total_amount), 0)::numeric(12,2)::text`,
               totalCollected: sql<string>`COALESCE(SUM(advance_received), 0)::numeric(12,2)::text`,
-              totalPendingReceivables: sql<string>`COALESCE(SUM(balance_due), 0)::numeric(12,2)::text`,
+              // Money owed to us: an order in credit (negative balance) must not hide what another customer owes
+              totalPendingReceivables: sql<string>`COALESCE(SUM(GREATEST(balance_due, 0)), 0)::numeric(12,2)::text`,
+              totalCustomerCredits: sql<string>`COALESCE(SUM(GREATEST(-balance_due, 0)), 0)::numeric(12,2)::text`,
             })
             .from(orders)
             .where(eq(orders.tenantId, tenantId));
@@ -113,7 +115,8 @@ export class ReportsService {
 
     const totalSalesBookedNum = tenantOrders.reduce((sum, o) => sum + parseFloat(o.totalAmount || '0'), 0);
     const totalCollectedNum = tenantOrders.reduce((sum, o) => sum + parseFloat(o.advanceReceived || '0'), 0);
-    const totalPendingReceivablesNum = tenantOrders.reduce((sum, o) => sum + parseFloat(o.balanceDue || '0'), 0);
+    const totalPendingReceivablesNum = tenantOrders.reduce((sum, o) => sum + Math.max(0, parseFloat(o.balanceDue || '0')), 0);
+    const totalCustomerCreditsNum = tenantOrders.reduce((sum, o) => sum + Math.max(0, -parseFloat(o.balanceDue || '0')), 0);
 
     const debtors = tenantCustomers
       .map((c) => {
@@ -164,6 +167,7 @@ export class ReportsService {
         totalSalesBooked: totalSalesBookedNum.toFixed(2),
         totalCollected: totalCollectedNum.toFixed(2),
         totalPendingReceivables: totalPendingReceivablesNum.toFixed(2),
+        totalCustomerCredits: totalCustomerCreditsNum.toFixed(2),
       },
       topDebtors: debtors,
       repeatOpportunities: repeatOpps,

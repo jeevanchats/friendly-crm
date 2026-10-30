@@ -87,6 +87,11 @@ export function Customer360View({ data, defaultLang = 'en' }: Customer360Props) 
             <span className="text-base font-extrabold text-brand-ink">
               ₹{financialSummary.totalPendingBalance}
             </span>
+            {Number(financialSummary.creditHeld ?? 0) > 0 && (
+              <span className="mt-0.5 block text-[11px] font-semibold text-amber-800">
+                {lang === 'ta' ? 'இவருக்குத் திருப்பித் தர வேண்டியது' : 'Owed back to the customer'}: ₹{financialSummary.creditHeld}
+              </span>
+            )}
           </div>
         </div>
       )}

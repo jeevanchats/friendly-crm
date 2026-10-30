@@ -44,7 +44,7 @@ export async function getNextDbDocumentNumber(
   tx: any,
   table: any,
   column: any,
-  prefix: 'QT' | 'ORD' | 'RCP',
+  prefix: 'QT' | 'ORD' | 'RCP' | 'RFD',
   tenantId: string
 ): Promise<string> {
   const year = new Date().getFullYear();
@@ -80,7 +80,7 @@ export async function getNextDbDocumentNumber(
 export function getNextMemoryDocumentNumber(
   items: Array<{ tenantId: string; [key: string]: any }>,
   field: string,
-  prefix: 'QT' | 'ORD' | 'RCP',
+  prefix: 'QT' | 'ORD' | 'RCP' | 'RFD',
   tenantId: string
 ): string {
   const year = new Date().getFullYear();

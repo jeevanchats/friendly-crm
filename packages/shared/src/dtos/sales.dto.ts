@@ -81,6 +81,17 @@ export const RecordPaymentSchema = z.object({
 
 export type RecordPaymentDto = z.infer<typeof RecordPaymentSchema>;
 
+/** Money handed back to a customer whose order is in credit (after a credit note). */
+export const RecordRefundSchema = z.object({
+  amount: z.coerce.number().gt(0, 'Refund amount must be greater than zero'),
+  mode: z.enum(['UPI', 'CASH', 'BANK_TRANSFER', 'CHEQUE']).default('BANK_TRANSFER'),
+  referenceNo: z.string().trim().max(100).optional().nullable(),
+  notes: z.string().trim().max(500).optional().nullable(),
+  idempotencyKey: z.string().optional(),
+});
+
+export type RecordRefundDto = z.infer<typeof RecordRefundSchema>;
+
 export const QuotationPdfItemSchema = z.object({
   id: z.string().optional(),
   itemName: z.string().optional(),
