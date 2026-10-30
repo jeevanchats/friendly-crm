@@ -5,6 +5,7 @@ import { CrmService } from './crm.service';
 import { DashboardService } from './dashboard.service';
 import { CustomersService } from './customers.service';
 import { CustomerContactsService } from './customer-contacts.service';
+import { CustomerMergeService } from './customer-merge.service';
 import { ReportsService } from './reports.service';
 import { AttachmentsController } from './attachments.controller';
 import { AttachmentsService } from './attachments.service';
@@ -12,7 +13,7 @@ import { AttachmentsService } from './attachments.service';
 @Module({
   imports: [AiModule],
   controllers: [CrmController, AttachmentsController],
-  providers: [CrmService, DashboardService, CustomersService, CustomerContactsService, ReportsService, AttachmentsService],
-  exports: [CrmService, DashboardService, CustomersService, CustomerContactsService, ReportsService, AttachmentsService],
+  providers: [CrmService, DashboardService, CustomersService, CustomerContactsService, CustomerMergeService, ReportsService, AttachmentsService],
+  exports: [CrmService, DashboardService, CustomersService, CustomerContactsService, CustomerMergeService, ReportsService, AttachmentsService],
 })
 export class CrmModule {}

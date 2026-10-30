@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Customer360View } from '../../../components/crm/Customer360View';
 import { BillingDetailsCard } from '../../../components/crm/BillingDetailsCard';
 import { ContactsCard } from '../../../components/crm/ContactsCard';
+import { MergeDuplicateCard } from '../../../components/crm/MergeDuplicateCard';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import { useLocale } from '../../../components/shared/LocaleProvider';
@@ -127,6 +128,7 @@ export default function CustomerDetailPage() {
             }}
           />
           <ContactsCard key={`contacts-${customerId}`} customerId={customerId} role={activeRole} lang={locale} />
+          <MergeDuplicateCard key={`merge-${customerId}`} customerId={customerId} name={customerData.customer?.name ?? ''} companyName={customerData.customer?.companyName} gstin={customerData.customer?.gstin} role={activeRole} lang={locale} />
         </>
       ) : null}
     </div>

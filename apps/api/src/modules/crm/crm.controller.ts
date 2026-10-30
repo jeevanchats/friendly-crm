@@ -17,6 +17,7 @@ import { CrmService } from './crm.service';
 import { DashboardService } from './dashboard.service';
 import { CustomersService } from './customers.service';
 import { CustomerContactsService } from './customer-contacts.service';
+import { CustomerMergeService } from './customer-merge.service';
 import { DuplicateAdvisorService } from '../ai/duplicate-advisor.service';
 import { ReportsService } from './reports.service';
 import {
@@ -52,7 +53,8 @@ export class CrmController {
     private readonly customersService: CustomersService,
     private readonly reportsService: ReportsService,
     private readonly contactsService: CustomerContactsService,
-    private readonly advisor: DuplicateAdvisorService
+    private readonly advisor: DuplicateAdvisorService,
+    private readonly merger: CustomerMergeService
   ) {}
 
   /**
@@ -374,6 +376,22 @@ export class CrmController {
   @RequirePermission('customer:update')
   removeContact(@CurrentTenant() tenant: { id: string }, @Param('id') customerId: string, @Param('contactId') contactId: string) {
     return this.contactsService.remove(tenant.id, customerId, contactId);
+  }
+
+  /**
+   * POST /api/crm/customers/:id/merge { fromId }
+   * Folds the duplicate customer `fromId` into the customer in the path: its enquiries, quotes, orders, invoices, payments
+   * and contacts move across, its phone numbers become contacts, and it is removed. 409 if the GSTINs differ.
+   */
+  @Post('customers/:id/merge')
+  @RequirePermission('customer:delete')
+  mergeCustomers(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string } | undefined,
+    @Param('id') keepId: string,
+    @Body() body: { fromId?: string }
+  ) {
+    return this.merger.merge(tenant.id, user?.id ?? null, keepId, String(body?.fromId ?? ''));
   }
 
   /**
