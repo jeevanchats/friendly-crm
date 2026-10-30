@@ -1,5 +1,6 @@
 import { PaymentDetails, completeBank } from '@friendly-crm/shared';
 import { isValidUpiId } from './upi';
+import { RUPEE } from '../../common/pdf/pdf-fonts';
 
 // qrcode is a CommonJS module
 const QRCode = require('qrcode');
@@ -71,7 +72,7 @@ export async function preparePdfPayment(
   return { upiId: details.upiId, bank: details.bank, qrPng: png, amountPaise: opts.amountPaise ?? null };
 }
 
-const rs = (paise: number) => `Rs. ${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const rs = (paise: number) => `${RUPEE} ${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
  * Draws the "how to pay" block (bank account lines, UPI ID and the QR code) at `y` and returns where it ends.
@@ -100,17 +101,17 @@ export function drawPaymentBlock(
     top = layout.pageTop;
   }
   doc.rect(layout.margin, top, layout.width, height).strokeColor('#BBB').lineWidth(0.6).stroke();
-  doc.font('Helvetica-Bold').fontSize(8).fillColor('#666').text('HOW TO PAY', layout.margin + 8, top + 7, { width: layout.width - 16 });
+  doc.font('BodyBold').fontSize(8).fillColor('#666').text('HOW TO PAY', layout.margin + 8, top + 7, { width: layout.width - 16 });
   let ly = top + 20;
   for (const [label, value] of lines) {
-    doc.font('Helvetica').fontSize(8.5).fillColor('#555').text(`${label}:`, layout.margin + 8, ly, { width: 70 });
-    doc.font('Helvetica-Bold').fillColor('#000').text(value, layout.margin + 80, ly, { width: layout.width - 80 - (pay.qrPng ? QR + 24 : 16) });
+    doc.font('Body').fontSize(8.5).fillColor('#555').text(`${label}:`, layout.margin + 8, ly, { width: 70 });
+    doc.font('BodyBold').fillColor('#000').text(value, layout.margin + 80, ly, { width: layout.width - 80 - (pay.qrPng ? QR + 24 : 16) });
     ly += 12;
   }
   if (pay.qrPng) {
     const qx = layout.margin + layout.width - QR - 12;
     doc.image(pay.qrPng, qx, top + 8, { width: QR, height: QR });
-    doc.font('Helvetica').fontSize(7.5).fillColor('#555').text(
+    doc.font('Body').fontSize(7.5).fillColor('#555').text(
       pay.amountPaise ? `Scan to pay ${rs(pay.amountPaise)}` : 'Scan to pay (UPI)',
       qx - 6,
       top + 8 + QR + 2,
