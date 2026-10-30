@@ -3,6 +3,7 @@ import { GST_STATES, amountInWords } from '@friendly-crm/shared';
 import type { InvoiceView } from './invoices.service';
 import { PaymentDetails } from '@friendly-crm/shared';
 import { drawPaymentBlock, preparePdfPayment } from '../payments/payment-info';
+import { RUPEE, preparePdfFonts } from '../../common/pdf/pdf-fonts';
 
 // pdfkit is a CommonJS module whose root export is the document constructor
 const PDFDocument = require('pdfkit');
@@ -13,7 +14,6 @@ const PAGE_H = 841.89;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const BOTTOM = PAGE_H - 90; // leave room for the footer on every page
 
-/** Helvetica has no rupee glyph, so amounts print as "Rs." */
 const inr = (v: string | number) =>
   Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -39,6 +39,7 @@ export class InvoicePdfService {
     const payment = owing > 0 ? await preparePdfPayment(details, inv.supplier.name, { amountPaise: owing, note: inv.invoiceNumber }) : null;
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: MARGIN, info: { Title: `Tax Invoice ${inv.invoiceNumber}` } });
+      preparePdfFonts(doc);
       const chunks: Buffer[] = [];
       doc.on('data', (c: Buffer) => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -63,16 +64,16 @@ export class InvoicePdfService {
       cols[cols.length - 1].w = CONTENT_W - cols.slice(0, -1).reduce((s, c) => s + c.w, 0);
 
       // ---- header
-      doc.font('Helvetica-Bold').fontSize(16).text('TAX INVOICE', MARGIN, MARGIN, { align: 'center', width: CONTENT_W });
-      doc.font('Helvetica').fontSize(8).fillColor('#666').text('Original for Recipient', { align: 'center', width: CONTENT_W });
+      doc.font('BodyBold').fontSize(16).text('TAX INVOICE', MARGIN, MARGIN, { align: 'center', width: CONTENT_W });
+      doc.font('Body').fontSize(8).fillColor('#666').text('Original for Recipient', { align: 'center', width: CONTENT_W });
       doc.fillColor('#000');
 
       let y = 78;
       const half = CONTENT_W / 2 - 6;
       const party = (title: string, p: InvoiceView['supplier'], x: number, top: number) => {
-        doc.font('Helvetica-Bold').fontSize(8).fillColor('#666').text(title.toUpperCase(), x, top, { width: half });
-        doc.font('Helvetica-Bold').fontSize(10).fillColor('#000').text(p.name, x, top + 12, { width: half });
-        doc.font('Helvetica').fontSize(8.5);
+        doc.font('BodyBold').fontSize(8).fillColor('#666').text(title.toUpperCase(), x, top, { width: half });
+        doc.font('BodyBold').fontSize(10).fillColor('#000').text(p.name, x, top + 12, { width: half });
+        doc.font('Body').fontSize(8.5);
         if (p.address) doc.text(p.address, x, doc.y, { width: half });
         doc.text(p.gstin ? `GSTIN: ${p.gstin}` : 'GSTIN: Unregistered', x, doc.y, { width: half });
         if (p.stateCode) doc.text(`State: ${p.stateCode} - ${GST_STATES[p.stateCode] ?? ''}`, x, doc.y, { width: half });
@@ -82,8 +83,8 @@ export class InvoicePdfService {
       const leftEnd = party('Sold by', inv.supplier, MARGIN, y);
       // invoice meta on the right
       const mx = MARGIN + CONTENT_W / 2 + 6;
-      doc.font('Helvetica-Bold').fontSize(8).fillColor('#666').text('INVOICE DETAILS', mx, y, { width: half });
-      doc.fillColor('#000').font('Helvetica').fontSize(8.5);
+      doc.font('BodyBold').fontSize(8).fillColor('#666').text('INVOICE DETAILS', mx, y, { width: half });
+      doc.fillColor('#000').font('Body').fontSize(8.5);
       const meta: Array<[string, string]> = [
         ['Invoice No', inv.invoiceNumber],
         ['Invoice Date', dateIn(inv.issuedAt)],
@@ -93,8 +94,8 @@ export class InvoicePdfService {
       ];
       let my = y + 12;
       for (const [k, v] of meta) {
-        doc.font('Helvetica').text(`${k}:`, mx, my, { width: 80, continued: false });
-        doc.font('Helvetica-Bold').text(v, mx + 82, my, { width: half - 82 });
+        doc.font('Body').text(`${k}:`, mx, my, { width: 80, continued: false });
+        doc.font('BodyBold').text(v, mx + 82, my, { width: half - 82 });
         my = Math.max(my + 12, doc.y);
       }
       y = Math.max(leftEnd, my) + 10;
@@ -106,7 +107,7 @@ export class InvoicePdfService {
       // ---- table
       const header = (top: number) => {
         doc.rect(MARGIN, top, CONTENT_W, 18).fill('#EEF2F1');
-        doc.fillColor('#000').font('Helvetica-Bold').fontSize(8);
+        doc.fillColor('#000').font('BodyBold').fontSize(8);
         let x = MARGIN;
         for (const c of cols) {
           doc.text(c.label, x + 2, top + 5, { width: c.w - 4, align: c.align });
@@ -116,7 +117,7 @@ export class InvoicePdfService {
       };
       y = header(y);
 
-      doc.font('Helvetica').fontSize(8.5);
+      doc.font('Body').fontSize(8.5);
       for (const l of inv.lines) {
         const desc = l.description ? `${l.itemName}\n${l.description}` : l.itemName;
         const descCol = cols[1];
@@ -124,7 +125,7 @@ export class InvoicePdfService {
         if (y + h > BOTTOM) {
           doc.addPage();
           y = header(MARGIN);
-          doc.font('Helvetica').fontSize(8.5);
+          doc.font('Body').fontSize(8.5);
         }
         const cell: Record<string, string> = {
           no: String(l.lineNo),
@@ -158,30 +159,30 @@ export class InvoicePdfService {
       const totalsTop = y;
       const tx = MARGIN + CONTENT_W - 190;
       const row = (label: string, value: string, bold = false) => {
-        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 10 : 8.5).fillColor('#000');
+        doc.font(bold ? 'BodyBold' : 'Body').fontSize(bold ? 10 : 8.5).fillColor('#000');
         doc.text(label, tx, y, { width: 100 });
         doc.text(value, tx + 100, y, { width: 90, align: 'right' });
         y += bold ? 16 : 13;
       };
-      row('Taxable value', `Rs. ${inr(inv.totals.taxableValue)}`);
+      row('Taxable value', `${RUPEE} ${inr(inv.totals.taxableValue)}`);
       if (inter) {
-        row('IGST', `Rs. ${inr(inv.totals.igst)}`);
+        row('IGST', `${RUPEE} ${inr(inv.totals.igst)}`);
       } else {
-        row('CGST', `Rs. ${inr(inv.totals.cgst)}`);
-        row('SGST', `Rs. ${inr(inv.totals.sgst)}`);
+        row('CGST', `${RUPEE} ${inr(inv.totals.cgst)}`);
+        row('SGST', `${RUPEE} ${inr(inv.totals.sgst)}`);
       }
-      if (Number(inv.totals.roundOff) !== 0) row('Round off', `Rs. ${inr(inv.totals.roundOff)}`);
+      if (Number(inv.totals.roundOff) !== 0) row('Round off', `${RUPEE} ${inr(inv.totals.roundOff)}`);
       doc.moveTo(tx, y).lineTo(tx + 190, y).strokeColor('#000').lineWidth(0.6).stroke();
       y += 4;
-      row('Grand total', `Rs. ${inr(inv.totals.grandTotal)}`, true);
+      row('Grand total', `${RUPEE} ${inr(inv.totals.grandTotal)}`, true);
 
-      doc.font('Helvetica').fontSize(8.5).fillColor('#000');
+      doc.font('Body').fontSize(8.5).fillColor('#000');
       const words = amountInWords(Math.round(Number(inv.totals.grandTotal) * 100));
-      doc.font('Helvetica-Bold').text('Amount in words: ', MARGIN, totalsTop, { continued: true, width: CONTENT_W - 200 });
-      doc.font('Helvetica').text(words, { width: CONTENT_W - 200 });
+      doc.font('BodyBold').text('Amount in words: ', MARGIN, totalsTop, { continued: true, width: CONTENT_W - 200 });
+      doc.font('Body').text(words, { width: CONTENT_W - 200 });
       if (inv.payment.status !== 'UNPAID') {
-        doc.moveDown(0.5).font('Helvetica').text(
-          `Received: Rs. ${inr(inv.payment.paid)}   |   Balance due: Rs. ${inr(inv.payment.balanceDue)}`,
+        doc.moveDown(0.5).font('Body').text(
+          `Received: ${RUPEE} ${inr(inv.payment.paid)}   |   Balance due: ${RUPEE} ${inr(inv.payment.balanceDue)}`,
           MARGIN,
           doc.y,
           { width: CONTENT_W - 200 }
@@ -194,13 +195,13 @@ export class InvoicePdfService {
       // ---- footer (last page)
       const fy = PAGE_H - 76;
       doc.moveTo(MARGIN, fy).lineTo(MARGIN + CONTENT_W, fy).strokeColor('#999').lineWidth(0.6).stroke();
-      doc.font('Helvetica').fontSize(7.5).fillColor('#555');
+      doc.font('Body').fontSize(7.5).fillColor('#555');
       doc.text('This is a computer-generated invoice.', MARGIN, fy + 6, { width: CONTENT_W / 2 });
-      doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#000').text(`For ${inv.supplier.name}`, MARGIN + CONTENT_W / 2, fy + 6, {
+      doc.font('BodyBold').fontSize(8.5).fillColor('#000').text(`For ${inv.supplier.name}`, MARGIN + CONTENT_W / 2, fy + 6, {
         width: CONTENT_W / 2,
         align: 'right',
       });
-      doc.font('Helvetica').fontSize(8).fillColor('#555').text('Authorised Signatory', MARGIN + CONTENT_W / 2, fy + 40, {
+      doc.font('Body').fontSize(8).fillColor('#555').text('Authorised Signatory', MARGIN + CONTENT_W / 2, fy + 40, {
         width: CONTENT_W / 2,
         align: 'right',
       });
