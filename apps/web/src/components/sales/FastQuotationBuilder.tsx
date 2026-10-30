@@ -20,7 +20,7 @@ type LineItem = {
   unitPrice: number;
   taxPercent: number;
   /** Set on lines filled in from the customer's enquiry: where it came from and what staff still have to add. */
-  hint?: { source: string; matched: string | null; missing: Array<'quantity' | 'rate'> };
+  hint?: { source: string; matched: string | null; missing: Array<'quantity' | 'unit' | 'rate'> };
 };
 
 /** The quote being revised: its lines, discount and details become the starting point of the new version. */
@@ -261,7 +261,7 @@ export function FastQuotationBuilder({
           industry={industry}
           initial={{
             name: items[addingFor].itemName.trim(),
-            description: items[addingFor].description,
+            description: '', // the size or spec belongs to this quote line, not to the product
             hsnCode: items[addingFor].hsnCode,
             unit: items[addingFor].unit,
             unitPrice: items[addingFor].unitPrice > 0 ? String(items[addingFor].unitPrice) : '',
@@ -329,6 +329,20 @@ export function FastQuotationBuilder({
                 setFilledFrom((m) => ({ ...m, [idx]: p.name }));
               }}
             />
+            <div>
+              <label htmlFor={`item-spec-${idx}`} className="text-[11px] font-semibold text-slate-500">
+                {lang === 'ta' ? 'அளவு / விவரக்குறிப்பு (விலைப்புள்ளியில் அச்சாகும்)' : 'Size / specification (printed on the quote)'}
+              </label>
+              <textarea
+                id={`item-spec-${idx}`}
+                rows={2}
+                maxLength={500}
+                value={item.description}
+                placeholder={lang === 'ta' ? 'எ.கா. 50 மிமீ விட்டம், 1 மீ நீளம்' : 'e.g. 50 mm dia, 1 m length'}
+                onChange={(e) => updateItem(idx, 'description', e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm"
+              />
+            </div>
             {item.hint && (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
                 <p className="font-semibold">
@@ -339,7 +353,7 @@ export function FastQuotationBuilder({
                 {item.hint.missing.length > 0 && (
                   <p className="font-bold text-red-700">
                     {lang === 'ta' ? 'நீங்கள் நிரப்ப வேண்டியது: ' : 'You need to fill in: '}
-                    {item.hint.missing.map((m) => (m === 'quantity' ? (lang === 'ta' ? 'அளவு' : 'quantity') : lang === 'ta' ? 'விலை' : 'rate')).join(', ')}
+                    {item.hint.missing.map((m) => (m === 'quantity' ? (lang === 'ta' ? 'அளவு' : 'quantity') : m === 'unit' ? (lang === 'ta' ? 'அலகு' : 'unit') : lang === 'ta' ? 'விலை' : 'rate')).join(', ')}
                   </p>
                 )}
               </div>
@@ -365,7 +379,8 @@ export function FastQuotationBuilder({
                   maxLength={30}
                   value={item.unit}
                   onChange={(e) => updateItem(idx, 'unit', e.target.value)}
-                  className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-surface px-2.5 text-sm"
+                  placeholder={lang === 'ta' ? 'தேர்வு செய்க' : 'Choose'}
+                  className={`min-h-[44px] w-full rounded-lg border bg-surface px-2.5 text-sm ${item.unit.trim() ? 'border-slate-300' : 'border-red-400 ring-1 ring-red-200'}`}
                 />
               </div>
               <div>

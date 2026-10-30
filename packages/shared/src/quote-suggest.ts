@@ -38,8 +38,8 @@ export interface SuggestedLine {
   productId: string | null;
   /** The product-list entry this line was matched to, if any. */
   matchedProduct: string | null;
-  /** Fields staff still have to fill in: any of 'quantity' | 'rate'. */
-  missing: Array<'quantity' | 'rate'>;
+  /** Fields staff still have to fill in: any of 'quantity' | 'unit' | 'rate'. */
+  missing: Array<'quantity' | 'unit' | 'rate'>;
   /** Where in the customer's words this came from (a short quote), for the person checking it. */
   sourceNote: string;
 }
@@ -120,11 +120,13 @@ export function buildSuggestedLines(raw: unknown, products: ProductRef[]): Sugge
     const statedRate = asPositive(r.unitPrice);
     const productRate = product ? Number(product.unitPrice) : 0;
     const rate = statedRate ?? (productRate > 0 ? productRate : null);
-    const unit = asText(r.unit, 30) || product?.unit || 'Nos';
+    // No silent default: a unit nobody stated (steel could be Kg, Mtr, Ton or Nos) is for staff to choose
+    const unit = asText(r.unit, 30) || product?.unit || '';
     const description = asText(r.description, 500) || product?.description || '';
 
     const missing: SuggestedLine['missing'] = [];
     if (quantity === null) missing.push('quantity');
+    if (!unit) missing.push('unit');
     if (rate === null) missing.push('rate');
 
     out.push({

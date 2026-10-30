@@ -60,4 +60,24 @@ describe('LIVE: enquiry reading (handwriting and voice note text)', () => {
     expect(text).toMatch(/invitation|card/);
     expect(out.lines.find((l) => /invitation|card/i.test(l.itemName))?.quantity).toBe(200);
   }, 120_000);
+
+  it('keeps sizes in the description and does not turn a size into a quantity (steel enquiry)', async () => {
+    const reader = readerWith(
+      [],
+      [{ id: 'l3', title: 'Follow up with Jeevan (ms rod 50diameter 1 meter length, ms falt 20 x 30 6 meter)', notes: null, customData: {} }]
+    );
+    const out = await reader.read('live-tenant-3', { userId: 'u', role: 'OWNER' } as any, { leadId: 'l3' });
+    const rows = out.lines.map((l) => `  [${l.itemName}] desc="${l.description}" qty ${l.quantity} unit="${l.unit}" missing: ${l.missing.join(',')}`);
+    process.stdout.write(['', 'STEEL', out.summary, ...rows, ''].join('\n'));
+    expect(out.lines).toHaveLength(2);
+    const rod = out.lines.find((l) => /rod/i.test(l.itemName))!;
+    const flat = out.lines.find((l) => /fl[a-z]*t/i.test(l.itemName))!;
+    expect(rod.itemName).not.toMatch(/\d/); // no size in the name
+    expect(flat.itemName).not.toMatch(/\d/);
+    expect(rod.description).toMatch(/50/);
+    expect(flat.description).toMatch(/20/);
+    expect(rod.quantity).toBe(0); // "1 meter length" is a size, not how many
+    expect(flat.quantity).toBe(0);
+    expect(rod.missing).toEqual(expect.arrayContaining(['quantity', 'unit', 'rate']));
+  }, 120_000);
 });

@@ -44,9 +44,21 @@ describe('matching what the customer asked for to the product list', () => {
       [{ itemName: 'Steel almirah' }, { itemName: 'Design charges', quantity: 1 }, { itemName: 'Wall calendar', quantity: -5, unitPrice: 'abc' }],
       PRODUCTS
     );
-    expect(x).toMatchObject({ quantity: 0, unitPrice: 0, productId: null, taxPercent: 18, missing: ['quantity', 'rate'] });
+    expect(x).toMatchObject({ quantity: 0, unitPrice: 0, productId: null, taxPercent: 18, unit: '', missing: ['quantity', 'unit', 'rate'] });
     expect(y.missing).toEqual(['rate']); // the product has no rate on file
     expect(z).toMatchObject({ quantity: 0, unitPrice: 85, missing: ['quantity'] });
+  });
+
+  it('keeps the size in the description, and leaves the unit for staff when the customer did not give one', () => {
+    const [rod, cards] = buildSuggestedLines(
+      [
+        { itemName: 'MS Round Rod', description: '50 mm dia, 1 m length', sourceNote: 'ms rod 50diameter 1 meter length' },
+        { itemName: 'Flyers', quantity: 1000, unit: 'Nos' },
+      ],
+      PRODUCTS
+    );
+    expect(rod).toMatchObject({ itemName: 'MS Round Rod', description: '50 mm dia, 1 m length', quantity: 0, unit: '', missing: ['quantity', 'unit', 'rate'] });
+    expect(cards).toMatchObject({ unit: 'Nos', missing: ['rate'] }); // a stated unit is never marked missing
   });
 
   it('ignores a product id the model made up, junk entries, and caps the number of lines', () => {
@@ -284,7 +296,7 @@ describe('Reading an enquiry to fill the quotation', () => {
     expect(out.lines).toHaveLength(3);
     expect(out.lines[0]).toMatchObject({ itemName: 'Wall Calendar', quantity: 500, unitPrice: 85, taxPercent: 12, hsnCode: '4910', missing: [] });
     expect(out.lines[1]).toMatchObject({ itemName: 'Visiting Card', quantity: 20, unitPrice: 350, hsnCode: '4911' });
-    expect(out.lines[2]).toMatchObject({ itemName: 'Gold foil box', productId: null, missing: ['quantity', 'rate'] });
+    expect(out.lines[2]).toMatchObject({ itemName: 'Gold foil box', productId: null, missing: expect.arrayContaining(['quantity', 'rate']) });
     expect(out.skipped.join(' ')).toMatch(/bottom of the sketch/);
 
     // what actually went to the model
@@ -297,6 +309,10 @@ describe('Reading an enquiry to fill the quotation', () => {
     expect(text).toContain('twenty boxes of visiting cards');
     expect(text).toMatch(/Wall Calendar \| Nos/); // the product list, for matching
     expect(JSON.stringify(body)).not.toContain('test-key');
+    // the reader is told to keep sizes out of the name, and that a measurement is not a quantity
+    expect(body.system).toMatch(/WITHOUT sizes/);
+    expect(body.system).toMatch(/NOT a quantity/);
+    expect(body.system).toMatch(/never guess one/);
   });
 
   it('reads from the customer when the quote is opened from the customer page', async () => {
