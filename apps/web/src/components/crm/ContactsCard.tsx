@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Phone, Plus, Trash2, Pencil } from 'lucide-react';
+import { Phone, Plus, Trash2, Pencil, MessageCircle } from 'lucide-react';
 import { hasPermission, validateContact, TenantRole } from '@friendly-crm/shared';
 import { apiFetch } from '../../lib/session';
 
@@ -28,12 +28,15 @@ export function ContactsCard({ customerId, role, lang = 'en' }: { customerId: st
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [waNumber, setWaNumber] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await apiFetch(`/api/crm/customers/${customerId}/contacts`);
       if (!res.ok) throw new Error(String(res.status));
-      setContacts(((await res.json()) as { data: Contact[] }).data);
+      const body = (await res.json()) as { data: Contact[]; whatsappNumber?: string };
+      setContacts(body.data);
+      setWaNumber(body.whatsappNumber ?? null);
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -81,6 +84,23 @@ export function ContactsCard({ customerId, role, lang = 'en' }: { customerId: st
     else setErrors([ta ? 'நீக்க முடியவில்லை.' : 'Could not remove the contact.']);
   };
 
+  const useForWhatsApp = async (c: Contact) => {
+    const ok = window.confirm(
+      ta
+        ? `இனி WhatsApp செய்திகள் ${c.phone} (${c.name}) எண்ணுக்குச் செல்லும். இந்த எண் நபர் பட்டியலில் இருந்து நீங்கி WhatsApp எண்ணாகும். தொடரவா?`
+        : `WhatsApp messages will go to ${c.phone} (${c.name}). This number moves from the people list to being the WhatsApp number. Continue?`
+    );
+    if (!ok) return;
+    const res = await apiFetch(`/api/crm/customers/${customerId}/contacts/${c.id}/use-for-whatsapp`, { method: 'POST' });
+    if (res.ok) {
+      setErrors([]);
+      await load();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setErrors([Array.isArray(body.message) ? body.message.join(' ') : body.message || (ta ? 'மாற்ற முடியவில்லை.' : 'Could not change the WhatsApp number.')]);
+    }
+  };
+
   const input = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm';
   const label = 'block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1';
   const title = ta ? 'இந்த வணிகத்தின் நபர்கள்' : 'People at this business';
@@ -101,6 +121,11 @@ export function ContactsCard({ customerId, role, lang = 'en' }: { customerId: st
           : 'Reminders and quotes go to the customer’s main number. One mobile number belongs to one customer only.'}
       </p>
 
+      {waNumber && (
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
+          <MessageCircle className="h-3.5 w-3.5" /> {ta ? 'WhatsApp செய்திகள் செல்லும் எண்:' : 'WhatsApp messages go to:'} {waNumber}
+        </p>
+      )}
       {loadError && <p role="alert" className="text-xs font-semibold text-red-700">{ta ? 'நபர்களை ஏற்ற முடியவில்லை.' : 'Could not load the contacts.'}</p>}
       {contacts === null && !loadError && <p className="text-xs text-slate-600">{ta ? 'ஏற்றப்படுகிறது…' : 'Loading…'}</p>}
       {contacts && contacts.length === 0 && !form && (
@@ -122,6 +147,9 @@ export function ContactsCard({ customerId, role, lang = 'en' }: { customerId: st
                 </a>
                 {canEdit && (
                   <>
+                    <button type="button" aria-label={ta ? `${c.name} எண்ணை WhatsApp-க்குப் பயன்படுத்து` : `Use ${c.name}'s number for WhatsApp`} title={ta ? 'WhatsApp-க்குப் பயன்படுத்து' : 'Use for WhatsApp'} onClick={() => useForWhatsApp(c)} className="rounded-lg p-2 text-emerald-700 hover:bg-emerald-50">
+                      <MessageCircle className="h-4 w-4" />
+                    </button>
                     <button type="button" aria-label={ta ? `${c.name} திருத்து` : `Edit ${c.name}`} onClick={() => { setErrors([]); setForm({ id: c.id, values: { name: c.name, phone: c.phone, designation: c.designation ?? '', email: c.email ?? '' } }); }} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
                       <Pencil className="h-4 w-4" />
                     </button>
