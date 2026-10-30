@@ -166,3 +166,7 @@ dev database.
 
 If a page shows "Could not reach the server", the API is not running or crashed; look at the console.
 If the API says `EADDRINUSE`, an old server still holds port 3000 or 4000; close the old terminal first.
+
+## Creating a business in production
+
+`POST /api/tenant/onboard` is open on your own computer, but closed in production. To create a business on a server, set `ONBOARDING_KEY` (16+ random characters) in the server's environment and send it as the `x-onboarding-key` header with the request. Public sign-up (`ALLOW_PUBLIC_SIGNUP=true`) exists but is off by default, and even when on it allows only 5 sign-ups an hour per address.
