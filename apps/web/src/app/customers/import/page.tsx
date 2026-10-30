@@ -26,6 +26,7 @@ interface Summary {
   toCheck: number;
   nameCheck?: 'similar' | 'identical-only';
   openingBalanceTotal: number;
+  openingCreditTotal: number;
   rows: RowResult[];
 }
 
@@ -93,7 +94,7 @@ export default function ImportCustomersPage() {
 
   /** Sends the rows in batches (the server takes up to 1000 at a time) and joins the answers. */
   const run = async (dryRun: boolean): Promise<Summary | null> => {
-    const total: Summary = { dryRun, created: 0, updated: 0, skipped: 0, errors: 0, toCheck: 0, openingBalanceTotal: 0, rows: [] };
+    const total: Summary = { dryRun, created: 0, updated: 0, skipped: 0, errors: 0, toCheck: 0, openingBalanceTotal: 0, openingCreditTotal: 0, rows: [] };
     for (let i = 0; i < sheet.rows.length; i += CHUNK) {
       const res = await apiFetch('/api/crm/customers/import', {
         method: 'POST',
@@ -118,6 +119,7 @@ export default function ImportCustomersPage() {
       total.toCheck += body.toCheck ?? 0;
       if (body.nameCheck === 'identical-only') total.nameCheck = 'identical-only';
       total.openingBalanceTotal += Number(body.openingBalanceTotal);
+      total.openingCreditTotal += Number(body.openingCreditTotal ?? 0);
       total.rows.push(...body.rows.map((r: RowResult) => ({ ...r, row: r.row + i })));
     }
     return total;
@@ -222,7 +224,7 @@ export default function ImportCustomersPage() {
         <section className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5" aria-label={ta ? 'இறக்குமதி முடிந்தது' : 'Import finished'}>
           <h2 className="text-base font-extrabold text-emerald-900">{ta ? 'இறக்குமதி முடிந்தது' : 'Import finished'}</h2>
           <ul className="text-sm text-emerald-900">
-            <li><strong>{done.created}</strong> {ta ? 'வாடிக்கையாளர்கள் சேர்க்கப்பட்டனர்' : 'customers added'}{done.openingBalanceTotal > 0 && <> {ta ? `(${rupees(done.openingBalanceTotal)} தொடக்க நிலுவையுடன்)` : `with ${rupees(done.openingBalanceTotal)} of opening balances`}</>}</li>
+            <li><strong>{done.created}</strong> {ta ? 'வாடிக்கையாளர்கள் சேர்க்கப்பட்டனர்' : 'customers added'}{done.openingBalanceTotal > 0 && <> {ta ? `(${rupees(done.openingBalanceTotal)} தொடக்க நிலுவையுடன்)` : `with ${rupees(done.openingBalanceTotal)} of opening balances`}</>}{done.openingCreditTotal > 0 && <> {ta ? `(${rupees(done.openingCreditTotal)} முன்பணத்துடன்)` : `and ${rupees(done.openingCreditTotal)} paid in advance`}</>}</li>
             {done.updated > 0 && <li><strong>{done.updated}</strong> {ta ? 'ஏற்கனவே உள்ள வாடிக்கையாளர்கள் புதுப்பிக்கப்பட்டனர்' : 'existing customers updated'}</li>}
             {done.skipped > 0 && <li><strong>{done.skipped}</strong> {ta ? 'தவிர்க்கப்பட்டனர் (ஏற்கனவே வாடிக்கையாளர்கள்)' : 'skipped (already customers)'}</li>}
             {done.errors > 0 && <li><strong>{done.errors}</strong> {ta ? 'வரிசைகளில் சிக்கல் இருந்ததால் இறக்குமதி செய்யப்படவில்லை' : 'rows had problems and were not imported'}</li>}
@@ -339,6 +341,7 @@ export default function ImportCustomersPage() {
                 {preview.toCheck > 0 && <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900">{preview.toCheck} {ta ? 'சரிபார்க்க' : 'to check'}</span>}
                 {preview.errors > 0 && <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-800">{preview.errors} {ta ? 'வரிசைகளில் சிக்கல்' : 'with problems'}</span>}
                 {preview.openingBalanceTotal > 0 && <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-900">{rupees(preview.openingBalanceTotal)} {ta ? 'தொடக்க நிலுவை' : 'opening balances'}</span>}
+                {preview.openingCreditTotal > 0 && <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-900">{rupees(preview.openingCreditTotal)} {ta ? 'முன்பணம் (கிரெடிட்)' : 'advances (credit)'}</span>}
               </div>
               {preview.toCheck > 0 && <p className="text-xs text-slate-500">{ta ? '“சரிபார்” எனக் குறிக்கப்பட்ட வரிசைகள் இறக்குமதியாகும்; ஏற்கனவே உள்ளதுடன் ஒன்றா என்று பார்த்து, ஒன்றென்றால் அந்த வரிசையை நீக்கவும்.' : 'Rows marked Check will be imported. See whether each is the same as one already there, and take it out of the file if so.'}</p>}
               {preview.nameCheck === 'identical-only' && <p className="text-xs text-slate-500">{ta ? 'பெரிய கோப்பு: உங்கள் தற்போதைய பட்டியலுடன் ஒரே மாதிரியான பெயர்கள் மட்டுமே ஒப்பிடப்பட்டன.' : 'Large file: only identical names were compared with your existing list.'}</p>}

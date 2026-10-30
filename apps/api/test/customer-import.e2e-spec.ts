@@ -166,10 +166,23 @@ describe('validateCustomerRow', () => {
     }
   });
 
-  it('refuses a negative opening balance (customer in credit) instead of guessing', () => {
-    const r = validateCustomerRow({ name: 'A', phone: '9840011111', openingBalance: '500 Cr' });
+  it('accepts a customer in credit (Tally "Cr", a minus sign or brackets) as a negative opening balance, with a note', () => {
+    for (const cell of ['500 Cr', '-500', '(500)', '₹500.00 Cr']) {
+      const r = validateCustomerRow({ name: 'A', phone: '9840011111', openingBalance: cell });
+      expect(r.ok).toBe(true);
+      expect(r.value?.openingBalancePaise).toBe(-50000);
+      expect(r.warnings.join(' ')).toMatch(/In credit.*₹500\.00 in advance/);
+    }
+    // a customer who owes (Dr or plain) is unchanged and gets no such note
+    const owes = validateCustomerRow({ name: 'A', phone: '9840011111', openingBalance: '500 Dr' });
+    expect(owes.value?.openingBalancePaise).toBe(50000);
+    expect(owes.warnings).toEqual([]);
+  });
+
+  it('still refuses a negative credit limit', () => {
+    const r = validateCustomerRow({ name: 'A', phone: '9840011111', creditLimit: '-100' });
     expect(r.ok).toBe(false);
-    expect(errs(r)[0]).toMatch(/in credit/);
+    expect(errs(r)[0]).toMatch(/Credit limit cannot be negative/);
   });
 
   it('warns, but accepts, an opening balance above the credit limit', () => {

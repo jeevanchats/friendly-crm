@@ -296,20 +296,24 @@ export function validateCustomerRow(raw: Partial<Record<CustomerField, unknown>>
   const address = text('billingAddress');
   if (address.length > 500) errors.push('Address is longer than 500 characters');
 
-  const money = (k: CustomerField, label: string): number => {
+  const money = (k: CustomerField, label: string, allowNegative = false): number => {
     const r = parseMoneyToPaise(raw[k]);
     if ('error' in r) {
       errors.push(`${label}: ${r.error}`);
       return 0;
     }
-    if (r.paise < 0) {
-      errors.push(`${label} is negative. Customers who are in credit (advances) cannot be imported yet`);
+    if (r.paise < 0 && !allowNegative) {
+      errors.push(`${label} cannot be negative`);
       return 0;
     }
     return r.paise;
   };
-  const openingBalancePaise = money('openingBalance', 'Opening balance');
+  // A negative opening balance (Tally "Cr") is a customer who has paid in advance: we owe them, and it is kept as credit
+  const openingBalancePaise = money('openingBalance', 'Opening balance', true);
   const creditLimitPaise = money('creditLimit', 'Credit limit');
+  if (openingBalancePaise < 0) {
+    warnings.push(`In credit: the customer has paid ₹${(-openingBalancePaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in advance. It is kept as credit to use against their orders`);
+  }
   if (openingBalancePaise > 0 && creditLimitPaise > 0 && openingBalancePaise > creditLimitPaise) {
     warnings.push('Opening balance is above the credit limit');
   }
