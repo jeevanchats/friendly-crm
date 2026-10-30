@@ -52,4 +52,18 @@ describe('Use a contact\'s number for WhatsApp against a real Postgres', () => {
     }
     expect(await service.numbers(T, C)).toEqual({ phone: phone(1), whatsappNumber: phone(3) });
   });
+
+  it('goes back to the main phone: the number it leaves becomes a contact and everything still resolves', async () => {
+    if (!ready) return;
+    const out = await service.useMainForWhatsApp(T, null, C);
+    expect(out).toEqual({ phone: phone(1), whatsappNumber: phone(1) });
+    await inTenant(async (tx) => {
+      const phones = (await tx.select().from(customerContacts).where(eq(customerContacts.customerId, C))).map((x: any) => x.phone).sort();
+      expect(phones).toEqual([phone(2), phone(3)].sort());
+    });
+    for (const p of [phone(1), phone(2), phone(3)]) {
+      const rows = (await db.execute(sql`SELECT * FROM lookup_customer_by_phone(${p})`)) as any;
+      expect(rows[0]?.customer_id).toBe(C);
+    }
+  });
 });

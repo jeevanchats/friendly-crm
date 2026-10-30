@@ -242,6 +242,41 @@ export class CustomerContactsService {
     );
   }
 
+  /**
+   * Goes back to sending WhatsApp messages to the customer's main phone. The number that was the WhatsApp number is kept
+   * as a contact (so it is still recognised when it writes in); it can be made the WhatsApp number again at any time.
+   */
+  async useMainForWhatsApp(tenantId: string, actorId: string | null, customerId: string) {
+    return this.both(
+      tenantId,
+      'resetting the WhatsApp number',
+      async (tx) => {
+        const [cust] = await tx.select().from(customers).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId))).limit(1);
+        if (!cust) return undefined;
+        const old = cust.whatsappNumber;
+        if (old && old !== cust.phone) {
+          const count = (await tx.select({ id: customerContacts.id }).from(customerContacts).where(and(eq(customerContacts.tenantId, tenantId), eq(customerContacts.customerId, customerId)))).length;
+          if (count >= MAX_CONTACTS_PER_CUSTOMER) throw new BadRequestException(`A customer can have at most ${MAX_CONTACTS_PER_CUSTOMER} contacts. Remove one first.`);
+          await tx.update(customers).set({ whatsappNumber: cust.phone, updatedAt: new Date() }).where(and(eq(customers.id, customerId), eq(customers.tenantId, tenantId)));
+          await tx.insert(customerContacts).values({ tenantId, customerId, name: cust.name, designation: 'Earlier WhatsApp number', phone: old, createdById: actorId });
+        }
+        return { phone: cust.phone as string, whatsappNumber: cust.phone as string };
+      },
+      () => {
+        const cust: any = globalMemoryCustomers.find((x: any) => x.id === customerId && x.tenantId === tenantId);
+        const old = cust.whatsappNumber;
+        if (old && old !== cust.phone) {
+          if (globalMemoryContacts.filter((c) => c.tenantId === tenantId && c.customerId === customerId).length >= MAX_CONTACTS_PER_CUSTOMER) {
+            throw new BadRequestException(`A customer can have at most ${MAX_CONTACTS_PER_CUSTOMER} contacts. Remove one first.`);
+          }
+          cust.whatsappNumber = cust.phone;
+          globalMemoryContacts.push({ id: randomUUID(), tenantId, customerId, name: cust.name, designation: 'Earlier WhatsApp number', phone: old, email: null, createdById: actorId, createdAt: new Date(), updatedAt: new Date() });
+        }
+        return { phone: cust.phone as string, whatsappNumber: cust.phone as string };
+      }
+    );
+  }
+
   // ---------------------------------------------------------------- the one-number-one-customer rule
 
   private async assertPhoneFreeDb(tx: any, tenantId: string, phone: string, exceptContactId?: string) {

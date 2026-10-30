@@ -54,4 +54,25 @@ describe('Use a contact\'s number for WhatsApp', () => {
     await expect(service.useForWhatsApp('t-other', null, a.id, bContact.id)).rejects.toBeInstanceOf(NotFoundException);
     expect(b.whatsappNumber).toBeUndefined();
   });
+
+  it('goes back to the main phone, keeping the number it leaves as a contact; and can switch again', async () => {
+    const c = customer({ phone: '+919840000041' });
+    const ct = contact(c.id, '+919840000042');
+    await service.useForWhatsApp(T, null, c.id, ct.id);
+    expect(await service.numbers(T, c.id)).toEqual({ phone: '+919840000041', whatsappNumber: '+919840000042' });
+
+    const back = await service.useMainForWhatsApp(T, null, c.id);
+    expect(back).toEqual({ phone: '+919840000041', whatsappNumber: '+919840000041' });
+    const mine = globalMemoryContacts.filter((x) => x.customerId === c.id);
+    expect(mine.map((x) => x.phone)).toEqual(['+919840000042']); // still recognised, and can be chosen again
+
+    await service.useForWhatsApp(T, null, c.id, mine[0].id);
+    expect(c.whatsappNumber).toBe('+919840000042');
+  });
+
+  it('does nothing when WhatsApp already goes to the main phone', async () => {
+    const c = customer({ phone: '+919840000051' });
+    expect(await service.useMainForWhatsApp(T, null, c.id)).toEqual({ phone: c.phone, whatsappNumber: c.phone });
+    expect(globalMemoryContacts.filter((x) => x.customerId === c.id)).toHaveLength(0);
+  });
 });
