@@ -14,4 +14,6 @@ module.exports = {
     '^@friendly-crm/shared/(.*)$': '<rootDir>/../../packages/shared/src/$1',
   },
   testEnvironment: 'node',
+  // Generating a PDF takes a fraction of a second; on a busy machine the 5 s default turned slowness into a failure
+  testTimeout: 20000,
 };

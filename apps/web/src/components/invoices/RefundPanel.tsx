@@ -25,11 +25,25 @@ const MODES: Array<{ value: string; en: string; ta: string }> = [
 const rupees = (v: string | number) => `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
- * Money handed back to a customer whose order is in credit (a credit note lowered the order below what they had paid).
+ * Money handed back to a customer: out of an order's credit (a credit note lowered the order below what they had paid), or
+ * out of the customer's advance (paid before Friendly CRM, imported as "Cr"). `endpoint` is the refunds route of either.
  * This only RECORDS a refund that has been paid out of the app (bank, UPI, cash or cheque): it does not send any money.
  * Shows nothing when the order has no refunds and no credit.
  */
-export function RefundPanel({ orderId, role, lang = 'en', onChanged }: { orderId: string; role: TenantRole; lang?: 'en' | 'ta'; onChanged?: () => void }) {
+export function RefundPanel({
+  endpoint,
+  kind = 'order',
+  role,
+  lang = 'en',
+  onChanged,
+}: {
+  /** The refunds route: `/api/orders/:id/refunds` or `/api/crm/customers/:id/advance-refunds` */
+  endpoint: string;
+  kind?: 'order' | 'advance';
+  role: TenantRole;
+  lang?: 'en' | 'ta';
+  onChanged?: () => void;
+}) {
   const ta = lang === 'ta';
   const canView = hasPermission(role, 'payment:view');
   const canRecord = hasPermission(role, 'payment:create');
@@ -48,7 +62,7 @@ export function RefundPanel({ orderId, role, lang = 'en', onChanged }: { orderId
 
   const load = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/orders/${orderId}/refunds`);
+      const res = await apiFetch(endpoint);
       if (!res.ok) return;
       const body = (await res.json()) as { data: Refund[]; creditRemaining: string };
       setRefunds(body.data);
@@ -56,7 +70,7 @@ export function RefundPanel({ orderId, role, lang = 'en', onChanged }: { orderId
     } catch {
       // a lookup that fails just shows nothing
     }
-  }, [orderId]);
+  }, [endpoint]);
 
   useEffect(() => {
     if (canView) void load();
@@ -75,7 +89,7 @@ export function RefundPanel({ orderId, role, lang = 'en', onChanged }: { orderId
     setBusy(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/orders/${orderId}/refunds`, {
+      const res = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'idempotency-key': attemptKey },
         body: JSON.stringify({ amount: value, mode, referenceNo: reference.trim() || undefined, notes: notes.trim() || undefined }),
@@ -106,7 +120,10 @@ export function RefundPanel({ orderId, role, lang = 'en', onChanged }: { orderId
     <section className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-4" aria-label={ta ? 'பணத் திரும்பல்' : 'Refunds'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-1.5 text-sm font-bold text-amber-900">
-          <Undo2 className="h-4 w-4" /> {ta ? 'வாடிக்கையாளருக்குத் திருப்பிக் கொடுத்த பணம்' : 'Money paid back to the customer'}
+          <Undo2 className="h-4 w-4" />{' '}
+          {kind === 'advance'
+            ? ta ? 'முன்பணத் திருப்பல்' : 'Refund of the customer’s advance'
+            : ta ? 'வாடிக்கையாளருக்குத் திருப்பிக் கொடுத்த பணம்' : 'Money paid back to the customer'}
         </h3>
         {inCredit && canRecord && !open && (
           <button type="button" onClick={() => { setAmount(credit); setError(null); setOpen(true); }} className="min-h-[36px] rounded-lg border border-amber-400 bg-surface px-3 text-xs font-bold text-amber-900">
@@ -116,7 +133,10 @@ export function RefundPanel({ orderId, role, lang = 'en', onChanged }: { orderId
       </div>
       {inCredit && (
         <p className="text-xs font-semibold text-amber-900">
-          {ta ? 'வாடிக்கையாளருக்குத் தர வேண்டிய கிரெடிட்:' : 'Credit owed back to the customer:'} {rupees(credit)}
+          {kind === 'advance'
+            ? ta ? 'வாடிக்கையாளர் முன்பணம் (திருப்பித் தர வேண்டியது):' : 'Advance paid by the customer, owed back:'
+            : ta ? 'வாடிக்கையாளருக்குத் தர வேண்டிய கிரெடிட்:' : 'Credit owed back to the customer:'}{' '}
+          {rupees(credit)}
         </p>
       )}
 

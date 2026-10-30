@@ -623,7 +623,8 @@ export const refunds = pgTable(
     tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
     refundNumber: varchar('refund_number', { length: 50 }).notNull(), // e.g., 'RFD-2026-0004'
     customerId: uuid('customer_id').references(() => customers.id).notNull(),
-    orderId: uuid('order_id').references(() => orders.id).notNull(),
+    // null = a refund of the customer's advance (money paid before Friendly CRM), not of an order's credit (migration 0021)
+    orderId: uuid('order_id').references(() => orders.id),
     amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
     mode: varchar('mode', { length: 30 }).notNull(), // 'UPI' | 'CASH' | 'BANK_TRANSFER' | 'CHEQUE'
     referenceNo: varchar('reference_no', { length: 100 }),
@@ -635,6 +636,7 @@ export const refunds = pgTable(
   (table) => ({
     tenantNumberIdx: uniqueIndex('refunds_tenant_number_idx').on(table.tenantId, table.refundNumber),
     orderIdx: index('refunds_order_idx').on(table.tenantId, table.orderId),
+    customerIdx: index('refunds_customer_idx').on(table.tenantId, table.customerId),
   })
 );
 
