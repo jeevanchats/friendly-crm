@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Patch, Body, UseGuards } from '@nestjs/common';
 import { TenantService, CreateTenantDto } from './tenant.service';
+import { OnboardingGuard } from './onboarding.guard';
 import {
   AuthGuard,
   TenantGuard,
@@ -13,7 +14,9 @@ import {
 export class TenantController {
   constructor(private readonly tenantService: TenantService) {}
 
+  /** Creates a business. Closed in production unless an onboarding key (or deliberate public sign-up) is configured: see OnboardingGuard. */
   @Post('onboard')
+  @UseGuards(OnboardingGuard)
   async onboard(@Body() dto: CreateTenantDto) {
     return this.tenantService.onboardTenant(dto);
   }
