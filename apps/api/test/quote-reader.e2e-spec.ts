@@ -289,7 +289,7 @@ describe('Reading an enquiry to fill the quotation', () => {
 
     // what actually went to the model
     const body = model.mock.calls[0][0] as any;
-    expect(body.tool_choice).toEqual({ type: 'tool', name: 'record_quote_lines' });
+    expect(body.tool_choice).toEqual({ type: 'auto' });
     const kinds = body.messages[0].content.map((b: any) => b.type);
     expect(kinds).toEqual(expect.arrayContaining(['text', 'image', 'document']));
     const text = body.messages[0].content[0].text as string;

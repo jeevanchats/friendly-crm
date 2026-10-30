@@ -306,7 +306,8 @@ export class QuoteReaderService {
           max_tokens: 3000,
           system: SYSTEM_PROMPT,
           tools: [TOOL],
-          tool_choice: { type: 'tool', name: TOOL.name },
+          // Not forced: the default model does not accept a forced tool. It is the only tool, and the prompt says to call it.
+          tool_choice: { type: 'auto' },
           messages: [{ role: 'user', content }],
         });
         const call = Array.isArray(reply?.content) ? reply.content.find((b: any) => b?.type === 'tool_use' && b.name === TOOL.name) : null;
