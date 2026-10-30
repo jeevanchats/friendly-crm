@@ -878,6 +878,8 @@ export class CustomersService {
             0
           );
           const netReceivable = parseFloat(customer.openingBalance || '0') + totalOrderBalance;
+          // What this customer has paid beyond what their orders come to (after credit notes): owed back to them
+          const creditHeld = customerOrders.reduce((sum, o) => sum + Math.max(0, -parseFloat(o.balanceDue || '0')), 0);
 
           const maskedCustomer = canViewPayments
             ? customer
@@ -908,6 +910,7 @@ export class CustomersService {
                   openingBalance: customer.openingBalance || '0.00',
                   lifetimeOrderValue: totalOrderValue.toFixed(2),
                   totalPendingBalance: netReceivable.toFixed(2),
+                  creditHeld: creditHeld.toFixed(2),
                   creditLimit: customer.creditLimit || '100000.00',
                 }
               : null,
@@ -953,6 +956,7 @@ export class CustomersService {
       0
     );
     const netReceivable = parseFloat(customer.openingBalance || '0') + totalOrderBalance;
+    const creditHeld = tenantOrders.reduce((sum, o) => sum + Math.max(0, -parseFloat(o.balanceDue || '0')), 0);
 
     const tenantLeads = globalMemoryLeads.filter(
       (l) => l.customerId === customerId && l.tenantId === tenantId
@@ -1027,6 +1031,7 @@ export class CustomersService {
             openingBalance: customer.openingBalance || '0.00',
             lifetimeOrderValue: totalOrderValue.toFixed(2),
             totalPendingBalance: netReceivable.toFixed(2),
+            creditHeld: creditHeld.toFixed(2),
             creditLimit: customer.creditLimit || '100000.00',
           }
         : null,

@@ -69,7 +69,7 @@ export class DashboardService {
           const [orderStats] = await tx
             .select({
               activeCount: sql<number>`count(*) FILTER (WHERE production_stage != 'DELIVERED' AND production_stage != 'INSTALLED')::int`,
-              totalReceivables: sql<string>`COALESCE(SUM(balance_due), 0)::text`,
+              totalReceivables: sql<string>`COALESCE(SUM(GREATEST(balance_due, 0)), 0)::text`,
             })
             .from(orders)
             .where(eq(orders.tenantId, tenantId));
@@ -199,7 +199,7 @@ export class DashboardService {
       (o) => !['DELIVERED', 'INSTALLED'].includes(o.productionStage)
     );
     const totalReceivables = tenantOrders.reduce(
-      (sum, o) => sum + parseFloat(o.balanceDue || '0'),
+      (sum, o) => sum + Math.max(0, parseFloat(o.balanceDue || '0')),
       0
     );
 

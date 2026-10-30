@@ -612,6 +612,32 @@ export const payments = pgTable(
   })
 );
 
+/**
+ * Money paid back to a customer (see migration 0020). It lowers the order's advance_received, which is how an order that a
+ * credit note left in credit comes back to zero. Append-only.
+ */
+export const refunds = pgTable(
+  'refunds',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    refundNumber: varchar('refund_number', { length: 50 }).notNull(), // e.g., 'RFD-2026-0004'
+    customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    orderId: uuid('order_id').references(() => orders.id).notNull(),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    mode: varchar('mode', { length: 30 }).notNull(), // 'UPI' | 'CASH' | 'BANK_TRANSFER' | 'CHEQUE'
+    referenceNo: varchar('reference_no', { length: 100 }),
+    refundedById: uuid('refunded_by_id').references(() => users.id).notNull(),
+    refundedAt: timestamp('refunded_at', { withTimezone: true }).defaultNow().notNull(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (table) => ({
+    tenantNumberIdx: uniqueIndex('refunds_tenant_number_idx').on(table.tenantId, table.refundNumber),
+    orderIdx: index('refunds_order_idx').on(table.tenantId, table.orderId),
+  })
+);
+
 export const paymentAllocations = pgTable(
   'payment_allocations',
   {

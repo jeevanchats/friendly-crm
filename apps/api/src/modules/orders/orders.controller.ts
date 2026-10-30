@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
+import { RefundsService } from './refunds.service';
 import {
   AuthGuard,
   TenantGuard,
@@ -27,13 +28,17 @@ import {
   UpdateOrderStageSchema,
   RecordPaymentSchema,
   RecordPaymentDto,
+  RecordRefundSchema,
 } from '@friendly-crm/shared';
 
 @Controller('orders')
 @UseGuards(AuthGuard, TenantGuard, PermissionsGuard)
 @UseInterceptors(TenantRlsInterceptor, AuditInterceptor)
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly refundsService: RefundsService
+  ) {}
 
   /**
    * 1. GET /api/orders
@@ -112,6 +117,38 @@ export class OrdersController {
     const userId = user?.id || '';
     const idempotencyKey = headerKey || xHeaderKey || parsed.data.idempotencyKey;
     return this.ordersService.recordPayment(tenant.id, userId, orderId, parsed.data as any, idempotencyKey);
+  }
+
+  /**
+   * POST /api/orders/:id/refunds { amount, mode?, referenceNo?, notes? }
+   * Records money handed back to a customer whose order is in credit (a credit note lowered the order below what they
+   * had paid). Cannot exceed the credit. RBAC: 'payment:create' (money out is recorded by the people who record money in).
+   */
+  @Post(':id/refunds')
+  @RequirePermission('payment:create')
+  async recordRefund(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string } | undefined,
+    @Headers('idempotency-key') headerKey: string | undefined,
+    @Param('id') orderId: string,
+    @Body() rawBody: unknown
+  ) {
+    const parsed = RecordRefundSchema.safeParse(rawBody ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'ValidationError',
+        message: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return this.refundsService.record(tenant.id, user?.id || '', orderId, parsed.data, headerKey || parsed.data.idempotencyKey);
+  }
+
+  /** GET /api/orders/:id/refunds : the refunds recorded for this order and the credit still left on it. */
+  @Get(':id/refunds')
+  @RequirePermission('payment:view')
+  listRefunds(@CurrentTenant() tenant: { id: string }, @Param('id') orderId: string) {
+    return this.refundsService.list(tenant.id, orderId);
   }
 
   /**
