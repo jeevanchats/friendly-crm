@@ -113,3 +113,31 @@ describe('duplicate control: the fast path agrees with the plain comparison, and
     expect(Date.now() - started).toBeLessThan(15000);
   });
 });
+
+describe('duplicate control: a short name inside a longer one (customers)', () => {
+  const pool = [
+    { id: 's', name: 'Jeevan Prakash Nadar', companyName: 'CHRIS GRAPHIC DESIGN STUDIO', gstin: null, code: null },
+    { id: 'k', name: 'Kumar Stores', companyName: null, gstin: null, code: null },
+  ];
+
+  it('is not matched by default (spelling similarity alone)', () => {
+    expect(rankSimilar({ name: 'Jeevan', companyName: 'Chris graphic' }, pool)).toEqual([]);
+  });
+
+  it('with `contained`, "Chris graphic" finds "Chris Graphic Design Studio", either way round', () => {
+    const hit = rankSimilar({ name: 'Jeevan', companyName: 'Chris graphic' }, pool, { contained: true });
+    expect(hit.map((h) => [h.item.id, h.reason])).toEqual([['s', 'similar-name']]);
+    const back = rankSimilar({ name: 'x', companyName: 'Chris Graphic Design Studio Chennai' }, pool, { contained: true });
+    expect(back.map((h) => h.item.id)).toEqual(['s']);
+  });
+
+  it('needs two or more words, so "Kumar" does not match "Kumar Stores"', () => {
+    expect(rankSimilar({ name: 'Kumar' }, pool, { contained: true })).toEqual([]);
+  });
+
+  it('is also used when checking an import file', () => {
+    const { hits } = findImportNameClashes([{ name: 'Chris Graphic' }, { name: 'Brand New Company' }], pool, { contained: true });
+    expect(hits[0]?.item.id).toBe('s');
+    expect(hits[1]).toBeUndefined();
+  });
+});

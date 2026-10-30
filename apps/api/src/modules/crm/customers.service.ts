@@ -366,7 +366,7 @@ export class CustomersService {
         ? await tx.select({ id: customers.id, name: customers.name, companyName: customers.companyName, phone: customers.phone }).from(customers).where(eq(customers.tenantId, tenantId)).limit(20000)
         : globalMemoryCustomers.filter((c: any) => c.tenantId === tenantId);
       const newRows = planned.filter((p) => p.clean && p.result.status === 'create');
-      const clashes = findImportNameClashes(newRows.map((p) => ({ name: p.clean!.name, companyName: p.clean!.companyName })), pool);
+      const clashes = findImportNameClashes(newRows.map((p) => ({ name: p.clean!.name, companyName: p.clean!.companyName })), pool, { contained: true });
       nameCheck = clashes.fuzzy ? 'similar' : 'identical-only';
       const firstWithKey = new Map<string, number>();
       for (const [i, p] of newRows.entries()) {
@@ -642,7 +642,7 @@ export class CustomersService {
       }
       return fromMemory();
     })();
-    const hits = rankSimilar(q, pool.filter((c) => !phone || c.phone !== phone));
+    const hits = rankSimilar(q, pool.filter((c) => !phone || c.phone !== phone), { contained: true });
     return {
       matches: hits.map((h) => ({
         id: h.item.id,
