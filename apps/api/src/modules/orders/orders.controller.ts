@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { RefundsService } from './refunds.service';
+import { AdvanceCreditService } from './advance-credit.service';
 import {
   AuthGuard,
   TenantGuard,
@@ -37,7 +38,8 @@ import {
 export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
-    private readonly refundsService: RefundsService
+    private readonly refundsService: RefundsService,
+    private readonly advanceService: AdvanceCreditService
   ) {}
 
   /**
@@ -142,6 +144,33 @@ export class OrdersController {
       });
     }
     return this.refundsService.record(tenant.id, user?.id || '', orderId, parsed.data, headerKey || parsed.data.idempotencyKey);
+  }
+
+  /** GET /api/orders/:id/advance : the customer's advance (brought in as a negative opening balance) and how much can go to this order. */
+  @Get(':id/advance')
+  @RequirePermission('payment:view')
+  advanceAvailable(@CurrentTenant() tenant: { id: string }, @Param('id') orderId: string) {
+    return this.advanceService.check(tenant.id, orderId);
+  }
+
+  /**
+   * POST /api/orders/:id/apply-advance { amount? }
+   * Uses the customer's advance against this order (the most possible when no amount is sent): the order's balance and
+   * the advance both come down, and a receipt is written. RBAC: 'payment:create'.
+   */
+  @Post(':id/apply-advance')
+  @RequirePermission('payment:create')
+  applyAdvance(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string } | undefined,
+    @Headers('idempotency-key') headerKey: string | undefined,
+    @Param('id') orderId: string,
+    @Body() body: { amount?: unknown } | undefined
+  ) {
+    const raw = body?.amount;
+    const amount = raw === undefined || raw === null || raw === '' ? undefined : Number(raw);
+    if (amount !== undefined && !Number.isFinite(amount)) throw new BadRequestException('Amount must be a number');
+    return this.advanceService.apply(tenant.id, user?.id || '', orderId, amount, headerKey);
   }
 
   /** GET /api/orders/:id/refunds : the refunds recorded for this order and the credit still left on it. */

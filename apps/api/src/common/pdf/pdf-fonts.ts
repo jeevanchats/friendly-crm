@@ -31,13 +31,36 @@ function fontDir(): string {
 }
 
 let cached: Record<string, Buffer> | null = null;
-/** The font files, read from disk once for the life of the server. */
+/**
+ * The font files, read once for the life of the server, and opened (parsed) once.
+ *
+ * Parsing a 600 KB font takes most of a second, and PDFKit (0.15) parses the font again for every document it embeds it in,
+ * which made each PDF several times slower. PDFKit only accepts a path or bytes, not an already parsed font, so the parser it
+ * uses (fontkit) is told to remember its result for exactly these four buffers; anything else is parsed as usual.
+ */
 function fontBytes(): Record<string, Buffer> {
   if (!cached) {
     const dir = fontDir();
     cached = Object.fromEntries(Object.entries(FONT_FILES).map(([name, file]) => [name, readFileSync(join(dir, file))]));
+    rememberParsedFonts(Object.values(cached));
   }
   return cached;
+}
+
+function rememberParsedFonts(buffers: Buffer[]): void {
+  try {
+    const fontkit = require(require.resolve('fontkit', { paths: [require.resolve('pdfkit')] }));
+    const ours = new Set<unknown>(buffers);
+    const parsed = new Map<unknown, unknown>();
+    const create = fontkit.create;
+    fontkit.create = function (src: unknown, ...rest: unknown[]) {
+      if (!ours.has(src)) return create.call(this, src, ...rest);
+      if (!parsed.has(src)) parsed.set(src, create.call(this, src, ...rest));
+      return parsed.get(src);
+    };
+  } catch {
+    // Without the shortcut PDFs still come out right, only slower
+  }
 }
 
 /** Splits text into runs that each belong to one font. Spaces, digits and punctuation stay with the run they follow. */

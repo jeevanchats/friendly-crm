@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { OrderDetailView } from '../../../components/orders/OrderDetailView';
 import { IssueInvoicePanel } from '../../../components/invoices/IssueInvoicePanel';
+import { AdvancePanel } from '../../../components/orders/AdvancePanel';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import { useLocale } from '../../../components/shared/LocaleProvider';
@@ -139,6 +140,7 @@ export default function OrderDetailPage() {
               userRole={activeRole}
               defaultLang={locale}
             />
+            <AdvancePanel orderId={orderData.id} role={activeRole} lang={locale} onApplied={fetchOrderDetail} />
             <IssueInvoicePanel orderId={orderData.id} role={activeRole} lang={locale} />
           </>
         )}

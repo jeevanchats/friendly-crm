@@ -71,8 +71,10 @@ export interface ImportResult {
   toCheck: number;
   /** 'similar': names that merely look alike were compared too. 'identical-only': the file was too large for that. */
   nameCheck: 'similar' | 'identical-only';
-  /** Total of the opening balances being brought in by new customers, in rupees. */
+  /** Total of the opening balances (money owed to us) being brought in by new customers, in rupees. */
   openingBalanceTotal: string;
+  /** Total of the advances (customers in credit) being brought in by new customers, in rupees. */
+  openingCreditTotal: string;
   rows: ImportRowResult[];
 }
 
@@ -355,7 +357,7 @@ export class CustomersService {
         if (opts.onDuplicate === 'update') {
           p.result.status = 'update';
           p.result.messages.push(`Already a customer (${found.name}); blank fields will be filled in`);
-          if (p.clean.openingBalancePaise > 0) p.result.messages.push('Opening balance not changed for an existing customer');
+          if (p.clean.openingBalancePaise !== 0) p.result.messages.push('Opening balance not changed for an existing customer');
         } else {
           p.result.status = 'skip';
           p.result.messages.push(`Already a customer (${found.name})`);
@@ -466,7 +468,8 @@ export class CustomersService {
       errors: count('error'),
       toCheck: rows.filter((r) => r.check && r.status !== 'error' && r.status !== 'skip').length,
       nameCheck,
-      openingBalanceTotal: money(planned.filter((p) => p.result.status === 'create' && p.clean).reduce((s, p) => s + p.clean!.openingBalancePaise, 0)),
+      openingBalanceTotal: money(planned.filter((p) => p.result.status === 'create' && p.clean).reduce((s, p) => s + Math.max(0, p.clean!.openingBalancePaise), 0)),
+      openingCreditTotal: money(planned.filter((p) => p.result.status === 'create' && p.clean).reduce((s, p) => s + Math.max(0, -p.clean!.openingBalancePaise), 0)),
       rows,
     };
   }
@@ -879,7 +882,9 @@ export class CustomersService {
           );
           const netReceivable = parseFloat(customer.openingBalance || '0') + totalOrderBalance;
           // What this customer has paid beyond what their orders come to (after credit notes): owed back to them
-          const creditHeld = customerOrders.reduce((sum, o) => sum + Math.max(0, -parseFloat(o.balanceDue || '0')), 0);
+          const creditHeld =
+            customerOrders.reduce((sum, o) => sum + Math.max(0, -parseFloat(o.balanceDue || '0')), 0) +
+            Math.max(0, -parseFloat(customer.openingBalance || '0'));
 
           const maskedCustomer = canViewPayments
             ? customer
@@ -956,7 +961,9 @@ export class CustomersService {
       0
     );
     const netReceivable = parseFloat(customer.openingBalance || '0') + totalOrderBalance;
-    const creditHeld = tenantOrders.reduce((sum, o) => sum + Math.max(0, -parseFloat(o.balanceDue || '0')), 0);
+    const creditHeld =
+      tenantOrders.reduce((sum, o) => sum + Math.max(0, -parseFloat(o.balanceDue || '0')), 0) +
+      Math.max(0, -parseFloat(customer.openingBalance || '0'));
 
     const tenantLeads = globalMemoryLeads.filter(
       (l) => l.customerId === customerId && l.tenantId === tenantId
