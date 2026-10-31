@@ -613,6 +613,32 @@ export const payments = pgTable(
 );
 
 /**
+ * The credit on one order moved to another order of the same customer (see migration 0022): both orders' advance_received
+ * change by this amount. Append-only.
+ */
+export const creditTransfers = pgTable(
+  'credit_transfers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }).notNull(),
+    transferNumber: varchar('transfer_number', { length: 50 }).notNull(), // e.g., 'CTR-2026-0002'
+    customerId: uuid('customer_id').references(() => customers.id).notNull(),
+    fromOrderId: uuid('from_order_id').references(() => orders.id).notNull(),
+    toOrderId: uuid('to_order_id').references(() => orders.id).notNull(),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    transferredById: uuid('transferred_by_id').references(() => users.id).notNull(),
+    transferredAt: timestamp('transferred_at', { withTimezone: true }).defaultNow().notNull(),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (table) => ({
+    tenantNumberIdx: uniqueIndex('credit_transfers_tenant_number_idx').on(table.tenantId, table.transferNumber),
+    fromIdx: index('credit_transfers_from_idx').on(table.tenantId, table.fromOrderId),
+    toIdx: index('credit_transfers_to_idx').on(table.tenantId, table.toOrderId),
+  })
+);
+
+/**
  * Money paid back to a customer (see migration 0020). It lowers the order's advance_received, which is how an order that a
  * credit note left in credit comes back to zero. Append-only.
  */
