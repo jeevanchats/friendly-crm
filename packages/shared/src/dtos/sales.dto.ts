@@ -92,6 +92,16 @@ export const RecordRefundSchema = z.object({
 
 export type RecordRefundDto = z.infer<typeof RecordRefundSchema>;
 
+/** Move the credit on one order to another order of the same customer. No amount means as much as possible. */
+export const TransferCreditSchema = z.object({
+  toOrderId: z.string().trim().min(1, 'Say which order the credit goes to'),
+  amount: z.coerce.number().gt(0, 'Amount must be greater than zero').optional(),
+  notes: z.string().trim().max(500).optional().nullable(),
+  idempotencyKey: z.string().optional(),
+});
+
+export type TransferCreditDto = z.infer<typeof TransferCreditSchema>;
+
 export const QuotationPdfItemSchema = z.object({
   id: z.string().optional(),
   itemName: z.string().optional(),

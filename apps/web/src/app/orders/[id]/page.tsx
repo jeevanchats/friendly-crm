@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { OrderDetailView } from '../../../components/orders/OrderDetailView';
 import { IssueInvoicePanel } from '../../../components/invoices/IssueInvoicePanel';
 import { AdvancePanel } from '../../../components/orders/AdvancePanel';
+import { CreditTransferPanel } from '../../../components/orders/CreditTransferPanel';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import { useLocale } from '../../../components/shared/LocaleProvider';
@@ -141,6 +142,7 @@ export default function OrderDetailPage() {
               defaultLang={locale}
             />
             <AdvancePanel orderId={orderData.id} role={activeRole} lang={locale} onApplied={fetchOrderDetail} />
+            <CreditTransferPanel orderId={orderData.id} role={activeRole} lang={locale} onMoved={fetchOrderDetail} />
             <IssueInvoicePanel orderId={orderData.id} role={activeRole} lang={locale} />
           </>
         )}

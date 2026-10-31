@@ -14,6 +14,7 @@ import {
 import { OrdersService } from './orders.service';
 import { RefundsService } from './refunds.service';
 import { AdvanceCreditService } from './advance-credit.service';
+import { CreditTransferService } from './credit-transfer.service';
 import {
   AuthGuard,
   TenantGuard,
@@ -30,6 +31,7 @@ import {
   RecordPaymentSchema,
   RecordPaymentDto,
   RecordRefundSchema,
+  TransferCreditSchema,
 } from '@friendly-crm/shared';
 
 @Controller('orders')
@@ -39,7 +41,8 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly refundsService: RefundsService,
-    private readonly advanceService: AdvanceCreditService
+    private readonly advanceService: AdvanceCreditService,
+    private readonly transferService: CreditTransferService
   ) {}
 
   /**
@@ -171,6 +174,45 @@ export class OrdersController {
     const amount = raw === undefined || raw === null || raw === '' ? undefined : Number(raw);
     if (amount !== undefined && !Number.isFinite(amount)) throw new BadRequestException('Amount must be a number');
     return this.advanceService.apply(tenant.id, user?.id || '', orderId, amount, headerKey);
+  }
+
+  /** GET /api/orders/:id/credit-transfer : where this order's credit can go and where credit for its dues can come from (same customer). */
+  @Get(':id/credit-transfer')
+  @RequirePermission('payment:view')
+  creditTransferOptions(@CurrentTenant() tenant: { id: string }, @Param('id') orderId: string) {
+    return this.transferService.options(tenant.id, orderId);
+  }
+
+  /**
+   * POST /api/orders/:id/credit-transfer { toOrderId, amount?, notes? }
+   * Moves the credit on this order (the customer paid more than it comes to) to another order of the SAME customer that
+   * still owes money. The most possible when no amount is sent. RBAC: 'payment:create'.
+   */
+  @Post(':id/credit-transfer')
+  @RequirePermission('payment:create')
+  transferCredit(
+    @CurrentTenant() tenant: { id: string },
+    @CurrentUser() user: { id: string } | undefined,
+    @Headers('idempotency-key') headerKey: string | undefined,
+    @Param('id') orderId: string,
+    @Body() rawBody: unknown
+  ) {
+    const parsed = TransferCreditSchema.safeParse(rawBody ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'ValidationError',
+        message: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return this.transferService.transfer(tenant.id, user?.id || '', orderId, parsed.data, headerKey || parsed.data.idempotencyKey);
+  }
+
+  /** GET /api/orders/:id/credit-transfers : the moves of credit into or out of this order. */
+  @Get(':id/credit-transfers')
+  @RequirePermission('payment:view')
+  listCreditTransfers(@CurrentTenant() tenant: { id: string }, @Param('id') orderId: string) {
+    return this.transferService.list(tenant.id, orderId);
   }
 
   /** GET /api/orders/:id/refunds : the refunds recorded for this order and the credit still left on it. */
