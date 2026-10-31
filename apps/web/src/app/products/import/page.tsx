@@ -7,6 +7,7 @@ import { PRODUCT_FIELDS, getIndustryExamples, hasPermission, parseDelimited, par
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import { useLocale } from '../../../components/shared/LocaleProvider';
+import { ImportFileError, readImportFile } from '../../../lib/import-file';
 
 interface RowResult {
   row: number;
@@ -61,6 +62,7 @@ export default function ImportProductsPage() {
 
   const [text, setText] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
+  const [sheetNote, setSheetNote] = useState<{ name: string; others: number } | null>(null);
   const [onDuplicate, setOnDuplicate] = useState<'skip' | 'update'>('skip');
   const [preview, setPreview] = useState<Summary | null>(null);
   const [done, setDone] = useState<Summary | null>(null);
@@ -81,8 +83,17 @@ export default function ImportProductsPage() {
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     reset();
-    setFileName(file.name);
-    setText(await file.text());
+    setSheetNote(null);
+    try {
+      const read = await readImportFile(file);
+      setFileName(file.name);
+      setText(read.text);
+      setSheetNote(read.sheet ?? null);
+    } catch (err) {
+      setFileName(null);
+      setText('');
+      setError(err instanceof ImportFileError ? (ta ? err.ta : err.en) : ta ? 'கோப்பைப் படிக்க முடியவில்லை.' : 'The file could not be read.');
+    }
   };
 
   /** Sends the rows in batches (the server takes up to 1000 at a time) and joins the answers. */
@@ -224,7 +235,7 @@ export default function ImportProductsPage() {
                 <Download className="h-3.5 w-3.5" /> {ta ? 'சிக்கல் உள்ள வரிசைகளைப் பதிவிறக்கு' : 'Download rows with problems'}
               </button>
             )}
-            <button type="button" onClick={() => { setText(''); setFileName(null); reset(); }} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700">{ta ? 'மற்றொரு கோப்பை இறக்குமதி செய்' : 'Import another file'}</button>
+            <button type="button" onClick={() => { setText(''); setFileName(null); setSheetNote(null); reset(); }} className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700">{ta ? 'மற்றொரு கோப்பை இறக்குமதி செய்' : 'Import another file'}</button>
           </div>
           {done.errors > 0 && resultTable(done, done.rows.filter((r) => r.status === 'error'))}
         </section>
@@ -234,27 +245,33 @@ export default function ImportProductsPage() {
             <h2 className="text-sm font-extrabold text-foreground">{ta ? '1. உங்கள் கோப்பைத் தேர்ந்தெடுங்கள்' : '1. Choose your file'}</h2>
             <p className="text-xs text-slate-500">
               {ta ? (
-                <>CSV கோப்பு (Excel-இல்: <em>Save As → CSV UTF-8</em>), அல்லது Excel-இலிருந்து வரிசைகளை நகலெடுத்து கீழே ஒட்டவும். முதல் வரிசை நெடுவரிசைப் பெயர்களாக இருக்க வேண்டும்.</>
+                <>Excel கோப்பு (.xlsx) அல்லது CSV கோப்பு, அல்லது Excel-இலிருந்து வரிசைகளை நகலெடுத்து கீழே ஒட்டவும். முதல் வரிசை நெடுவரிசைப் பெயர்களாக இருக்க வேண்டும். தரவுள்ள முதல் தாள் மட்டும் படிக்கப்படும்.</>
               ) : (
-                <>A CSV file (in Excel: <em>Save As → CSV UTF-8</em>), or copy the rows from Excel and paste them below. The first row must be the column names.</>
+                <>An Excel file (.xlsx) or a CSV file, or copy the rows from Excel and paste them below. The first row must be the column names. Only the first sheet with data is read.</>
               )}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-surface border border-slate-200 px-3 py-2 text-xs font-bold text-brand-ink">
-                <Upload className="h-3.5 w-3.5" /> {ta ? 'CSV கோப்பைத் தேர்ந்தெடு' : 'Choose CSV file'}
-                <input type="file" accept=".csv,.tsv,.txt,text/csv" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
+                <Upload className="h-3.5 w-3.5" /> {ta ? 'Excel / CSV கோப்பைத் தேர்ந்தெடு' : 'Choose Excel or CSV file'}
+                <input type="file" accept=".xlsx,.xls,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
               </label>
               <button type="button" onClick={() => download('products-template.csv', productTemplateCsv(active!.industryKey))} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">
                 <Download className="h-3.5 w-3.5" /> {ta ? 'மாதிரிக் கோப்பைப் பதிவிறக்கு' : 'Download template'}
               </button>
               {fileName && <span className="text-xs font-semibold text-slate-500">{fileName}</span>}
+              {sheetNote && (
+                <p className="w-full text-xs font-semibold text-slate-500">
+                  {ta ? `Excel தாள் “${sheetNote.name}” படிக்கப்பட்டது` : `Read the Excel sheet “${sheetNote.name}”`}
+                  {sheetNote.others > 0 ? (ta ? ` (தரவுள்ள மற்ற ${sheetNote.others} தாள்கள் படிக்கப்படவில்லை)` : ` (${sheetNote.others} other sheet${sheetNote.others === 1 ? '' : 's'} with data not read)`) : ''}
+                </p>
+              )}
             </div>
             <textarea
               aria-label={ta ? 'அல்லது Excel-இல் நகலெடுத்த வரிசைகளை ஒட்டவும்' : 'Or paste rows copied from Excel'}
               className="h-32 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs"
               placeholder={`Name\tHSN\tUnit\tRate\tGST %\n${example.name}\t${example.hsnCode}\t${example.unit}\t${example.unitPrice}\t${example.taxPercent}`}
               value={text}
-              onChange={(e) => { setText(e.target.value); setFileName(null); reset(); }}
+              onChange={(e) => { setText(e.target.value); setFileName(null); setSheetNote(null); reset(); }}
             />
             {text.includes('�') && (
               <p role="alert" className="rounded-lg bg-amber-50 p-3 text-xs font-semibold text-amber-900">

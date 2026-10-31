@@ -1,4 +1,5 @@
 import { unzipSync } from 'fflate';
+import { readXlsx } from '@friendly-crm/shared';
 
 /**
  * Plain text out of Word (.docx) and Excel (.xlsx) files. Both are zip files of XML, so this needs no outside service.
@@ -69,52 +70,11 @@ export function docxText(data: Buffer): string {
   return lines.join('\n');
 }
 
-/** "C5" -> column index 2 ("C"). */
-const columnIndex = (ref: string) => {
-  let n = 0;
-  for (const ch of ref.replace(/[^A-Za-z]/g, '').toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
-  return Math.max(0, n - 1);
-};
-
 /** Excel: each sheet by name, then one line per row with the cells joined by " | ". Dates stay as the number Excel keeps. */
 export function xlsxText(data: Buffer): string {
-  const files = unzip(data, (n) => n === 'xl/sharedStrings.xml' || n === 'xl/workbook.xml' || /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
-  const shared = files['xl/sharedStrings.xml']
-    ? [...files['xl/sharedStrings.xml'].matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map((si) => textOf(si[1], 't'))
-    : [];
-  const names = files['xl/workbook.xml']
-    ? [...files['xl/workbook.xml'].matchAll(/<sheet\s[^>]*?name="([^"]*)"/g)].map((m) => decode(m[1]))
-    : [];
-  const sheetFiles = Object.keys(files)
-    .filter((n) => n.startsWith('xl/worksheets/'))
-    .sort((a, b) => parseInt(a.replace(/\D/g, ''), 10) - parseInt(b.replace(/\D/g, ''), 10))
-    .slice(0, MAX_SHEETS);
-
-  const out: string[] = [];
-  sheetFiles.forEach((file, i) => {
-    const rows: string[] = [];
-    for (const row of files[file].matchAll(/<row(?:\s[^>]*)?>([\s\S]*?)<\/row>/g)) {
-      const cells: string[] = [];
-      for (const c of row[1].matchAll(/<c((?:\s[^>]*)?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-        const attrs = c[1] ?? '';
-        const inner = c[2] ?? '';
-        const ref = /\sr="([^"]*)"/.exec(attrs)?.[1] ?? '';
-        const type = /\st="([^"]*)"/.exec(attrs)?.[1] ?? '';
-        let value = '';
-        if (type === 'inlineStr') value = textOf(inner, 't');
-        else {
-          const v = textOf(inner, 'v');
-          value = type === 's' ? shared[parseInt(v, 10)] ?? '' : v;
-        }
-        value = value.replace(/\s+/g, ' ').trim();
-        if (ref) cells[columnIndex(ref)] = value;
-        else cells.push(value);
-      }
-      const filled = Array.from(cells, (v) => v ?? '');
-      if (filled.some((v) => v)) rows.push(filled.join(' | ').replace(/(?:\s\|\s)+$/, ''));
-      if (rows.length >= MAX_ROWS_PER_SHEET) break;
-    }
-    if (rows.length) out.push(`Sheet ${names[i] ?? i + 1}:\n${rows.join('\n')}`);
-  });
-  return out.join('\n\n');
+  const trim = (r: string[]) => r.join(' | ').replace(/(?:\s\|\s)+$/, '');
+  return readXlsx(new Uint8Array(data), { maxRows: MAX_ROWS_PER_SHEET })
+    .slice(0, MAX_SHEETS)
+    .map((sheet) => `Sheet ${sheet.name}:\n${sheet.rows.map(trim).join('\n')}`)
+    .join('\n\n');
 }
