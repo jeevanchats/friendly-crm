@@ -62,6 +62,8 @@ function setup(
     openingBalances?: Record<string, string>;
     /** customerIds that have already stopped the automatic reminders */
     optedOut?: string[];
+    /** The customers are found on the staff phone too: one number that is staff at one business and a customer of another. */
+    customersOnStaffPhone?: boolean;
   } = {}
 ) {
   const calls = {
@@ -83,7 +85,7 @@ function setup(
   const failures = { createLead: false, recordPayment: false, optOut: false };
   const ports: BotPorts = {
     findStaffByPhone: async (p) => (p === PHONE ? identities : []),
-    findCustomerByPhone: async (p) => (p === CUSTOMER_PHONE ? customers : []),
+    findCustomerByPhone: async (p) => (p === CUSTOMER_PHONE || (opts.customersOnStaffPhone && p === PHONE) ? customers : []),
     setRemindersOptOut: async (who, value) => {
       if (failures.optOut) throw new Error('db down');
       const previous = optedOut.has(who.customerId);
@@ -1149,5 +1151,72 @@ describe('UPI helpers', () => {
     expect(() => buildUpiLink({ upiId: 'bad', payeeName: 'S', amountPaise: 100, note: 'n' })).toThrow();
     expect(() => buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 0, note: 'n' })).toThrow();
     expect(() => buildUpiLink({ upiId: 'shop@ybl', payeeName: 'S', amountPaise: 1.5, note: 'n' })).toThrow();
+  });
+});
+
+describe('One number that is staff at one business and a customer of another', () => {
+  const sweets = customer({ customerId: 'c-sweets', customerName: 'Jeevan Prakash', tenantId: 't2', tenantName: 'Vidhyasri Offset' });
+  const supplierOrders: Record<string, CustomerOrderView[]> = {
+    'c-sweets': [{ id: 'z1', orderNumber: 'VO-77', productionStage: 'PRINTING', balanceDue: '500' }],
+  };
+  const both = (extra: Parameters<typeof setup>[4] = {}, customers = [sweets]) =>
+    setup([staff()], [], customers, supplierOrders, { customersOnStaffPhone: true, ...extra });
+
+  it('asks which role to use, then keeps to it until SWITCH', async () => {
+    const { say, calls } = both();
+    const ask = await say('hi');
+    expect(ask).toContain('How would you like to use this number?');
+    expect(ask).toContain('1. Work at Senthaamarai Calendars');
+    expect(ask).toContain('2. My orders with Vidhyasri Offset');
+
+    const asStaff = await say('1');
+    expect(asStaff).toContain('New enquiry'); // the staff menu
+    expect(asStaff).toContain('Type SWITCH to change.');
+    expect(await say('hi')).toContain('New enquiry'); // stays staff, no new question
+
+    expect(await say('switch')).toContain('How would you like to use this number?');
+    const verify = await say('2');
+    expect(verify).toContain('Vidhyasri Offset'); // asked to prove it is their own record there
+    expect(await say('Jeevan Prakash')).toContain('My orders');
+    expect(await say('1')).toContain('VO-77');
+    expect(calls.customerOrderCalls).toEqual(['c-sweets']); // only the supplier's record was read, never the staff business's data
+    expect(calls.orderQueries).toEqual([]);
+
+    expect(await say('SWITCH')).toContain('How would you like to use this number?');
+    expect(await say('1')).toContain('New enquiry');
+  });
+
+  it('does not ask when the customer record is at a business the number works for, or the business switched self-service off', async () => {
+    const same = both({}, [customer({ customerId: 'c-own' })]); // same business t1 as the staff identity
+    expect(await same.say('hi')).toContain('New enquiry');
+    const off = both({}, [customer({ customerId: 'c-off', tenantId: 't2', tenantName: 'Vidhyasri Offset', selfServiceEnabled: false })]);
+    expect(await off.say('hi')).toContain('New enquiry');
+  });
+
+  it('a number that is only staff is not asked anything', async () => {
+    const { say } = setup([staff()]);
+    const reply = await say('hi');
+    expect(reply).toContain('New enquiry');
+    expect(reply).not.toContain('How would you like');
+  });
+
+  it('honours STOP for the customer side before a role is chosen, but STOP inside the staff role just cancels', async () => {
+    const first = both();
+    expect(await first.say('stop')).toContain('Vidhyasri Offset'); // reminders switched off there
+    expect(first.calls.optOut).toEqual([{ customerId: 'c-sweets', optedOut: true }]);
+
+    const second = both();
+    await second.say('hi');
+    await second.say('1'); // working as staff
+    await second.say('stop'); // cancels, as it always did
+    expect(second.calls.optOut).toEqual([]);
+  });
+
+  it('shows the question again for a wrong answer and never picks for the person', async () => {
+    const { say } = both();
+    await say('hi');
+    const again = await say('7');
+    expect(again).toContain('How would you like to use this number?');
+    expect(await say('2')).toContain('Vidhyasri Offset');
   });
 });

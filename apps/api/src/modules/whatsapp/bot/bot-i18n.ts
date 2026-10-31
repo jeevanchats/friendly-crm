@@ -48,6 +48,11 @@ export const MESSAGES = {
   },
   cancelled: { en: 'Cancelled.', ta: 'ரத்து செய்யப்பட்டது.' },
   pick_business: { en: 'Which business?', ta: 'எந்த நிறுவனம்?' },
+  // A number that is staff at one business and a customer of another
+  pick_role: { en: 'How would you like to use this number?', ta: 'இந்த எண்ணை எப்படிப் பயன்படுத்த விரும்புகிறீர்கள்?' },
+  role_staff: { en: 'Work at {business}', ta: 'பணி: {business}' },
+  role_customer: { en: 'My orders with {business}', ta: '{business} உடன் என் ஆர்டர்கள்' },
+  switch_hint: { en: 'Type SWITCH to change.', ta: 'மாற்ற SWITCH என்று டைப் செய்யவும்.' },
   pick_language: { en: 'Choose a language:', ta: 'மொழியைத் தேர்ந்தெடுக்கவும்:' },
   language_set: { en: 'Language set to English.', ta: 'மொழி தமிழாக மாற்றப்பட்டது.' },
   choose_number: { en: 'Please reply with one of the numbers above.', ta: 'மேலே உள்ள எண்களில் ஒன்றை அனுப்பவும்.' },
