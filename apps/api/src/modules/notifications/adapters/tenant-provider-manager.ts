@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { INotificationAdapter } from './notification-adapter.interface';
 import { DevNotificationAdapter } from './dev-notification.adapter';
 import { HttpWhatsAppAdapter } from './http-whatsapp.adapter';
+import { TwilioWhatsAppAdapter } from './twilio-whatsapp.adapter';
 
 export interface TenantWhatsAppConfig {
   apiUrl: string;
@@ -15,6 +16,7 @@ export class TenantNotificationProviderManager {
   private tenantConfigs = new Map<string, TenantWhatsAppConfig>();
   private adapters = new Map<string, INotificationAdapter>();
   private devAdapter = new DevNotificationAdapter();
+  private twilioAdapter = new TwilioWhatsAppAdapter();
 
   /**
    * Register custom credentials for a specific tenant
@@ -60,6 +62,9 @@ export class TenantNotificationProviderManager {
       this.adapters.set(tenantId, adapter);
       return adapter;
     }
+
+    // Twilio, when its account, token and sender are set
+    if (TwilioWhatsAppAdapter.isConfigured()) return this.twilioAdapter;
 
     // Default global hostinger URL if set
     const defaultUrl = process.env.HOSTINGER_WHATSAPP_API_URL;

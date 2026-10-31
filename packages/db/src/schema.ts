@@ -712,6 +712,8 @@ export const notificationOutbox = pgTable(
     attempts: integer('attempts').default(0).notNull(),
     maxAttempts: integer('max_attempts').default(3).notNull(),
     lastError: text('last_error'),
+    // The id the WhatsApp provider gave the message when it accepted it (migration 0023). Delivery reports name this id.
+    providerMessageId: varchar('provider_message_id', { length: 100 }),
     scheduledAt: timestamp('scheduled_at', { withTimezone: true }).defaultNow().notNull(),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     ...timestamps,
@@ -719,6 +721,7 @@ export const notificationOutbox = pgTable(
   (table) => ({
     tenantOutboxIdx: index('notification_outbox_tenant_idx').on(table.tenantId),
     statusOutboxIdx: index('notification_outbox_status_idx').on(table.status),
+    providerMessageIdx: index('notification_outbox_provider_message_idx').on(table.providerMessageId),
   })
 );
 

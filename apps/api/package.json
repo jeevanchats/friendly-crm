@@ -11,7 +11,8 @@
     "clean": "rm -rf dist",
     "test": "jest",
     "test:db": "jest --config ./jest.db.config.js",
-    "check:ai": "jest --config ./jest.live.config.js",
+    "check:ai": "jest --config ./jest.live.config.js --testPathIgnorePatterns /node_modules/ twilio",
+    "check:twilio": "jest --config ./jest.live.config.js twilio",
     "test:e2e": "jest --config ./jest.config.js"
   },
   "dependencies": {
