@@ -209,18 +209,18 @@ export class AttachmentsService {
     tenantId: string,
     viewer: Viewer,
     scope: { leadId?: string; customerId?: string }
-  ): Promise<{ leads: Array<{ id: string; title: string; notes: string | null; customData: Record<string, any> }>; attachments: Array<AttachmentInfo & { data: Buffer }> }> {
+  ): Promise<{ leads: Array<{ id: string; title: string; notes: string | null; customData: Record<string, any>; customerId: string | null }>; attachments: Array<AttachmentInfo & { data: Buffer }> }> {
     const infos = await this.list(tenantId, viewer, scope);
     const attachments: Array<AttachmentInfo & { data: Buffer }> = [];
     for (const i of infos.slice(0, MAX_ATTACHMENTS_PER_LEAD)) attachments.push(await this.get(tenantId, viewer, i.id));
 
-    const leadRows = async (): Promise<Array<{ id: string; title: string; notes: string | null; customData: Record<string, any> }>> => {
+    const leadRows = async (): Promise<Array<{ id: string; title: string; notes: string | null; customData: Record<string, any>; customerId: string | null }>> => {
       try {
         const rows = await this.inTenant(tenantId, async (tx) => {
           const filter = scope.leadId
             ? and(eq(leads.tenantId, tenantId), eq(leads.id, scope.leadId), this.mine(viewer))
             : and(eq(leads.tenantId, tenantId), eq(leads.customerId, scope.customerId!), ne(leads.stage, 'LOST'), this.mine(viewer));
-          return tx.select({ id: leads.id, title: leads.title, notes: leads.notes, customData: leads.customData }).from(leads).where(filter).limit(10);
+          return tx.select({ id: leads.id, title: leads.title, notes: leads.notes, customData: leads.customData, customerId: leads.customerId }).from(leads).where(filter).limit(10);
         });
         if (rows.length) return rows;
       } catch (err: any) {
@@ -229,7 +229,7 @@ export class AttachmentsService {
       return (globalMemoryLeads as any[])
         .filter((l) => l.tenantId === tenantId && this.mineMemory(viewer, l) && (scope.leadId ? l.id === scope.leadId : l.customerId === scope.customerId && l.stage !== 'LOST'))
         .slice(0, 10)
-        .map((l) => ({ id: l.id, title: l.title, notes: l.notes ?? null, customData: l.customData ?? {} }));
+        .map((l) => ({ id: l.id, title: l.title, notes: l.notes ?? null, customData: l.customData ?? {}, customerId: l.customerId ?? null }));
     };
     return { leads: await leadRows(), attachments };
   }

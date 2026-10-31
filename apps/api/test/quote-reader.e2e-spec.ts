@@ -10,8 +10,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const PDFDocument = require('pdfkit');
-import { globalMemoryTenants } from '../src/modules/crm/memory-store';
-import { buildSuggestedLines, matchProduct, nameScore, parseRequestText } from '@friendly-crm/shared';
+import { globalMemoryTenants, globalMemoryQuotations, globalMemoryQuotationItems } from '../src/modules/crm/memory-store';
+import { buildSuggestedLines, PriceHistoryEntry, matchProduct, nameScore, parseRequestText } from '@friendly-crm/shared';
 
 const PRODUCTS = [
   { id: 'p-cal', name: 'Wall Calendar', unit: 'Nos', unitPrice: '85', taxPercent: '12', hsnCode: '4910', description: '12 sheet' },
@@ -68,6 +68,52 @@ describe('matching what the customer asked for to the product list', () => {
     expect(lines[0].productId).toBeNull();
     expect(buildSuggestedLines(Array.from({ length: 100 }, (_, i) => ({ itemName: `Item ${i}` })), [])).toHaveLength(30);
     expect(buildSuggestedLines('nonsense', PRODUCTS)).toEqual([]);
+  });
+});
+
+const before = (over: Partial<PriceHistoryEntry>): PriceHistoryEntry => ({
+  productId: null, itemName: 'MS Round Rod', description: '', unit: 'Kg', unitPrice: 72, hsnCode: '7214', taxPercent: 18, on: '2026-03-12T00:00:00.000Z', documentNumber: 'QT-2026-0042', ...over,
+});
+
+describe('filling the rate from what this customer paid before', () => {
+  const line = (over: Record<string, unknown> = {}) => buildSuggestedLines([{ itemName: 'MS Round Rod', quantity: 100, ...over }], [], [before({})])[0];
+
+  it('uses the earlier rate and its unit when the customer gave neither, and says where it came from', () => {
+    expect(line()).toMatchObject({ unitPrice: 72, unit: 'Kg', hsnCode: '', missing: [] });
+    expect(line().previous).toMatchObject({ rate: 72, unit: 'Kg', documentNumber: 'QT-2026-0042', applied: true });
+  });
+
+  it('never replaces a rate the customer stated, and keeps the earlier one only as a pointer', () => {
+    const l = line({ unitPrice: 80 });
+    expect(l.unitPrice).toBe(80);
+    expect(l.previous?.rate).toBe(72);
+  });
+
+  it('does not carry a rate over to a different unit or a different size', () => {
+    const perMeter = line({ unit: 'Mtr' });
+    expect(perMeter).toMatchObject({ unitPrice: 0, unit: 'Mtr', missing: ['rate'] });
+    expect(perMeter.previous).toMatchObject({ applied: false, reason: expect.stringMatching(/per Kg, not per Mtr/) });
+
+    const sized = buildSuggestedLines([{ itemName: 'MS Round Rod', description: '50 mm dia', quantity: 5 }], [], [before({ description: '25 mm dia' })])[0];
+    expect(sized).toMatchObject({ unitPrice: 0, unit: '', missing: ['unit', 'rate'] });
+    expect(sized.previous).toMatchObject({ applied: false, reason: expect.stringMatching(/different size/) });
+  });
+
+  it('prefers the earlier price for the same size, and the newest of equals', () => {
+    const history = [
+      before({ description: '25 mm dia', unitPrice: 75, on: '2026-05-01T00:00:00.000Z', documentNumber: 'QT-B' }),
+      before({ description: '50 mm dia', unitPrice: 70, on: '2026-04-01T00:00:00.000Z', documentNumber: 'QT-A' }),
+    ];
+    const l = buildSuggestedLines([{ itemName: 'MS Round Rod', description: '50 mm dia', quantity: 5 }], [], history)[0];
+    expect(l).toMatchObject({ unitPrice: 70, unit: 'Kg' });
+    expect(l.previous?.documentNumber).toBe('QT-A');
+  });
+
+  it('puts the earlier rate before the product list price, matches a product by id, and ignores a zero or other item', () => {
+    const products = [{ id: 'p-rod', name: 'MS Round Rod', unit: 'Kg', unitPrice: '65', taxPercent: '18', hsnCode: '7214' }];
+    expect(buildSuggestedLines([{ itemName: 'ms round rod', quantity: 1 }], products as any, [before({ productId: 'p-rod', itemName: 'Rod (old name)', unitPrice: 72 })])[0].unitPrice).toBe(72);
+    expect(buildSuggestedLines([{ itemName: 'ms round rod', quantity: 1 }], products as any, [before({ unitPrice: 0 })])[0]).toMatchObject({ unitPrice: 65, previous: null });
+    expect(buildSuggestedLines([{ itemName: 'MS Flat', quantity: 1 }], [], [before({})])[0].previous).toBeNull();
   });
 });
 
@@ -180,6 +226,24 @@ describe('Reading an enquiry to fill the quotation', () => {
   afterAll(async () => {
     delete process.env.ANTHROPIC_API_KEY;
     await app.close();
+  });
+
+  it('fills the rate from the earlier quote of this customer, and not from a different customer', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const e = await enquire('50 visiting cards');
+    const mine = e.lead.customerId;
+    expect(mine).toBeTruthy();
+    const quote = (id: string, customerId: string, status: string, rate: string, number: string) => {
+      globalMemoryQuotations.push({ id, tenantId: T, quoteNumber: number, version: 1, customerId, status, createdAt: new Date('2026-04-01') });
+      globalMemoryQuotationItems.push({ id: `${id}-i`, tenantId: T, quotationId: id, itemName: 'Visiting Card', description: '', quantity: '10', unit: 'Box', unitPrice: rate, taxPercent: '12', lineTotal: '0' });
+    };
+    quote('pq-mine', mine, 'SENT', '310.00', 'QT-PRICE-1');
+    quote('pq-draft', mine, 'DRAFT', '1.00', 'QT-PRICE-2'); // never offered: ignored
+    quote('pq-other', 'someone-else', 'SENT', '999.00', 'QT-PRICE-3'); // another customer: ignored
+    const out = await (await json(owner, '/sales/quotations/suggest', { leadId: e.lead.id })).json();
+    const card = out.lines.find((l: any) => l.itemName === 'Visiting Card');
+    expect(card).toMatchObject({ quantity: 50, unitPrice: 310, unit: 'Box' });
+    expect(card.previous).toMatchObject({ rate: 310, documentNumber: 'QT-PRICE-1', applied: true });
   });
 
   it('with no AI configured, still fills lines from the typed and spoken words, and calls nothing', async () => {

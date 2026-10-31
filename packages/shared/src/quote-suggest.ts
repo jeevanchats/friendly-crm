@@ -15,6 +15,34 @@ export interface ProductRef {
   taxPercent: string | number;
 }
 
+/** A price this customer was quoted or sold at before (one line of an earlier quotation or order). Newest first in a list. */
+export interface PriceHistoryEntry {
+  productId: string | null;
+  itemName: string;
+  description: string;
+  unit: string;
+  unitPrice: number;
+  hsnCode: string;
+  taxPercent: number;
+  /** ISO date of the quotation or order it came from. */
+  on: string;
+  /** Its document number, so staff can look it up (QT-2026-0042). */
+  documentNumber: string;
+}
+
+/** The earlier price found for a line, and whether it was used. */
+export interface PreviousPrice {
+  rate: number;
+  unit: string;
+  description: string;
+  on: string;
+  documentNumber: string;
+  /** True when it filled the rate; false when it is shown only as a pointer (different unit or size). */
+  applied: boolean;
+  /** Why it was not used, in words for staff. */
+  reason?: string;
+}
+
 /** What the reader says the customer asked for. Every field but the name may be missing. */
 export interface RawSuggestedLine {
   itemName?: unknown;
@@ -38,6 +66,8 @@ export interface SuggestedLine {
   productId: string | null;
   /** The product-list entry this line was matched to, if any. */
   matchedProduct: string | null;
+  /** What this customer paid or was quoted before for the same item, if anything. */
+  previous: PreviousPrice | null;
   /** Fields staff still have to fill in: any of 'quantity' | 'unit' | 'rate'. */
   missing: Array<'quantity' | 'unit' | 'rate'>;
   /** Where in the customer's words this came from (a short quote), for the person checking it. */
@@ -92,6 +122,33 @@ export function matchProduct<P extends ProductRef>(requested: string, products: 
   return best && bestScore >= threshold && !tie ? best : null;
 }
 
+const sameText = (a: string, b: string) => normalizeItemName(a) === normalizeItemName(b);
+
+/**
+ * The earlier price of the same item for this customer. Same item = same product, or the same name. The newest one
+ * with the same size/specification wins; otherwise the newest. It is used for the rate only when it would be correct:
+ * the unit must be the same as the one the customer stated (a rate per Kg is not a rate per Mtr), and the sizes must not
+ * contradict each other (a 25 mm rod is not priced like a 50 mm one). Otherwise it is only shown.
+ */
+export function findPreviousPrice(
+  line: { itemName: string; description: string; unit: string; productId: string | null },
+  history: PriceHistoryEntry[]
+): PreviousPrice | null {
+  const same = history.filter(
+    (h) => h.unitPrice > 0 && ((line.productId && h.productId === line.productId) || nameScore(line.itemName, h.itemName) === 1)
+  );
+  if (!same.length) return null;
+  const hit = (line.description && same.find((h) => sameText(h.description, line.description))) || same[0];
+  const base = { rate: hit.unitPrice, unit: hit.unit, description: hit.description, on: hit.on, documentNumber: hit.documentNumber };
+  if (line.unit && hit.unit && !sameText(line.unit, hit.unit)) {
+    return { ...base, applied: false, reason: `It was priced per ${hit.unit}, not per ${line.unit}.` };
+  }
+  if (line.description && hit.description && !sameText(line.description, hit.description)) {
+    return { ...base, applied: false, reason: 'It was for a different size or specification.' };
+  }
+  return { ...base, applied: true };
+}
+
 const asText = (v: unknown, max: number): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const asPositive = (v: unknown): number | null => {
   const n = typeof v === 'string' ? Number(v.replace(/,/g, '')) : typeof v === 'number' ? v : NaN;
@@ -100,9 +157,10 @@ const asPositive = (v: unknown): number | null => {
 
 /**
  * Check the reader's answer and complete each line from the product list.
- * What the customer stated (quantity, unit, rate) always wins; the product list only fills what is missing.
+ * What the customer stated (quantity, unit, rate) always wins; then the price this customer paid before (when it fits);
+ * the product list only fills what is still missing.
  */
-export function buildSuggestedLines(raw: unknown, products: ProductRef[]): SuggestedLine[] {
+export function buildSuggestedLines(raw: unknown, products: ProductRef[], history: PriceHistoryEntry[] = []): SuggestedLine[] {
   if (!Array.isArray(raw)) return [];
   const byId = new Map(products.map((p) => [p.id, p]));
   const out: SuggestedLine[] = [];
@@ -118,11 +176,21 @@ export function buildSuggestedLines(raw: unknown, products: ProductRef[]): Sugge
 
     const quantity = asPositive(r.quantity);
     const statedRate = asPositive(r.unitPrice);
+    const statedUnit = asText(r.unit, 30);
+    const statedDescription = asText(r.description, 500);
     const productRate = product ? Number(product.unitPrice) : 0;
-    const rate = statedRate ?? (productRate > 0 ? productRate : null);
-    // No silent default: a unit nobody stated (steel could be Kg, Mtr, Ton or Nos) is for staff to choose
-    const unit = asText(r.unit, 30) || product?.unit || '';
-    const description = asText(r.description, 500) || product?.description || '';
+
+    // A price the customer stated is never replaced; otherwise their own earlier price comes before the list price
+    const previous = findPreviousPrice(
+      { itemName: product ? product.name : itemName, description: statedDescription, unit: statedUnit, productId: product?.id ?? null },
+      history
+    );
+    const usePrevious = !!previous?.applied && statedRate === null;
+    const rate = statedRate ?? (usePrevious ? previous!.rate : productRate > 0 ? productRate : null);
+    // No silent default: a unit nobody stated (steel could be Kg, Mtr, Ton or Nos) is for staff to choose.
+    // The one exception is an earlier rate used for the line: it is per its own unit, so the unit goes with it.
+    const unit = statedUnit || (usePrevious ? previous!.unit : '') || product?.unit || '';
+    const description = statedDescription || (usePrevious ? previous!.description : '') || product?.description || '';
 
     const missing: SuggestedLine['missing'] = [];
     if (quantity === null) missing.push('quantity');
@@ -139,6 +207,7 @@ export function buildSuggestedLines(raw: unknown, products: ProductRef[]): Sugge
       taxPercent: product ? Number(product.taxPercent) : 18,
       productId: product?.id ?? null,
       matchedProduct: product?.name ?? null,
+      previous,
       missing,
       sourceNote: asText(r.sourceNote, 200),
     });

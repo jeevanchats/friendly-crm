@@ -24,7 +24,7 @@ const photo = fs.readFileSync(path.join(__dirname, 'fixtures', 'handwritten-enqu
 function readerWith(attachments: any[], leads: any[]) {
   const attachmentsSvc: any = { readable: async () => ({ leads, attachments }) };
   const productsSvc: any = { list: async () => ({ data: [{ id: 'p-card', name: 'Visiting Card', unit: 'Box', isActive: true }] }) };
-  return new QuoteReaderService(attachmentsSvc, productsSvc, new DocumentTextService());
+  return new QuoteReaderService(attachmentsSvc, productsSvc, new DocumentTextService(), { forCustomer: async () => [] } as any);
 }
 
 describe('LIVE: enquiry reading (handwriting and voice note text)', () => {
