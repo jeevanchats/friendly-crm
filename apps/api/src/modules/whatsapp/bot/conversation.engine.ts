@@ -216,6 +216,8 @@ function reminderKeyword(text: string | undefined): 'STOP' | 'START' | null {
 const GREETINGS = new Set(['hi', 'hii', 'hello', 'hey', 'menu', 'start', 'வணக்கம்', 'மெனு']);
 const CANCELS = new Set(['cancel', 'stop', 'ரத்து', 'நிறுத்து']);
 const LANGS = new Set(['language', 'lang', 'மொழி']);
+/** For a number that is staff at one business and a customer of another: go back to the choice. */
+const SWITCH = new Set(['switch', 'switch business', 'change business']);
 
 const MAX_ORDER_RESULTS = 5;
 const MAX_VERIFY_ATTEMPTS = 3;
@@ -334,6 +336,16 @@ export class ConversationEngine {
       return { replies: [`${t('en', 'not_registered')}\n\n${t('ta', 'not_registered')}`] };
     }
 
+    // Staff at one business can also be a customer of another (an owner who buys from a supplier on Friendly CRM).
+    // Customers of the very businesses this number works for are not counted: there it is staff, as before.
+    const alsoCustomer = (await this.ports.findCustomerByPhone(msg.from)).filter(
+      (c) => c.selfServiceEnabled && !staff.some((s) => s.tenantId === c.tenantId)
+    );
+    if (alsoCustomer.length > 0) {
+      const both = await this.processStaffAndCustomer(msg, staff, alsoCustomer);
+      if (both) return both;
+    }
+
     const session: BotSession = (await this.sessions.get(msg.from)) ?? { state: { step: 'IDLE' } };
     if (session.kind !== 'STAFF') {
       // New conversation, or this number changed role: never carry flow state across identities.
@@ -371,6 +383,56 @@ export class ConversationEngine {
     const replies = await this.route(msg, text, session, who, locale);
     await this.save(msg.from, session);
     return { replies, tenantId: who.tenantId };
+  }
+
+  /**
+   * A number that is staff somewhere and a customer elsewhere chooses which of the two it is using now, then stays in
+   * that role until it types SWITCH. Returns null when the chosen role is staff, so the staff flow carries on as usual.
+   */
+  private async processStaffAndCustomer(msg: InboundMessage, staff: StaffIdentity[], customers: CustomerIdentity[]): Promise<BotResult | null> {
+    const session: BotSession = (await this.sessions.get(msg.from)) ?? { state: { step: 'IDLE' } };
+    const text = msg.type === 'text' ? (msg.text ?? '').trim() : '';
+    const loc = normalizeLocale(session.locale ?? staff[0].preferredLanguage);
+    const switching = SWITCH.has(text.toLowerCase());
+
+    if (!switching) {
+      if (session.kind === 'STAFF' && staff.some((s) => s.tenantId === session.tenantId)) return null;
+      if (session.kind === 'CUSTOMER' && customers.some((c) => c.tenantId === session.tenantId)) return this.processCustomer(msg, customers);
+      // STOP / START belong to the customer side and are honoured before the choice is made
+      const keyword = this.ports.setRemindersOptOut && session.kind !== 'STAFF' ? reminderKeyword(msg.type === 'text' ? msg.text : undefined) : null;
+      if (keyword) {
+        const handled = await this.customerReminderKeyword(msg, keyword, customers);
+        if (handled) return handled;
+      }
+    }
+
+    const options = [
+      ...staff.map((s) => ({ staff: s as StaffIdentity | undefined, customer: undefined as CustomerIdentity | undefined, tenantId: s.tenantId, label: t(loc, 'role_staff', { business: s.tenantName }) })),
+      ...customers.map((c) => ({ staff: undefined as StaffIdentity | undefined, customer: c as CustomerIdentity | undefined, tenantId: c.tenantId, label: t(loc, 'role_customer', { business: c.tenantName }) })),
+    ];
+    const idx = !switching && session.kind === undefined && session.state.step === 'PICK_BUSINESS' ? parseIndex(text, options.length) : null;
+    if (idx === null) {
+      session.kind = undefined;
+      session.tenantId = undefined;
+      session.state = { step: 'PICK_BUSINESS' };
+      await this.save(msg.from, session);
+      return { replies: [`${t(loc, 'pick_role')}\n${numbered(options.map((o) => o.label))}`] };
+    }
+
+    const chosen = options[idx];
+    session.tenantId = chosen.tenantId;
+    let replies: string[];
+    if (chosen.staff) {
+      session.kind = 'STAFF';
+      replies = this.showMenu(session, chosen.staff, normalizeLocale(session.locale ?? chosen.staff.preferredLanguage));
+    } else {
+      const who = chosen.customer!;
+      session.kind = 'CUSTOMER';
+      const pickedLocale = normalizeLocale(session.locale ?? who.defaultLanguage);
+      replies = (session.verified ?? []).includes(who.tenantId) ? this.showCustomerMenu(session, who, pickedLocale) : this.promptVerify(session, who, pickedLocale);
+    }
+    await this.save(msg.from, session);
+    return { replies: [...replies, t(loc, 'switch_hint')], tenantId: chosen.tenantId };
   }
 
   private async save(key: string, session: BotSession) {
