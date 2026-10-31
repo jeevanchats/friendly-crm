@@ -170,3 +170,15 @@ If the API says `EADDRINUSE`, an old server still holds port 3000 or 4000; close
 ## Creating a business in production
 
 `POST /api/tenant/onboard` is open on your own computer, but closed in production. To create a business on a server, set `ONBOARDING_KEY` (16+ random characters) in the server's environment and send it as the `x-onboarding-key` header with the request. Public sign-up (`ALLOW_PUBLIC_SIGNUP=true`) exists but is off by default, and even when on it allows only 5 sign-ups an hour per address.
+
+## Production: send `/api` straight to the API
+
+In development the web app forwards `/api/*` to the API itself. On the real server let the reverse proxy do it and turn the
+web server's forwarding off, which also closes a class of request-forwarding problems in Next.js:
+
+1. Set `API_PROXY=external` for the web app.
+2. In the proxy, send `/api/*` to the API (port 4000) and everything else to the web app (port 3000). nginx:
+   ```
+   location /api/ { proxy_pass http://127.0.0.1:4000; proxy_set_header Host $host; proxy_set_header X-Forwarded-For $remote_addr; }
+   location /     { proxy_pass http://127.0.0.1:3000; proxy_set_header Host $host; }
+   ```
