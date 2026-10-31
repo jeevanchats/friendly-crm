@@ -7,6 +7,7 @@ import { Customer360View } from '../../../components/crm/Customer360View';
 import { BillingDetailsCard } from '../../../components/crm/BillingDetailsCard';
 import { ContactsCard } from '../../../components/crm/ContactsCard';
 import { MergeDuplicateCard } from '../../../components/crm/MergeDuplicateCard';
+import { RefundPanel } from '../../../components/invoices/RefundPanel';
 import { useAuth } from '../../../components/auth/AuthProvider';
 import { apiFetch } from '../../../lib/session';
 import { useLocale } from '../../../components/shared/LocaleProvider';
@@ -127,6 +128,7 @@ export default function CustomerDetailPage() {
               remindersOptOut: customerData.customer?.remindersOptOut,
             }}
           />
+          <RefundPanel key={`advance-${customerId}`} endpoint={`/api/crm/customers/${customerId}/advance-refunds`} kind="advance" role={activeRole} lang={locale} onChanged={fetchCustomer360} />
           <ContactsCard key={`contacts-${customerId}`} customerId={customerId} role={activeRole} lang={locale} />
           <MergeDuplicateCard key={`merge-${customerId}`} customerId={customerId} name={customerData.customer?.name ?? ''} companyName={customerData.customer?.companyName} gstin={customerData.customer?.gstin} role={activeRole} lang={locale} />
         </>
