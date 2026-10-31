@@ -1,6 +1,6 @@
 /**
  * Normalises inbound WhatsApp webhook payloads into a flat list of text-like messages.
- * Supports: Meta WhatsApp Cloud API, WAHA / Evolution style, and a simple flat test shape.
+ * Supports: Meta WhatsApp Cloud API, Twilio, WAHA / Evolution style, and a simple flat test shape.
  */
 export interface InboundMessage {
   /** Provider message id (used for de-duplication). */
@@ -56,6 +56,21 @@ function fromWaha(body: any): InboundMessage[] {
   return [{ id, from, type: 'text', text: String(p.body ?? '') }];
 }
 
+/** Twilio posts form fields: From "whatsapp:+91...", Body, MessageSid, NumMedia, and ButtonPayload / ButtonText for a tapped reply. */
+function isTwilio(body: any): boolean {
+  return typeof body?.MessageSid === 'string' && typeof body?.From === 'string' && /^whatsapp:/i.test(body.From);
+}
+
+function fromTwilio(body: any): InboundMessage[] {
+  // A delivery report for a message we sent also carries MessageSid and From; an inbound message has no MessageStatus
+  if (body.MessageStatus) return [];
+  const from = toE164(body.From);
+  if (!from) return [];
+  if (Number(body.NumMedia) > 0) return [{ id: body.MessageSid, from, type: 'media', text: '' }];
+  const text = String(body.ButtonPayload ?? body.ButtonText ?? body.Body ?? '');
+  return [{ id: body.MessageSid, from, type: 'text', text }];
+}
+
 function fromFlat(body: any): InboundMessage[] {
   // { messageId|id, from, text|body } — used by tests and simple gateways
   const from = toE164(body?.from);
@@ -67,6 +82,7 @@ function fromFlat(body: any): InboundMessage[] {
 
 export function parseInboundMessages(body: any): InboundMessage[] {
   if (!body || typeof body !== 'object') return [];
+  if (isTwilio(body)) return fromTwilio(body);
   if (body.object === 'whatsapp_business_account' || Array.isArray(body.entry)) return fromMeta(body);
   if (body.event === 'message') return fromWaha(body);
   return fromFlat(body);
@@ -79,6 +95,7 @@ export function parseInboundMessages(body: any): InboundMessage[] {
 export function webhookEventKeys(body: any): string[] {
   const keys: string[] = [];
   if (body?.id && typeof body.id === 'string') keys.push(body.id);
+  if (isTwilio(body)) keys.push(body.MessageStatus ? `status:${body.MessageSid}:${String(body.MessageStatus).toUpperCase()}` : `msg:${body.MessageSid}`);
   for (const entry of body?.entry ?? []) {
     for (const change of entry?.changes ?? []) {
       for (const m of change?.value?.messages ?? []) if (m?.id) keys.push(`msg:${m.id}`);
@@ -105,6 +122,8 @@ export function parseStatusUpdates(body: any): StatusUpdate[] {
   }
   if (Array.isArray(body?.statuses)) raw.push(...body.statuses);
   if (body?.status && body?.messageId) raw.push({ id: body.messageId, status: body.status });
+  // Twilio: queued / sent / delivered / read / failed / undelivered. "undelivered" is a failure to us.
+  if (isTwilio(body) && body.MessageStatus) raw.push({ id: body.MessageSid, status: String(body.MessageStatus).toLowerCase() === 'undelivered' ? 'FAILED' : body.MessageStatus });
 
   const out: StatusUpdate[] = [];
   for (const r of raw) {

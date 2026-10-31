@@ -3,6 +3,7 @@ import { NotificationOutboxService } from './notification-outbox.service';
 import { OutboxWorker } from './outbox-worker.service';
 import { NotificationsController } from './notifications.controller';
 import { WhatsAppWebhookController } from './whatsapp-webhook.controller';
+import { TwilioWebhookController } from './twilio-webhook.controller';
 import { TemplateEngine } from './templates/template-engine';
 import { DevNotificationAdapter } from './adapters/dev-notification.adapter';
 import { HttpWhatsAppAdapter } from './adapters/http-whatsapp.adapter';
@@ -13,7 +14,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 @Global()
 @Module({
   imports: [WhatsAppModule],
-  controllers: [NotificationsController, WhatsAppWebhookController],
+  controllers: [NotificationsController, WhatsAppWebhookController, TwilioWebhookController],
   providers: [
     NotificationOutboxService,
     OutboxWorker,

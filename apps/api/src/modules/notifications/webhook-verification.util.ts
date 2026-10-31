@@ -63,3 +63,28 @@ export function verifyHmacSha256(
     return false;
   }
 }
+
+/**
+ * Verifies Twilio's X-Twilio-Signature: base64(HMAC-SHA1(auth token, full URL + every POST field name and value, fields
+ * sorted by name)). `url` must be exactly the address configured in Twilio (scheme, host, path and any query).
+ */
+export function verifyTwilioSignature(
+  url: string,
+  params: Record<string, unknown>,
+  signature: string | undefined | null,
+  authToken: string
+): boolean {
+  if (!signature || !authToken || !url) return false;
+  try {
+    let data = url;
+    for (const key of Object.keys(params ?? {}).sort()) {
+      const value = (params as any)[key];
+      data += key + (Array.isArray(value) ? [...value].sort().join(key) : String(value ?? ''));
+    }
+    const expected = crypto.createHmac('sha1', authToken).update(data, 'utf8').digest();
+    const given = Buffer.from(signature.trim(), 'base64');
+    return given.length === expected.length && crypto.timingSafeEqual(expected, given);
+  } catch {
+    return false;
+  }
+}

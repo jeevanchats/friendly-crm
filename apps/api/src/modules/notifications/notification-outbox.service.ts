@@ -9,6 +9,7 @@ import {
 } from './adapters/notification-adapter.interface';
 import { DevNotificationAdapter } from './adapters/dev-notification.adapter';
 import { HttpWhatsAppAdapter } from './adapters/http-whatsapp.adapter';
+import { TwilioWhatsAppAdapter } from './adapters/twilio-whatsapp.adapter';
 import { globalMemoryOutbox } from '../crm/memory-store';
 import { randomUUID } from 'crypto';
 import { onDbError } from '../../common/utils/db-fallback.util';
@@ -33,6 +34,7 @@ export class NotificationOutboxService {
   private readonly logger = new Logger(NotificationOutboxService.name);
   private readonly devAdapter = new DevNotificationAdapter();
   private readonly httpWhatsAppAdapter = new HttpWhatsAppAdapter();
+  private readonly twilioAdapter = new TwilioWhatsAppAdapter();
 
   constructor(private readonly templateEngine: TemplateEngine) {}
 
@@ -45,13 +47,9 @@ export class NotificationOutboxService {
    * If in test mode or if external provider URL is unconfigured, uses DevNotificationAdapter sandbox.
    */
   public getAdapter(): INotificationAdapter {
-    if (
-      process.env.NODE_ENV === 'test' ||
-      process.env.ENABLE_DEV_SMS_GATEWAY === 'true' ||
-      !process.env.HOSTINGER_WHATSAPP_API_URL
-    ) {
-      return this.devAdapter;
-    }
+    if (process.env.NODE_ENV === 'test' || process.env.ENABLE_DEV_SMS_GATEWAY === 'true') return this.devAdapter;
+    if (TwilioWhatsAppAdapter.isConfigured()) return this.twilioAdapter;
+    if (!process.env.HOSTINGER_WHATSAPP_API_URL) return this.devAdapter;
     return this.httpWhatsAppAdapter;
   }
 
@@ -197,7 +195,7 @@ export class NotificationOutboxService {
     const job = claim.job;
 
     const adapter = this.getAdapter();
-    let result: { success: boolean; error?: string };
+    let result: { success: boolean; error?: string; retryable?: boolean; messageId?: string };
     try {
       result = await adapter.sendMessage({
         tenantId: job.tenantId,
@@ -222,7 +220,8 @@ export class NotificationOutboxService {
       lastError = null;
     } else {
       lastError = result.error || 'Dispatch failed';
-      if (newAttempts >= (job.maxAttempts || 3)) {
+      // A refusal that retrying cannot change (a bad number, a message outside the 24-hour window) is not retried
+      if (result.retryable === false || newAttempts >= (job.maxAttempts || 3)) {
         newStatus = 'DEAD_LETTER';
         this.logger.error(`[OUTBOX] Job ${jobId} moved to DEAD_LETTER after ${newAttempts} attempts: ${lastError}`);
       } else {
@@ -240,6 +239,7 @@ export class NotificationOutboxService {
             attempts: newAttempts,
             sentAt,
             lastError,
+            providerMessageId: result.success ? result.messageId ?? null : job.providerMessageId ?? null,
             updatedAt: new Date(),
           })
           .where(eq(notificationOutbox.id, jobId))
@@ -255,6 +255,7 @@ export class NotificationOutboxService {
     job.attempts = newAttempts;
     job.sentAt = sentAt;
     job.lastError = lastError;
+    if (result.success && result.messageId) job.providerMessageId = result.messageId;
     job.updatedAt = new Date();
 
     return { job, claimed: true };
@@ -415,7 +416,9 @@ export class NotificationOutboxService {
             status: status === 'FAILED' ? 'DEAD_LETTER' : status,
             processedAt: new Date(),
           })
-          .where(sql`${notificationOutbox.id}::text = ${providerMessageId} OR ${notificationOutbox.lastError} LIKE ${`%${providerMessageId}%`}`)
+          .where(
+            sql`(${notificationOutbox.id}::text = ${providerMessageId} OR ${notificationOutbox.providerMessageId} = ${providerMessageId} OR ${notificationOutbox.lastError} LIKE ${`%${providerMessageId}%`}) AND NOT (${status} = 'DELIVERED' AND ${notificationOutbox.status} = 'READ')`
+          )
           .returning();
         if (updated) return true;
       }
@@ -425,9 +428,10 @@ export class NotificationOutboxService {
 
     // Memory fallback update
     const job = globalMemoryOutbox.find(
-      (j) => j.id === providerMessageId || j.error?.includes(providerMessageId)
+      (j) => j.id === providerMessageId || j.providerMessageId === providerMessageId || j.error?.includes(providerMessageId)
     );
     if (job) {
+      if (status === 'DELIVERED' && job.status === 'READ') return true; // reports can arrive out of order: never step back from READ
       job.status = status === 'FAILED' ? 'DEAD_LETTER' : (status as any);
       job.processedAt = new Date();
       return true;
