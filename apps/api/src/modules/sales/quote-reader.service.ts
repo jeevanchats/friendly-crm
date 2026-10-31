@@ -33,6 +33,8 @@ export interface QuoteReading {
 const apiUrl = () => `${(process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '')}/v1/messages`;
 const DEFAULT_MODEL = 'claude-sonnet-5-5';
 const DEFAULT_LOCAL_MODEL = 'qwen2.5vl';
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // the model's own per-image limit
 const MAX_TEXT_FILE_CHARS = 20_000;
 const MAX_PRODUCTS_SENT = 150;
@@ -256,6 +258,14 @@ export class QuoteReaderService {
         } else {
           skipped.push(`${a.fileName} is a scanned PDF (pictures of pages). It needs the AI reader; open it yourself.`);
         }
+      } else if (mime === DOCX || mime === XLSX) {
+        const text = this.documents.officeText(a.data, mime === DOCX ? 'docx' : 'xlsx');
+        if (text) {
+          addText(`${mime === DOCX ? 'Word' : 'Excel'} file ${a.fileName}`, text.slice(0, MAX_TEXT_FILE_CHARS));
+          sources.push(a.fileName);
+        } else {
+          skipped.push(`${a.fileName} could not be opened (it may be empty, damaged or password-protected). Open it yourself.`);
+        }
       } else if (mime.startsWith('image/')) {
         if (a.sizeBytes > MAX_IMAGE_BYTES && mode === 'ai') {
           skipped.push(`${a.fileName} is too large to read automatically (over 5 MB). Open it yourself.`);
@@ -271,8 +281,8 @@ export class QuoteReaderService {
           pictures.push({ name: a.fileName, mime, data: a.data });
           sources.push(a.fileName);
         }
-      } else if (mime !== 'text/plain' && mime !== 'text/csv') {
-        skipped.push(`${a.fileName} is a Word or Excel file, which cannot be read automatically. Open it yourself.`);
+      } else if (mime === 'application/msword' || mime === 'application/vnd.ms-excel') {
+        skipped.push(`${a.fileName} is an old-format Word or Excel file (.doc / .xls), which cannot be read. Save it as .docx / .xlsx, or open it yourself.`);
       }
     }
 

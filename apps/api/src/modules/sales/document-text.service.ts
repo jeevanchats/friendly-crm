@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { docxText, xlsxText } from './office-text';
 
 export interface OcrResult {
   text: string;
@@ -42,6 +43,16 @@ export class DocumentTextService {
       } catch {
         // ignore
       }
+    }
+  }
+
+  /** Text of a Word (.docx) or Excel (.xlsx) file. Empty when it cannot be opened (damaged, password-protected, or an old .doc/.xls). */
+  officeText(data: Buffer, kind: 'docx' | 'xlsx'): string {
+    try {
+      return (kind === 'docx' ? docxText(data) : xlsxText(data)).trim();
+    } catch (err: any) {
+      this.logger.warn(`Could not read ${kind} file: ${err?.message}`);
+      return '';
     }
   }
 

@@ -4,6 +4,7 @@ import { AppModule } from '../src/app.module';
 import { AuthService } from '../src/modules/auth/auth.service';
 import { DevSmsGateway } from '../src/modules/auth/sms-gateway';
 import { QuoteReaderService } from '../src/modules/sales/quote-reader.service';
+import { zipSync, strToU8 } from 'fflate';
 import { DocumentTextService } from '../src/modules/sales/document-text.service';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -219,6 +220,65 @@ describe('Reading an enquiry to fill the quotation', () => {
     expect(out.sources).toContain('list.pdf');
   });
 
+  const zip = (files: Record<string, string>) => Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)]))));
+  const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  it('with no AI, reads a Word file: paragraphs and the rows of a table', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const e = await enquire('Requirement is in the attached Word file');
+    const w = (t: string) => `<w:p><w:r><w:t xml:space="preserve">${t}</w:t></w:r></w:p>`;
+    const row = (...cells: string[]) => `<w:tr>${cells.map((c) => `<w:tc>${w(c)}</w:tc>`).join('')}</w:tr>`;
+    const docx = zip({
+      'word/document.xml': `<?xml version="1.0"?><w:document><w:body>${w('Please quote &amp; send')}<w:tbl>${row('Visiting cards', '15 box', '@ 360')}</w:tbl>${w('300 wall calendars')}</w:body></w:document>`,
+    });
+    await upload(e.lead.id, docx, 'enquiry.docx', DOCX_TYPE);
+    const out = await (await json(owner, '/sales/quotations/suggest', { leadId: e.lead.id })).json();
+    expect(out.sources).toContain('enquiry.docx');
+    expect(out.skipped.join(' ')).not.toMatch(/enquiry\.docx/);
+    expect(out.lines.map((l: any) => [l.itemName, l.quantity])).toEqual(expect.arrayContaining([['Wall Calendar', 300], ['Visiting Card', 15]]));
+  });
+
+  it('with no AI, reads an Excel file: shared strings, numbers and inline text, by column', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    const e = await enquire('Requirement is in the attached sheet');
+    const xlsx = zip({
+      'xl/workbook.xml': '<workbook><sheets><sheet name="Order" sheetId="1"/></sheets></workbook>',
+      'xl/sharedStrings.xml': '<sst><si><t>Item</t></si><si><t>Qty</t></si><si><t>Wall Calendar</t></si></sst>',
+      'xl/worksheets/sheet1.xml':
+        '<worksheet><sheetData>' +
+        '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' +
+        '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>300</v></c></row>' +
+        '<row r="3"><c r="A3" t="inlineStr"><is><t>Visiting Card</t></is></c><c r="C3"><v>15</v></c></row>' +
+        '</sheetData></worksheet>',
+    });
+    const text = new DocumentTextService().officeText(xlsx, 'xlsx');
+    expect(text).toBe('Sheet Order:\nItem | Qty\nWall Calendar | 300\nVisiting Card |  | 15');
+    await upload(e.lead.id, xlsx, 'order.xlsx', XLSX_TYPE);
+    const out = await (await json(owner, '/sales/quotations/suggest', { leadId: e.lead.id })).json();
+    expect(out.sources).toContain('order.xlsx');
+  });
+
+  it('shows the AI reader the Word and Excel text, and says plainly when a file cannot be opened or is the old format', async () => {
+    const e = await enquire('See the files');
+    await upload(e.lead.id, zip({ 'word/document.xml': '<w:document><w:body><w:p><w:r><w:t>Need 40 kg MS Flat 25x5</w:t></w:r></w:p></w:body></w:document>' }), 'need.docx', DOCX_TYPE);
+    await upload(e.lead.id, Buffer.from('not a zip'), 'broken.xlsx', XLSX_TYPE);
+    await upload(e.lead.id, Buffer.from('old'), 'old.xls', 'application/vnd.ms-excel');
+    modelAnswers({ lines: [{ itemName: 'MS Flat', description: '25x5', quantity: 40, unit: 'Kg' }] });
+    const out = await (await json(owner, '/sales/quotations/suggest', { leadId: e.lead.id })).json();
+    const sent = JSON.stringify(model.mock.calls[0][0]);
+    expect(sent).toContain('Word file need.docx');
+    expect(sent).toContain('Need 40 kg MS Flat 25x5');
+    expect(out.skipped.join(' ')).toMatch(/broken\.xlsx could not be opened/);
+    expect(out.skipped.join(' ')).toMatch(/old\.xls is an old-format/);
+  });
+
+  it('refuses a zip that opens into something enormous, without reading it', () => {
+    const big = zip({ 'word/document.xml': `<w:document>${'a'.repeat(31 * 1024 * 1024)}</w:document>` });
+    expect(big.length).toBeLessThan(200 * 1024);
+    expect(new DocumentTextService().officeText(big, 'docx')).toBe('');
+  });
+
   it('with no AI, reads printed text in a photo, but not a photo that looks handwritten', async () => {
     delete process.env.ANTHROPIC_API_KEY;
     const e = await enquire('Requirement is in the photo');
@@ -331,12 +391,12 @@ describe('Reading an enquiry to fill the quotation', () => {
     expect(out.skipped.join(' ')).toMatch(/voice note has no written text/);
   });
 
-  it('skips Word and Excel files with a note, and does not call the reader when there is nothing to read', async () => {
+  it('skips a Word file that cannot be opened with a note, and does not call the reader when there is nothing to read', async () => {
     const e = await enquire('x');
     await upload(e.lead.id, Buffer.from('doc'), 'spec.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     modelAnswers({ lines: [{ itemName: 'x' }] });
     const out = await (await json(owner, '/sales/quotations/suggest', { leadId: e.lead.id })).json();
-    expect(out.skipped.join(' ')).toMatch(/spec\.docx.*cannot be read automatically/);
+    expect(out.skipped.join(' ')).toMatch(/spec\.docx could not be opened/);
   });
 
   it('turns a reader failure into a clear message when there is nothing else to go on, and never shows the key', async () => {
