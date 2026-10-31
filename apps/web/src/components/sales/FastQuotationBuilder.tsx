@@ -7,7 +7,7 @@ import { ProductPicker } from '../products/ProductPicker';
 import { ProductForm, UNITS } from '../products/ProductForm';
 import { useSimilar } from '../shared/SimilarMatches';
 import { useAuth } from '../auth/AuthProvider';
-import { GST_RATE_SLABS, SuggestedLine, hasPermission } from '@friendly-crm/shared';
+import { GST_RATE_SLABS, PreviousPrice, SuggestedLine, hasPermission } from '@friendly-crm/shared';
 
 type LineItem = {
   /** The product-list entry this line came from; empty for a free-text line. */
@@ -20,7 +20,7 @@ type LineItem = {
   unitPrice: number;
   taxPercent: number;
   /** Set on lines filled in from the customer's enquiry: where it came from and what staff still have to add. */
-  hint?: { source: string; matched: string | null; missing: Array<'quantity' | 'unit' | 'rate'> };
+  hint?: { source: string; matched: string | null; missing: Array<'quantity' | 'unit' | 'rate'>; previous?: PreviousPrice | null };
 };
 
 /** What the reader could not fill in and staff have still not entered (the note shrinks as the line is completed). */
@@ -153,7 +153,7 @@ export function FastQuotationBuilder({
       unit: l.unit,
       unitPrice: l.unitPrice,
       taxPercent: l.taxPercent,
-      hint: { source: l.sourceNote, matched: l.matchedProduct, missing: l.missing },
+      hint: { source: l.sourceNote, matched: l.matchedProduct, missing: l.missing, previous: l.previous },
     }));
     setFilledFrom({});
     setItems((prev) => (prev.every((i) => !i.itemName.trim() && !i.unitPrice) ? fresh : [...prev, ...fresh]));
@@ -354,6 +354,17 @@ export function FastQuotationBuilder({
                   {item.hint.matched ? ` · ${lang === 'ta' ? 'பொருள் பட்டியல்' : 'product list'}: ${item.hint.matched}` : ''}
                 </p>
                 {item.hint.source && <p className="italic">“{item.hint.source}”</p>}
+                {item.hint.previous && (
+                  <p data-testid={`item-previous-${idx}`}>
+                    {lang === 'ta' ? 'இந்த வாடிக்கையாளருக்கு முன்பு: ' : 'Charged this customer before: '}
+                    <span className="font-semibold">₹{item.hint.previous.rate}{item.hint.previous.unit ? ` / ${item.hint.previous.unit}` : ''}</span>
+                    {item.hint.previous.description ? ` (${item.hint.previous.description})` : ''} · {item.hint.previous.documentNumber} ·{' '}
+                    {new Date(item.hint.previous.on).toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {item.hint.previous.applied
+                      ? ` — ${lang === 'ta' ? 'இந்த விலை நிரப்பப்பட்டது; இன்னும் சரியா என்று பார்க்கவும்' : 'used as the rate; check it is still right'}`
+                      : ` — ${lang === 'ta' ? 'நிரப்பப்படவில்லை' : 'not used'}: ${item.hint.previous.reason ?? ''}`}
+                  </p>
+                )}
                 {stillMissing(item).length > 0 && (
                   <p className="font-bold text-red-700">
                     {lang === 'ta' ? 'நீங்கள் நிரப்ப வேண்டியது: ' : 'You need to fill in: '}

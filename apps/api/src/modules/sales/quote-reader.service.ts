@@ -5,11 +5,13 @@ import {
   normalizeItemName,
   RawSuggestedLine,
   SuggestedLine,
+  PriceHistoryEntry,
   baseMimeType,
 } from '@friendly-crm/shared';
 import { AttachmentsService, Viewer } from '../crm/attachments.service';
 import { ProductsService } from '../products/products.service';
 import { DocumentTextService, MIN_OCR_CONFIDENCE } from './document-text.service';
+import { PriceHistoryService } from './price-history.service';
 
 /**
  * How the enquiry was read:
@@ -114,7 +116,8 @@ export class QuoteReaderService {
   constructor(
     private readonly attachments: AttachmentsService,
     private readonly products: ProductsService,
-    private readonly documents: DocumentTextService
+    private readonly documents: DocumentTextService,
+    private readonly prices: PriceHistoryService
   ) {}
 
   mode(): ReaderMode {
@@ -208,6 +211,13 @@ export class QuoteReaderService {
     const { leads, attachments } = await this.attachments.readable(tenantId, viewer, scope);
     const productList = (await this.products.list(tenantId, { limit: 500 }).catch(() => ({ data: [] as any[] }))).data.filter((p: any) => p.isActive !== false);
 
+    // What this customer paid before, to fill a rate nobody wrote down
+    const history = await this.prices.forCustomer(tenantId, scope.customerId ?? leads.find((l) => l.customerId)?.customerId).catch((err) => {
+      if (err instanceof HttpException) throw err;
+      this.logger.warn(`Earlier prices unavailable: ${err?.message}`);
+      return [] as PriceHistoryEntry[];
+    });
+
     const skipped: string[] = [];
     const sources: string[] = [];
     /** Everything in words, as the AI is shown it (with labels) and as the pattern matcher reads it (without). */
@@ -297,7 +307,7 @@ export class QuoteReaderService {
     }
 
     // 3. Pattern matching on all the words: always done, and the whole answer when there is no AI
-    const fromWords = this.linesFromWords(plain, productList, skipped);
+    const fromWords = this.linesFromWords(plain, productList, skipped, history);
     let lines = fromWords;
     let summary = '';
 
@@ -325,7 +335,7 @@ export class QuoteReaderService {
         });
         const call = Array.isArray(reply?.content) ? reply.content.find((b: any) => b?.type === 'tool_use' && b.name === TOOL.name) : null;
         if (!call?.input) throw new BadGatewayException('The reading service gave no answer for this enquiry.');
-        const answer = this.applyAnswer(call.input, productList, skipped);
+        const answer = this.applyAnswer(call.input, productList, skipped, history);
         summary = answer.summary;
         lines = answer.lines.length ? answer.lines : fromWords;
       } catch (err: any) {
@@ -335,7 +345,7 @@ export class QuoteReaderService {
       }
     } else if (mode === 'local-ai' && pictures.length) {
       try {
-        const answer = this.applyAnswer(await this.callLocalModel(materialText, pictures.map((p) => p.data)), productList, skipped);
+        const answer = this.applyAnswer(await this.callLocalModel(materialText, pictures.map((p) => p.data)), productList, skipped, history);
         summary = answer.summary;
         lines = this.mergeLines([...answer.lines, ...fromWords]);
       } catch (err: any) {
@@ -352,7 +362,7 @@ export class QuoteReaderService {
    * can be noticed. The first one found is used (enquiry, notes, voice note, files in that order) and the clash is
    * reported for staff to settle.
    */
-  private linesFromWords(parts: Array<{ label: string; text: string }>, productList: any[], notes: string[]): SuggestedLine[] {
+  private linesFromWords(parts: Array<{ label: string; text: string }>, productList: any[], notes: string[], history: PriceHistoryEntry[]): SuggestedLine[] {
     const detail = (r: RawSuggestedLine) => ['quantity', 'unit', 'unitPrice'].filter((k) => (r as any)[k] !== undefined).length;
     const seen = new Map<string, { raw: RawSuggestedLine; label: string }>();
     for (const part of parts) {
@@ -370,19 +380,20 @@ export class QuoteReaderService {
         }
       }
     }
-    return buildSuggestedLines([...seen.values()].map((x) => x.raw), productList as any);
+    return buildSuggestedLines([...seen.values()].map((x) => x.raw), productList as any, history);
   }
 
   private applyAnswer(
     answer: ModelAnswer,
     productList: any[],
-    skipped: string[]
+    skipped: string[],
+    history: PriceHistoryEntry[]
   ): { lines: SuggestedLine[]; summary: string } {
     if (Array.isArray(answer.unreadable)) {
       for (const u of answer.unreadable.slice(0, 5)) if (typeof u === 'string' && u.trim()) skipped.push(`Could not read: ${u.trim().slice(0, 150)}`);
     }
     return {
-      lines: buildSuggestedLines(answer.lines, productList),
+      lines: buildSuggestedLines(answer.lines, productList, history),
       summary: typeof answer.summary === 'string' ? answer.summary.slice(0, 300) : '',
     };
   }
